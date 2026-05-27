@@ -94,11 +94,11 @@ final class Pet {
 
 extension Pet {
 
-    private func clamp(_ v: Double) -> Double { min(PetConfig.maxStat, max(0, v)) }
+    func clamp(_ v: Double) -> Double { min(PetConfig.maxStat, max(0, v)) }
 
     /// Age-driven life stage (lifespan comes from the breed trait).
-    var stage: LifeStage {
-        let days = Date.now.timeIntervalSince(birthDate) / 86_400
+    func stage(at date: Date = .now) -> LifeStage {
+        let days = date.timeIntervalSince(birthDate) / 86_400
         let span = trait.lifespanDays
         switch days {
         case ..<0.5:            return .newborn
@@ -115,6 +115,11 @@ extension Pet {
         guard isAlive else { return }
         let hours = now.timeIntervalSince(statsUpdatedAt) / 3_600
         guard hours > 0 else { return }
+
+        let prevHunger = hunger
+        let prevHappiness = happiness
+        let prevEnergy = energy
+        let prevHealth = health
 
         // 1. Needs decay linearly. Energy drains faster for high-energy breeds,
         //    which is what makes the HealthKit exercise feature matter per breed.
@@ -133,15 +138,68 @@ extension Pet {
             health = clamp(health - damage)
         }
 
-        // 3. Track the critical-illness window.
+        // 3. Track the critical-illness window, retroactively when needed.
         if health <= 0 {
-            if criticalSince == nil { criticalSince = now }
+            if criticalSince == nil {
+                let zeroHours = healthZeroHours(
+                    prevHunger: prevHunger, prevHappiness: prevHappiness,
+                    prevEnergy: prevEnergy, prevHealth: prevHealth,
+                    totalHours: hours
+                )
+                criticalSince = statsUpdatedAt.addingTimeInterval(zeroHours * 3_600)
+            }
         } else {
             criticalSince = nil
         }
 
         statsUpdatedAt = now
         checkForDeath(now: now, context: context)
+    }
+
+    /// Walks the decay timeline piecewise to find when health first reached zero.
+    private func healthZeroHours(
+        prevHunger: Double, prevHappiness: Double, prevEnergy: Double,
+        prevHealth: Double, totalHours: Double
+    ) -> Double {
+        let threshold = PetConfig.criticalThreshold
+        func critHours(_ value: Double, _ rate: Double) -> Double {
+            value <= threshold ? 0 : (value - threshold) / rate
+        }
+
+        let needCritTimes = [
+            critHours(prevHunger, PetConfig.hungerDecayPerHour),
+            critHours(prevHappiness, PetConfig.happinessDecayPerHour),
+            critHours(prevEnergy, PetConfig.energyDecayPerHour * trait.energyMultiplier),
+        ].sorted()
+
+        var boundaries = [0.0]
+        for t in needCritTimes where t > 0 && t < totalHours {
+            if boundaries.last != t { boundaries.append(t) }
+        }
+        boundaries.append(totalHours)
+
+        var hp = prevHealth
+
+        for i in 0..<(boundaries.count - 1) {
+            let segStart = boundaries[i]
+            let segEnd = boundaries[i + 1]
+            let duration = segEnd - segStart
+            if duration <= 0 { continue }
+
+            let critCount = needCritTimes.filter { $0 <= segStart }.count
+            let rate: Double = critCount == 0
+                ? PetConfig.healthRegenPerHour
+                : -Double(critCount) * PetConfig.healthPenaltyPerCriticalNeed
+
+            if rate < 0 && hp > 0 {
+                let hoursToZero = hp / (-rate)
+                if hoursToZero <= duration { return segStart + hoursToZero }
+            }
+
+            hp = min(PetConfig.maxStat, max(0, hp + rate * duration))
+        }
+
+        return totalHours
     }
 
     private func checkForDeath(now: Date, context: ModelContext) {
@@ -222,7 +280,7 @@ final class PetRecord {
         self.bornAt = pet.birthDate
         self.diedAt = diedAt
         self.causeOfDeath = cause
-        self.maxStageReached = pet.stage
+        self.maxStageReached = pet.stage(at: diedAt)
         self.totalStepsContributed = pet.totalStepsContributed
     }
 }

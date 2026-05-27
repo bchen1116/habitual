@@ -87,8 +87,8 @@ protocol RoundTransport: AnyObject {
     var isConnected: Bool { get }
     func signalReady()
     func send(score: Int)
-    var onOpponentReady: (() -> Void)? { get set }
-    var onOpponentScore: ((_ score: Int, _ opponentPetName: String) -> Void)? { get set }
+    var onOpponentReady: (@Sendable () -> Void)? { get set }
+    var onOpponentScore: (@Sendable (_ score: Int, _ opponentPetName: String) -> Void)? { get set }
 }
 
 // MARK: - Session orchestrator (the view drives this; gameplay reports a raw score)
@@ -124,11 +124,15 @@ final class GameSession: ObservableObject {
 
     func start() {
         guard mode != .solo, let transport else { phase = .ready; return }
-        transport.onOpponentReady = { [weak self] in self?.opponentReady = true; self?.maybeBegin() }
+        transport.onOpponentReady = { [weak self] in
+            Task { @MainActor in self?.opponentReady = true; self?.maybeBegin() }
+        }
         transport.onOpponentScore = { [weak self] score, name in
-            self?.opponentScore = score
-            self?.opponentName = name
-            self?.tryResolve()
+            Task { @MainActor in
+                self?.opponentScore = score
+                self?.opponentName = name
+                self?.tryResolve()
+            }
         }
         localReady = true
         transport.signalReady()
@@ -159,7 +163,7 @@ final class GameSession: ObservableObject {
             didWin = mine >= cfg.soloTarget
         case .versus:
             guard let o = opponentScore else { phase = .awaitingOpponent; return }
-            didWin = mine >= o
+            didWin = mine > o
             opp = GameResult(petName: opponentName, score: o)
         case .coop:
             guard let o = opponentScore else { phase = .awaitingOpponent; return }
@@ -199,7 +203,6 @@ extension Pet {
         let performance = outcome.didWin ? 1.0 : 0.5
         let gain = cfg.baseReward * performance
 
-        func clamp(_ v: Double) -> Double { min(PetConfig.maxStat, max(0, v)) }
         switch cfg.reward {
         case .happiness: happiness = clamp(happiness + gain)
         case .energy:    energy = clamp(energy + gain)
