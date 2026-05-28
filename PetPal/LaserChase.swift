@@ -24,16 +24,16 @@ struct LaserChaseScreen: View {
 // MARK: - Tuning
 //
 // 30-second round. Spawn interval shortens and dwell time tightens linearly
-// across the round so the difficulty ramps. With these numbers a skilled
-// player hits ~48 raw points — comfortable for high-playfulness breeds (Border
-// Collie, Bengal) and out of reach for low-playfulness ones (Persian).
+// across the round so the difficulty ramps. A focused player lands ~46 raw
+// points — playful breeds (Border Collie, Bengal) clear the target, mid breeds
+// need to play well, and low-playfulness ones (Persian) can't win.
 
 private enum LaserConfig {
     static let totalDuration: TimeInterval = 30
-    static let startSpawnInterval: TimeInterval = 0.8
-    static let endSpawnInterval: TimeInterval = 0.4
-    static let startDwell: TimeInterval = 1.4
-    static let endDwell: TimeInterval = 1.0
+    static let startSpawnInterval: TimeInterval = 0.7
+    static let endSpawnInterval: TimeInterval = 0.35
+    static let startDwell: TimeInterval = 1.1
+    static let endDwell: TimeInterval = 0.75
     static let gridDimension: Int = 4
     static var cellCount: Int { gridDimension * gridDimension }
 }
