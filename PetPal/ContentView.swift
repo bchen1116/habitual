@@ -31,6 +31,7 @@ struct ContentView: View {
 struct PetCareView: View {
     let pet: Pet
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         VStack(spacing: 20) {
@@ -58,13 +59,13 @@ struct PetCareView: View {
 
             HStack(spacing: 12) {
                 ActionButton(title: "Feed", systemImage: "fork.knife", tint: .orange) {
-                    pet.feed(context: modelContext)
+                    perform { pet.feed(context: modelContext) }
                 }
                 ActionButton(title: "Play", systemImage: "tennisball.fill", tint: .pink) {
-                    pet.play(context: modelContext)
+                    perform { pet.play(context: modelContext) }
                 }
                 ActionButton(title: "Rest", systemImage: "moon.fill", tint: .indigo) {
-                    pet.rest(context: modelContext)
+                    perform { pet.rest(context: modelContext) }
                 }
             }
             .padding(.horizontal)
@@ -74,6 +75,22 @@ struct PetCareView: View {
         .navigationTitle("PetPal")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { pet.refresh(context: modelContext) }
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .active:
+                pet.refresh(context: modelContext)
+            case .background:
+                pet.refresh(context: modelContext)
+                PetNotifications.reschedule(for: pet)
+            default:
+                break
+            }
+        }
+    }
+
+    private func perform(_ action: () -> Void) {
+        action()
+        PetNotifications.reschedule(for: pet)
     }
 }
 
@@ -167,7 +184,9 @@ struct HatchView: View {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Hatch") {
                     let trimmed = name.trimmingCharacters(in: .whitespaces)
-                    player.startNewPet(name: trimmed, breed: selected, context: modelContext)
+                    if let pet = player.startNewPet(name: trimmed, breed: selected, context: modelContext) {
+                        PetNotifications.reschedule(for: pet)
+                    }
                 }
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
