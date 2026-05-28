@@ -123,7 +123,11 @@ final class GameSession: ObservableObject {
     }
 
     func start() {
-        guard mode != .solo, let transport else { phase = .ready; return }
+        guard mode != .solo else {
+            phase = .playing
+            return
+        }
+        guard let transport else { phase = .ready; return }
         transport.onOpponentReady = { [weak self] in
             Task { @MainActor in self?.opponentReady = true; self?.maybeBegin() }
         }

@@ -32,6 +32,7 @@ struct PetCareView: View {
     let pet: Pet
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
+    @State private var showLaserChase = false
 
     var body: some View {
         VStack(spacing: 20) {
@@ -70,6 +71,15 @@ struct PetCareView: View {
             }
             .padding(.horizontal)
 
+            Button { showLaserChase = true } label: {
+                Label("Laser Chase", systemImage: "scope")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+            }
+            .buttonStyle(.bordered)
+            .tint(.red)
+            .padding(.horizontal)
+
             Spacer(minLength: 0)
         }
         .navigationTitle("PetPal")
@@ -84,6 +94,11 @@ struct PetCareView: View {
                 PetNotifications.reschedule(for: pet)
             default:
                 break
+            }
+        }
+        .sheet(isPresented: $showLaserChase) {
+            NavigationStack {
+                LaserChaseScreen(pet: pet, context: modelContext)
             }
         }
     }
