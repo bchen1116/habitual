@@ -1,0 +1,292 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { collection, doc, onSnapshot } from "firebase/firestore";
+import { getClientDb } from "@/lib/firebase/client";
+import { cancelChallenge } from "@/lib/challenges";
+import { useUserTimezone } from "@/hooks/use-user-timezone";
+import {
+  challengeState,
+  dailyHistory,
+  progressSummary,
+  weeklyWindows,
+} from "@/lib/progress";
+import { daysBetweenInclusive, formatYmd, todayYmd } from "@/lib/dates";
+import type { Challenge } from "@/lib/types";
+import { CheckinDialog } from "@/components/checkin-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+
+export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
+  const router = useRouter();
+  const timezone = useUserTimezone(uid);
+  const [challenge, setChallenge] = useState<Challenge | null | undefined>(undefined);
+  const [checkinYmds, setCheckinYmds] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      doc(getClientDb(), "challenges", id),
+      (snap) => {
+        setChallenge(
+          snap.exists() ? ({ id: snap.id, ...snap.data() } as Challenge) : null
+        );
+      },
+      () => setChallenge(null)
+    );
+    return unsubscribe;
+  }, [id]);
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      collection(getClientDb(), "challenges", id, "checkins"),
+      (snap) => {
+        setCheckinYmds(
+          snap.docs
+            .map((d) => d.data())
+            .filter((c) => c.uid === uid)
+            .map((c) => c.localDate as string)
+        );
+      }
+    );
+    return unsubscribe;
+  }, [id, uid]);
+
+  if (challenge === undefined) {
+    return <div className="h-64 animate-pulse rounded-xl bg-muted" />;
+  }
+  if (challenge === null) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Challenge not found</CardTitle>
+          <CardDescription>
+            It may have been removed, or you may not have access.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
+
+  const today = todayYmd(timezone);
+  const state = challengeState(challenge, today);
+  const summary = progressSummary(challenge, checkinYmds, timezone);
+  const isCreator = challenge.createdBy === uid;
+  const canCancel = isCreator && state === "upcoming";
+
+  async function handleCancel() {
+    if (!window.confirm("Cancel this challenge? This can't be undone.")) return;
+    setCancelling(true);
+    try {
+      await cancelChallenge(id);
+      router.replace("/dashboard");
+    } catch {
+      setError("Couldn't cancel the challenge. Please try again.");
+      setCancelling(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h2 className="text-xl font-bold">{challenge.name}</h2>
+          {challenge.description && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              {challenge.description}
+            </p>
+          )}
+        </div>
+        <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
+          {state === "upcoming" && "Not started"}
+          {state === "active" && "Active"}
+          {state === "ended" && "Ended"}
+          {state === "cancelled" && "Cancelled"}
+        </span>
+      </div>
+
+      {state === "cancelled" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Cancelled</CardTitle>
+            <CardDescription>
+              This challenge was cancelled before it started. No stakes apply.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
+
+      {state === "upcoming" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              Starts in {daysBetweenInclusive(today, challenge.startDate) - 1} day
+              {daysBetweenInclusive(today, challenge.startDate) - 1 === 1 ? "" : "s"}
+            </CardTitle>
+            <CardDescription>
+              {formatYmd(challenge.startDate)} – {formatYmd(challenge.endDate)}
+            </CardDescription>
+          </CardHeader>
+          {canCancel && (
+            <CardContent>
+              <Button
+                variant="destructive"
+                onClick={handleCancel}
+                disabled={cancelling}
+              >
+                {cancelling ? "Cancelling…" : "Cancel challenge"}
+              </Button>
+            </CardContent>
+          )}
+        </Card>
+      )}
+
+      {(state === "active" || state === "ended") && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle>
+              {summary.completed} of {summary.total} check-ins
+            </CardTitle>
+            <CardDescription>
+              {state === "active"
+                ? `${summary.daysRemaining} day${summary.daysRemaining === 1 ? "" : "s"} remaining · ${summary.skipsUsed} of ${challenge.skipDays} skips used`
+                : "Ended — results are computed in the next milestone"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <div className="h-2 overflow-hidden rounded-full bg-secondary">
+              <div
+                className="h-full rounded-full bg-primary transition-all"
+                style={{
+                  width: `${summary.total > 0 ? Math.min(100, (summary.completed / summary.total) * 100) : 0}%`,
+                }}
+              />
+            </div>
+            {summary.canCheckInToday && (
+              <div>
+                <CheckinDialog
+                  challenge={challenge}
+                  uid={uid}
+                  today={today}
+                  onError={setError}
+                />
+              </div>
+            )}
+            {summary.checkedInToday && (
+              <p className="text-sm text-muted-foreground">Checked in today ✓</p>
+            )}
+            {error && <p className="text-sm text-destructive">{error}</p>}
+          </CardContent>
+        </Card>
+      )}
+
+      {(state === "active" || state === "ended") && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle>History</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {challenge.frequency.type === "daily" ? (
+              <DailyHistoryGrid
+                challenge={challenge}
+                checkinYmds={checkinYmds}
+                today={today}
+              />
+            ) : (
+              <WeeklyWindowList
+                challenge={challenge}
+                checkinYmds={checkinYmds}
+                today={today}
+              />
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {state !== "cancelled" && (
+        <p className="text-center text-xs text-muted-foreground">
+          If you fail, you owe ${challenge.stakeAmount} to {challenge.charityName}.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function DailyHistoryGrid({
+  challenge,
+  checkinYmds,
+  today,
+}: {
+  challenge: Challenge;
+  checkinYmds: string[];
+  today: string;
+}) {
+  const entries = dailyHistory(challenge, new Set(checkinYmds), today);
+  return (
+    <div className="grid grid-cols-7 gap-2">
+      {entries.map((entry) => (
+        <div
+          key={entry.ymd}
+          title={`${formatYmd(entry.ymd)}: ${entry.state}`}
+          className={
+            "flex h-9 items-center justify-center rounded-md text-xs " +
+            (entry.state === "done"
+              ? "bg-primary text-primary-foreground"
+              : entry.state === "missed"
+                ? "bg-destructive/15 text-destructive"
+                : entry.state === "today"
+                  ? "border-2 border-primary text-foreground"
+                  : "bg-secondary text-muted-foreground")
+          }
+        >
+          {formatYmd(entry.ymd, "d")}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function WeeklyWindowList({
+  challenge,
+  checkinYmds,
+  today,
+}: {
+  challenge: Challenge;
+  checkinYmds: string[];
+  today: string;
+}) {
+  const windows = weeklyWindows(challenge, checkinYmds, today);
+  return (
+    <div className="flex flex-col gap-2">
+      {windows.map((w) => (
+        <div
+          key={w.index}
+          className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
+        >
+          <span>
+            Week {w.index} · {formatYmd(w.start)} – {formatYmd(w.end)}
+          </span>
+          <span
+            className={
+              w.state === "complete"
+                ? "font-medium text-primary"
+                : w.state === "past-incomplete"
+                  ? "font-medium text-destructive"
+                  : "text-muted-foreground"
+            }
+          >
+            {w.count}/{w.target}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
