@@ -1,13 +1,22 @@
 # 01 — Scaffolding & Auth
 
-**Goal:** get a Next.js web app running with Firebase Auth (Google + Apple sign-in) and deployed to Vercel. No features yet.
+**Goal:** get a Next.js web app running with Firebase Auth (Google + email/password sign-in) and deployed to Vercel. No features yet.
+
+> **Note:** the original plan called for Google + Apple. Apple Sign-In needs a
+> paid Apple Developer account, which isn't set up yet — deferred until
+> launch prep. Email/password shipped instead so there's always a working
+> second option. Revisit before public launch (docs/07's launch checklist
+> already flags this).
 
 ## What ships
 
 - Next.js 15 (App Router) + TypeScript project scaffolded
 - Tailwind CSS + shadcn/ui installed and configured
 - Firebase Web SDK connected (client + Admin for server)
-- Google + Apple sign-in via Firebase Auth
+- Google sign-in via Firebase Auth
+- Email/password sign-in and sign-up, with a minimal post-signup step to
+  collect a display name (the one thing Google gives us for free that
+  email/password doesn't)
 - User document created in Firestore on first sign-in
 - Session cookie handling (server-side auth for RSC/route handlers)
 - Basic landing page (public) + dashboard page (authenticated)
@@ -74,25 +83,28 @@ Auth via Firebase Admin SDK for server-side session verification. Next.js middle
 
 ## Auth flow
 
-- **Client sign-in:** `signInWithPopup(GoogleAuthProvider)` or `signInWithPopup(OAuthProvider('apple.com'))`. On mobile Safari, fallback to `signInWithRedirect`.
-- **Session cookie:** after client sign-in, POST the ID token to `/api/auth/session`. Server verifies with Admin SDK and sets an HTTP-only session cookie.
+- **Google sign-in:** `signInWithPopup(GoogleAuthProvider)`. On mobile Safari (or wherever popups are blocked), falls back to `signInWithRedirect`, completed via `getRedirectResult` on the next load.
+- **Email/password sign-up:** `createUserWithEmailAndPassword`, then a second step collects a display name and calls `updateProfile(user, { displayName })` — email/password gives us no name, unlike Google. Sign-in that lands on an account with no `displayName` yet (e.g. the tab closed mid-signup) is routed through the same name step instead of getting stuck.
+- **Email/password sign-in:** `signInWithEmailAndPassword`.
+- **Session cookie:** after any client sign-in completes, POST the ID token to `/api/auth/session`. Server verifies with Admin SDK and sets an HTTP-only session cookie.
 - **Server components:** read the session cookie in `layout.tsx` / server components; call `admin.auth().verifySessionCookie(cookie)` to get uid.
 - **Sign out:** client `signOut()` + POST to `/api/auth/session/delete` to clear the cookie.
 
-## What the user does (Firebase console + Apple + Vercel — manual)
+## What the user does (Firebase console + Vercel — manual)
 
 1. **Firebase project.** Create at [console.firebase.google.com](https://console.firebase.google.com) (name: `habitual` or similar).
 2. **Add a Web app** to the project — get the config object (apiKey, authDomain, etc.). Copy it to `.env.local` (I'll list the exact env var names in the PR).
 3. **Enable Authentication providers:**
    - **Google** — one click, auto-configured.
-   - **Apple** — needs an Apple Developer account. Create a Services ID (`com.bchen1116.habitual.web`), enable Sign In with Apple, add your Vercel domain as a return URL. Fill in Firebase's Apple provider config (Team ID, Key ID, private key).
+   - **Email/Password** — one click, no external account needed.
+   - **Apple** — deferred (needs a paid Apple Developer account). When ready: create a Services ID, enable Sign In with Apple, add your domain as a return URL, fill in Firebase's Apple provider config (Team ID, Key ID, private key) — and re-add the button in `/login`.
 4. **Enable Firestore** in Native mode (start in production; rules go in the code).
 5. **Enable Cloud Storage** (used in step 3).
 6. **Upgrade to Blaze** plan (needed for Cloud Functions in step 3; free-tier limits still apply).
 7. **Authorized domains.** In Firebase Auth settings, add your Vercel deploy URL(s) so OAuth redirects are allowed.
 8. **Vercel project.** Import the GitHub repo, connect to the project, set the env vars (Firebase config + `FIREBASE_SERVICE_ACCOUNT_KEY` for the Admin SDK), deploy.
 
-None of the above can be automated from within this repo — they're clicks on Firebase, Apple, and Vercel consoles under your accounts.
+None of the above can be automated from within this repo — they're clicks on Firebase and Vercel consoles under your accounts.
 
 ## Non-goals
 
@@ -107,7 +119,10 @@ None of the above can be automated from within this repo — they're clicks on F
 - [ ] Google sign-in works on Chrome desktop
 - [ ] Google sign-in works on iOS Safari (may use redirect flow)
 - [ ] Google sign-in works on Android Chrome
-- [ ] Apple sign-in works on desktop and iOS Safari
+- [ ] Email/password sign-up prompts for a name, then lands on the dashboard
+- [ ] Email/password sign-in (existing account) skips straight to the dashboard
+- [ ] Signing in to an account with no display name (abandoned signup) is routed back through the name step
+- [ ] Sign-up with an already-used email shows a clear error, not a crash
 - [ ] User doc created in Firestore on first sign-in
 - [ ] `timezone` field populated correctly (e.g., "America/Los_Angeles")
 - [ ] Signed-in reload: session cookie persists, no re-auth

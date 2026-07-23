@@ -18,8 +18,11 @@ export default function PrivacyPage() {
 
         <h2>What we collect</h2>
         <p>
-          When you sign in with Google or Apple we store your name, email
-          address, and profile photo. We also store your timezone (for day
+          When you sign in with Google we store your name, email address, and
+          profile photo. If you sign up with email and password instead, we
+          store your email, the name you give us, and your password only as a
+          secure hash managed by Firebase Authentication — we never see or
+          store it in plain text. We also store your timezone (for day
           boundaries), the challenges and check-ins you create, ledger records,
           any receipts or avatars you upload, and — if you enable notifications
           — a push token for your device.
