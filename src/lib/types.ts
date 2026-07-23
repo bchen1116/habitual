@@ -37,6 +37,7 @@ export type MemberOutcome = "succeeded" | "failed" | null;
 
 export interface ChallengeMember {
   displayName: string;
+  username: string | null; // snapshot at join/create time; disambiguates same-named members
   charityName: string | null; // null in pool mode
   outcome: MemberOutcome;
   completedCount: number;
@@ -51,9 +52,11 @@ export interface LedgerEntry {
   challengeName: string;
   fromUid: string;
   fromName: string;
+  fromUsername: string | null;
   toType: "charity" | "user";
   toUid: string | null;
   toName: string | null;
+  toUsername: string | null;
   toCharityName: string | null;
   amount: number;
   status: LedgerStatus;

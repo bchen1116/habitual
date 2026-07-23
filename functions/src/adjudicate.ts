@@ -16,12 +16,14 @@ interface ChallengeData {
 
 interface MemberData {
   displayName: string;
+  username: string | null;
   charityName: string | null; // null in pool mode
 }
 
 interface MemberOutcome {
   uid: string;
   displayName: string;
+  username: string | null;
   charityName: string | null;
   succeeded: boolean;
 }
@@ -116,6 +118,7 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
           outcomes.push({
             uid,
             displayName: member.displayName,
+            username: member.username ?? null,
             charityName: member.charityName ?? null,
             succeeded,
           });
@@ -153,9 +156,11 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
                   ...baseEntry,
                   fromUid: loser.uid,
                   fromName: loser.displayName,
+                  fromUsername: loser.username,
                   toType: "user",
                   toUid: winner.uid,
                   toName: winner.displayName,
+                  toUsername: winner.username,
                   toCharityName: null,
                   amount: perWinnerShare,
                 });
@@ -169,9 +174,11 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
               ...baseEntry,
               fromUid: loser.uid,
               fromName: loser.displayName,
+              fromUsername: loser.username,
               toType: "charity",
               toUid: null,
               toName: null,
+              toUsername: null,
               toCharityName: loser.charityName ?? "Charity",
             });
           }

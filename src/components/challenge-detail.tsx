@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { collection, doc, onSnapshot } from "firebase/firestore";
 import { getClientDb } from "@/lib/firebase/client";
-import { cancelChallenge } from "@/lib/challenges";
+import { cancelChallenge, deleteChallenge } from "@/lib/challenges";
 import { useUserTimezone } from "@/hooks/use-user-timezone";
 import {
   challengeState,
@@ -42,6 +42,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   >(null);
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onSnapshot(
@@ -121,7 +122,12 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   const state = challengeState(challenge, today);
   const summary = progressSummary(challenge, checkinYmds, timezone);
   const isCreator = challenge.createdBy === uid;
-  const canCancel = isCreator && state === "upcoming";
+  // Cancel (soft: keeps a "Cancelled" record) only makes sense for group
+  // challenges, where other members might already be watching for one. A
+  // solo challenge has no one else to show a cancelled record to — Delete
+  // (below) supersedes it there.
+  const canCancel = isCreator && state === "upcoming" && challenge.mode === "group";
+  const canDelete = isCreator && challenge.mode === "solo";
 
   async function handleCancel() {
     if (!window.confirm("Cancel this challenge? This can't be undone.")) return;
@@ -132,6 +138,20 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
     } catch {
       setError("Couldn't cancel the challenge. Please try again.");
       setCancelling(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!window.confirm("Delete this challenge? This can't be undone.")) return;
+    setDeleting(true);
+    try {
+      await deleteChallenge(id);
+      router.replace("/dashboard");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Couldn't delete the challenge."
+      );
+      setDeleting(false);
     }
   }
 
@@ -172,7 +192,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex items-center gap-3">
-            <code className="rounded-full bg-foreground px-4 py-1.5 font-mono text-sm font-bold tracking-widest text-primary">
+            <code className="rounded-full bg-ink px-4 py-1.5 font-mono text-sm font-bold tracking-widest text-primary">
               {challenge.joinCode}
             </code>
             <ShareLink joinCode={challenge.joinCode} name={challenge.name} />
@@ -337,6 +357,14 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
             : `If you fail, you owe ${formatAmount(challenge.stakeAmount)} to ${member?.charityName ?? challenge.charityName ?? "your charity"}.`}
         </p>
       )}
+
+      {canDelete && (
+        <div className="flex justify-center pt-2">
+          <Button variant="destructive" size="sm" onClick={handleDelete} disabled={deleting}>
+            {deleting ? "Deleting…" : "Delete challenge"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -384,14 +412,16 @@ function MembersCard({
       <CardContent className="flex flex-col gap-3">
         {rows.map((row) => (
           <div key={row.uid} className="flex items-center gap-3">
-            <span
-              className={
-                "flex-1 truncate text-sm " +
-                (row.uid === selfUid ? "font-semibold" : "")
-              }
-            >
-              {row.displayName}
-              {row.uid === selfUid ? " (you)" : ""}
+            <span className="flex-1 truncate text-sm">
+              <span className={row.uid === selfUid ? "font-semibold" : ""}>
+                {row.displayName}
+                {row.uid === selfUid ? " (you)" : ""}
+              </span>
+              {row.username && (
+                <span className="ml-1 text-xs text-muted-foreground">
+                  @{row.username}
+                </span>
+              )}
             </span>
             {row.outcome === "succeeded" && (
               <span className="text-xs font-bold text-foreground">Succeeded ✓</span>
