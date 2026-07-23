@@ -42,6 +42,15 @@ function authErrorMessage(err: unknown): string {
       return "Incorrect email or password.";
     case "auth/too-many-requests":
       return "Too many attempts. Please wait a moment and try again.";
+    case "auth/unauthorized-domain":
+      return "This domain isn't authorized for sign-in yet (Firebase Auth → Settings → Authorized domains).";
+    case "auth/operation-not-allowed":
+      return "This sign-in method isn't enabled yet (Firebase Auth → Sign-in method).";
+    case "auth/invalid-api-key":
+    case "auth/api-key-not-valid.-please-pass-a-valid-api-key.":
+      return "Firebase isn't configured correctly — check your .env.local values.";
+    case "auth/network-request-failed":
+      return "Network error. Check your connection and try again.";
     default:
       return "Something went wrong. Please try again.";
   }
@@ -121,7 +130,11 @@ function LoginForm() {
         return;
       }
       if (code !== "auth/popup-closed-by-user" && code !== "auth/cancelled-popup-request") {
-        setError("Sign-in failed. Please try again.");
+        // Logged, not just shown: the user-facing copy is necessarily generic
+        // for unmapped codes, but the real code is what actually diagnoses a
+        // misconfiguration (unauthorized domain, provider not enabled, etc).
+        console.error("Google sign-in failed:", err);
+        setError(authErrorMessage(err));
       }
       setPending(null);
     }
