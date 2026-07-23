@@ -12,8 +12,10 @@ import {
   progressSummary,
   weeklyWindows,
 } from "@/lib/progress";
+import Link from "next/link";
 import { daysBetweenInclusive, formatYmd, todayYmd } from "@/lib/dates";
-import type { Challenge } from "@/lib/types";
+import { formatAmount } from "@/lib/ledger";
+import type { Challenge, ChallengeMember } from "@/lib/types";
 import { CheckinDialog } from "@/components/checkin-dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,6 +31,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   const timezone = useUserTimezone(uid);
   const [challenge, setChallenge] = useState<Challenge | null | undefined>(undefined);
   const [checkinYmds, setCheckinYmds] = useState<string[]>([]);
+  const [member, setMember] = useState<ChallengeMember | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
 
@@ -56,6 +59,15 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
             .map((c) => c.localDate as string)
         );
       }
+    );
+    return unsubscribe;
+  }, [id, uid]);
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      doc(getClientDb(), "challenges", id, "members", uid),
+      (snap) => setMember(snap.exists() ? (snap.data() as ChallengeMember) : null),
+      () => setMember(null)
     );
     return unsubscribe;
   }, [id, uid]);
@@ -110,8 +122,39 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
           {state === "active" && "Active"}
           {state === "ended" && "Ended"}
           {state === "cancelled" && "Cancelled"}
+          {state === "adjudicated" && "Complete"}
         </span>
       </div>
+
+      {state === "adjudicated" && member?.outcome === "succeeded" && (
+        <Card className="border-primary">
+          <CardHeader>
+            <CardTitle>You did it! 🎉</CardTitle>
+            <CardDescription>
+              {member.completedCount} check-ins, {member.skipsUsed} of{" "}
+              {challenge.skipDays} skips used. Your{" "}
+              {formatAmount(challenge.stakeAmount)} stays yours.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
+
+      {state === "adjudicated" && member?.outcome === "failed" && (
+        <Card className="border-destructive">
+          <CardHeader>
+            <CardTitle>You missed too many days</CardTitle>
+            <CardDescription>
+              You owe {formatAmount(challenge.stakeAmount)} to{" "}
+              {member.charityName}.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild variant="outline">
+              <Link href="/ledger">View in ledger</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {state === "cancelled" && (
         <Card>
@@ -149,16 +192,18 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
         </Card>
       )}
 
-      {(state === "active" || state === "ended") && (
+      {(state === "active" || state === "ended" || state === "adjudicated") && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle>
               {summary.completed} of {summary.total} check-ins
             </CardTitle>
             <CardDescription>
-              {state === "active"
-                ? `${summary.daysRemaining} day${summary.daysRemaining === 1 ? "" : "s"} remaining · ${summary.skipsUsed} of ${challenge.skipDays} skips used`
-                : "Ended — results are computed in the next milestone"}
+              {state === "active" &&
+                `${summary.daysRemaining} day${summary.daysRemaining === 1 ? "" : "s"} remaining · ${summary.skipsUsed} of ${challenge.skipDays} skips used`}
+              {state === "ended" && "Ended — results land within two days"}
+              {state === "adjudicated" &&
+                `${formatYmd(challenge.startDate)} – ${formatYmd(challenge.endDate)}`}
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
@@ -188,7 +233,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
         </Card>
       )}
 
-      {(state === "active" || state === "ended") && (
+      {(state === "active" || state === "ended" || state === "adjudicated") && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle>History</CardTitle>
@@ -211,9 +256,10 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
         </Card>
       )}
 
-      {state !== "cancelled" && (
+      {state !== "cancelled" && state !== "adjudicated" && (
         <p className="text-center text-xs text-muted-foreground">
-          If you fail, you owe ${challenge.stakeAmount} to {challenge.charityName}.
+          If you fail, you owe {formatAmount(challenge.stakeAmount)} to{" "}
+          {challenge.charityName}.
         </p>
       )}
     </div>

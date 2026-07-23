@@ -18,6 +18,7 @@ const eslintConfig = [
       "out/**",
       "build/**",
       "next-env.d.ts",
+      "functions/**", // separate workspace with its own toolchain
     ],
   },
 ];

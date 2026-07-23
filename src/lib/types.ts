@@ -30,3 +30,33 @@ export interface CheckIn {
   completedAt: Timestamp | null;
   note: string | null;
 }
+
+export type MemberOutcome = "succeeded" | "failed" | null;
+
+export interface ChallengeMember {
+  displayName: string;
+  charityName: string;
+  outcome: MemberOutcome;
+  completedCount: number;
+  skipsUsed: number;
+}
+
+export type LedgerStatus = "unsettled" | "settled";
+
+export interface LedgerEntry {
+  id: string;
+  challengeId: string;
+  challengeName: string;
+  fromUid: string;
+  fromName: string;
+  toType: "charity" | "user";
+  toUid: string | null;
+  toName: string | null;
+  toCharityName: string | null;
+  amount: number;
+  status: LedgerStatus;
+  settledAt: Timestamp | null;
+  receiptURL: string | null;
+  note: string | null;
+  createdAt: Timestamp | null;
+}
