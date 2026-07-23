@@ -4,7 +4,8 @@
 
 ## What ships
 
-- Create flow gains a **Mode** step (Solo / Group)
+- Create flow gains a **Mode** step (Solo / Group), with an optional **max members** cap for groups
+- **`createChallenge` callable** — challenge creation (solo and group) moves server-side: it creates the challenge doc, the creator's member doc, and a collision-checked join code atomically. It has to be server-side — clients can't collision-check codes because the read rules stop them from querying other users' challenges, and step 2's client-side member-doc write is closed off below.
 - Group challenges get a **join code** (e.g., `AB4X9K`) and a URL (`/join/[code]`)
 - **Join preview** page — public route (renders even for signed-out visitors with proper OG meta)
 - Native **share** on mobile (`navigator.share`) / **Copy link** button on desktop
@@ -37,6 +38,12 @@ maxMembers: int | null            # optional cap (default: no cap)
 
 ## Backend
 
+**Callable Cloud Function `createChallenge(payload)`:**
+- Validates the payload (whole-week duration for `weekly_count`, stake > 0, endDate after startDate, mode/forfeit consistency)
+- Atomically creates the challenge doc, the creator's member doc, and — for group mode — a collision-checked join code
+- Returns the challenge id (plus the join code for groups)
+- From this step on **all** challenge creation goes through this function; step 2's client-side `allow create` rule is retired. (Without this, closing the members-subcollection write rule below would leave creators unable to create their own member doc.)
+
 **Callable Cloud Function `joinChallenge(joinCode, charityName)`:**
 - Validate:
   - Code exists and points to an active challenge
@@ -58,9 +65,22 @@ maxMembers: int | null            # optional cap (default: no cap)
 ```
 match /challenges/{cid} {
   allow read: if request.auth.uid in resource.data.memberIds;
+  allow create: if false;    # all creation goes through createChallenge now
+  # Term edits (name, dates, stake, forfeit…) only while the creator is the
+  # sole member. Once anyone else joins, the only permitted change is
+  # cancelling before the start date — members joined under specific terms,
+  # and those terms can't shift under them. (dateInt = helper from step 2.)
+  allow update: if request.auth.uid == resource.data.createdBy
+                && resource.data.status == "active"
+                && dateInt(request.time) < int(resource.data.startDate)
+                && (
+                     resource.data.memberIds.size() == 1
+                     || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status"])
+                         && request.resource.data.status == "cancelled")
+                   );
   match /members/{uid} {
     allow read: if request.auth.uid in get(/databases/$(database)/documents/challenges/$(cid)).data.memberIds;
-    allow write: if false;   # go through joinChallenge function
+    allow write: if false;   # go through createChallenge / joinChallenge functions
   }
 }
 ```
@@ -100,7 +120,7 @@ Firestore realtime listener; unsubscribe on unmount.
 
 ## Screens
 
-- **Create challenge** — Mode step added (Solo / Group). Group creates a join code shown on the review step + on the challenge detail after creation.
+- **Create challenge** — Mode step added (Solo / Group), including an optional **max members** input when Group is selected. Group creates a join code shown on the review step + on the challenge detail after creation.
 - **Challenge detail (group)** — join code + Copy/Share (before start), member list with live progress, forfeit badge
 - **Join preview** (`/join/[code]`) — public, server-rendered with OG meta
 

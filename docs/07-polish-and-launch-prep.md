@@ -32,7 +32,7 @@ deletedAt: timestamp | null       # soft-delete marker
 - Verify caller uid == target
 - Cascade:
   - Cancel any active solo challenges (mark abandoned)
-  - Remove user from active group challenges (leave allowed here since account is deleted)
+  - Remove user from active group challenges — the one exception to the membership lock. At adjudication a departed member is **excluded entirely** (as if they never joined): skipped in outcome computation and pool math, and no ledger entries are created for or against them
   - Delete all user's check-ins
   - **Anonymize** ledger entries: replace `fromName`/`toName` with "Deleted user" but keep amounts (other users may still owe / be owed — data integrity for them)
   - Delete receipts from Storage
