@@ -49,6 +49,7 @@ export interface CreateChallengePayload {
   name: string;
   description: string;
   mode: "solo" | "group";
+  forfeitType: "charity" | "pool"; // pool only valid for group
   maxMembers: number | null;
   frequencyType: "daily" | "weekly_count";
   target: number;
@@ -56,7 +57,7 @@ export interface CreateChallengePayload {
   endDate: string; // yyyymmdd
   skipDays: number;
   stakeAmount: number;
-  charityName: string;
+  charityName: string | null; // null in pool mode
 }
 
 export async function createChallengeAdmin(
@@ -80,7 +81,7 @@ export async function createChallengeAdmin(
     description: payload.description || null,
     createdBy: uid,
     mode: payload.mode,
-    forfeitType: "charity",
+    forfeitType: payload.forfeitType,
     charityName: payload.charityName,
     joinCode,
     maxMembers: payload.maxMembers,
@@ -114,7 +115,8 @@ export type JoinErrorCode =
   | "started"
   | "full"
   | "already-member"
-  | "not-group";
+  | "not-group"
+  | "charity-required";
 
 export class JoinError extends Error {
   constructor(public code: JoinErrorCode) {
@@ -127,6 +129,7 @@ export interface ChallengePreview {
   name: string;
   description: string | null;
   creatorName: string;
+  forfeitType: "charity" | "pool";
   startDate: string;
   endDate: string;
   stakeAmount: number;
@@ -164,6 +167,7 @@ export async function getChallengePreview(
     name: data.name,
     description: data.description ?? null,
     creatorName: (creatorSnap.data()?.displayName as string | undefined) ?? "Someone",
+    forfeitType: data.forfeitType ?? "charity",
     startDate: data.startDate,
     endDate: data.endDate,
     stakeAmount: data.stakeAmount,
@@ -181,7 +185,7 @@ export async function joinChallengeAdmin(
   uid: string,
   fallbackName: string,
   joinCode: string,
-  charityName: string
+  charityName: string | null
 ): Promise<{ challengeId: string }> {
   const db = getAdminDb();
 
@@ -211,11 +215,18 @@ export async function joinChallengeAdmin(
       throw new JoinError("full");
     }
 
+    // Charity mode: each joiner must name their own charity. Pool mode
+    // has no charity — the stake goes to the winners.
+    const forfeitType = data.forfeitType ?? "charity";
+    if (forfeitType === "charity" && !charityName?.trim()) {
+      throw new JoinError("charity-required");
+    }
+
     t.update(challengeRef, { memberIds: FieldValue.arrayUnion(uid) });
     t.set(challengeRef.collection("members").doc(uid), {
       displayName,
       joinedAt: FieldValue.serverTimestamp(),
-      charityName,
+      charityName: forfeitType === "charity" ? charityName!.trim() : null,
       outcome: null,
       completedCount: 0,
       skipsUsed: 0,

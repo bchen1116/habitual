@@ -10,12 +10,19 @@ interface ChallengeData {
   startDate: string;
   endDate: string;
   status: string;
-  forfeitType: string;
+  forfeitType: "charity" | "pool";
 }
 
 interface MemberData {
   displayName: string;
-  charityName: string;
+  charityName: string | null; // null in pool mode
+}
+
+interface MemberOutcome {
+  uid: string;
+  displayName: string;
+  charityName: string | null;
+  succeeded: boolean;
 }
 
 /**
@@ -94,6 +101,7 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
         }
 
         const adjudicatedAt = Timestamp.fromDate(now);
+        const outcomes: MemberOutcome[] = [];
         for (const memberDoc of membersSnap.docs) {
           const member = memberDoc.data() as MemberData;
           const uid = memberDoc.id;
@@ -102,6 +110,12 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
             checkinsByUid.get(uid) ?? []
           );
           const succeeded = missed <= challenge.skipDays;
+          outcomes.push({
+            uid,
+            displayName: member.displayName,
+            charityName: member.charityName ?? null,
+            succeeded,
+          });
 
           t.update(memberDoc.ref, {
             outcome: succeeded ? "succeeded" : "failed",
@@ -109,24 +123,53 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
             skipsUsed: Math.min(missed, challenge.skipDays),
             adjudicatedAt,
           });
+        }
 
-          // Charity forfeit (docs/03; pool mode arrives in step 5).
-          if (!succeeded && challenge.forfeitType === "charity") {
+        const baseEntry = {
+          challengeId: challengeDoc.id,
+          challengeName: challenge.name,
+          amount: challenge.stakeAmount,
+          status: "unsettled",
+          settledAt: null,
+          receiptURL: null,
+          note: null,
+          createdAt: FieldValue.serverTimestamp(),
+        };
+
+        if (challenge.forfeitType === "pool") {
+          // Winner pool (docs/05): each loser's stake splits evenly among
+          // the winners. No winners -> wash: no entries, but execution
+          // still falls through so the challenge is marked adjudicated.
+          const winners = outcomes.filter((o) => o.succeeded);
+          const losers = outcomes.filter((o) => !o.succeeded);
+          if (winners.length > 0) {
+            const perWinnerShare = challenge.stakeAmount / winners.length;
+            for (const loser of losers) {
+              for (const winner of winners) {
+                t.set(db.collection("ledgerEntries").doc(), {
+                  ...baseEntry,
+                  fromUid: loser.uid,
+                  fromName: loser.displayName,
+                  toType: "user",
+                  toUid: winner.uid,
+                  toName: winner.displayName,
+                  toCharityName: null,
+                  amount: perWinnerShare,
+                });
+              }
+            }
+          }
+        } else {
+          // Charity forfeit: each failed member owes their own charity.
+          for (const loser of outcomes.filter((o) => !o.succeeded)) {
             t.set(db.collection("ledgerEntries").doc(), {
-              challengeId: challengeDoc.id,
-              challengeName: challenge.name,
-              fromUid: uid,
-              fromName: member.displayName,
+              ...baseEntry,
+              fromUid: loser.uid,
+              fromName: loser.displayName,
               toType: "charity",
               toUid: null,
               toName: null,
-              toCharityName: member.charityName,
-              amount: challenge.stakeAmount,
-              status: "unsettled",
-              settledAt: null,
-              receiptURL: null,
-              note: null,
-              createdAt: FieldValue.serverTimestamp(),
+              toCharityName: loser.charityName ?? "Charity",
             });
           }
         }

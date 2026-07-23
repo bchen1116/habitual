@@ -9,8 +9,8 @@ export interface Challenge {
   description: string | null;
   createdBy: string;
   mode: "solo" | "group";
-  forfeitType: "charity";
-  charityName: string; // creator's charity; each group member picks their own on join
+  forfeitType: "charity" | "pool"; // pool: group only
+  charityName: string | null; // creator's charity (null in pool mode); group members pick their own on join
   joinCode?: string | null; // group only
   maxMembers?: number | null; // group only, optional cap
   frequency: {
@@ -37,7 +37,7 @@ export type MemberOutcome = "succeeded" | "failed" | null;
 
 export interface ChallengeMember {
   displayName: string;
-  charityName: string;
+  charityName: string | null; // null in pool mode
   outcome: MemberOutcome;
   completedCount: number;
   skipsUsed: number;

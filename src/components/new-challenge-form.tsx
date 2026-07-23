@@ -27,6 +27,7 @@ const formSchema = z
     name: z.string().trim().min(1, "Give your challenge a name").max(60),
     description: z.string().trim().max(200),
     mode: z.enum(["solo", "group"]),
+    forfeitType: z.enum(["charity", "pool"]),
     maxMembers: z
       .string()
       .refine(
@@ -46,7 +47,7 @@ const formSchema = z
       .regex(/^\d+(\.\d{1,2})?$/, "A dollar amount, e.g. 10 or 9.99")
       .refine((v) => Number(v) > 0, "Stake something — that's the point")
       .refine((v) => Number(v) <= 10000, "Keep it under $10,000"),
-    charityName: z.string().trim().min(1, "Name your charity").max(80),
+    charityName: z.string().trim().max(80),
   })
   .superRefine((data, ctx) => {
     if (dateInputToYmd(data.startDate) < todayYmd(browserTimezone())) {
@@ -54,6 +55,15 @@ const formSchema = z
         code: "custom",
         path: ["startDate"],
         message: "Start today or later",
+      });
+    }
+    // Pool mode has no charity; every other combination requires one.
+    const effectiveForfeit = data.mode === "solo" ? "charity" : data.forfeitType;
+    if (effectiveForfeit === "charity" && data.charityName.trim() === "") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["charityName"],
+        message: "Name your charity",
       });
     }
   });
@@ -64,7 +74,7 @@ const STEPS = ["Basics", "Mode", "Schedule", "Stakes", "Review"] as const;
 
 const STEP_FIELDS: (keyof FormValues)[][] = [
   ["name", "description"],
-  ["mode", "maxMembers"],
+  ["mode", "forfeitType", "maxMembers"],
   ["frequencyType", "target", "startDate", "durationDays"],
   ["skipDays", "stakeAmount", "charityName"],
   [],
@@ -83,6 +93,7 @@ export function NewChallengeForm() {
       name: "",
       description: "",
       mode: "solo",
+      forfeitType: "charity",
       maxMembers: "",
       frequencyType: "daily",
       target: "5",
@@ -119,10 +130,13 @@ export function NewChallengeForm() {
     setSubmitting(true);
     setSubmitError(null);
     try {
+      const effectiveForfeit =
+        data.mode === "solo" ? "charity" : data.forfeitType;
       const id = await createChallenge({
         name: data.name.trim(),
         description: data.description.trim(),
         mode: data.mode,
+        forfeitType: effectiveForfeit,
         maxMembers:
           data.mode === "group" && data.maxMembers !== ""
             ? Number(data.maxMembers)
@@ -133,7 +147,8 @@ export function NewChallengeForm() {
         durationDays: Number(data.durationDays),
         skipDays: Number(data.skipDays),
         stakeAmount: Number(data.stakeAmount),
-        charityName: data.charityName.trim(),
+        charityName:
+          effectiveForfeit === "charity" ? data.charityName.trim() : null,
       });
       router.replace(`/challenges/${id}`);
     } catch (err) {
@@ -229,6 +244,32 @@ export function NewChallengeForm() {
                 : "Friends join with an invite link. Everyone stakes their own money and picks their own charity."}
             </p>
           </div>
+          {values.mode === "group" && (
+            <div className="flex flex-col gap-1.5">
+              <Label>If someone fails, their stake goes to…</Label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={values.forfeitType === "charity" ? "default" : "outline"}
+                  onClick={() => form.setValue("forfeitType", "charity")}
+                >
+                  Their charity
+                </Button>
+                <Button
+                  type="button"
+                  variant={values.forfeitType === "pool" ? "default" : "outline"}
+                  onClick={() => form.setValue("forfeitType", "pool")}
+                >
+                  The winners
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {values.forfeitType === "charity"
+                  ? "Charity forfeit: each member names a charity they'd owe."
+                  : "Winner pool: failed stakes split evenly among members who succeed."}
+              </p>
+            </div>
+          )}
           {values.mode === "group" && (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="maxMembers">Max members (optional)</Label>
@@ -357,25 +398,33 @@ export function NewChallengeForm() {
               </p>
             )}
           </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="charityName">If you fail, you donate to…</Label>
-            <Input
-              id="charityName"
-              placeholder="e.g. Red Cross"
-              {...form.register("charityName")}
-            />
-            {values.mode === "group" && (
-              <p className="text-xs text-muted-foreground">
-                This is your charity — each member picks their own when they
-                join.
-              </p>
-            )}
-            {errors.charityName && (
-              <p className="text-sm text-destructive">
-                {errors.charityName.message}
-              </p>
-            )}
-          </div>
+          {(values.mode === "solo" || values.forfeitType === "charity") && (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="charityName">If you fail, you donate to…</Label>
+              <Input
+                id="charityName"
+                placeholder="e.g. Red Cross"
+                {...form.register("charityName")}
+              />
+              {values.mode === "group" && (
+                <p className="text-xs text-muted-foreground">
+                  This is your charity — each member picks their own when they
+                  join.
+                </p>
+              )}
+              {errors.charityName && (
+                <p className="text-sm text-destructive">
+                  {errors.charityName.message}
+                </p>
+              )}
+            </div>
+          )}
+          {values.mode === "group" && values.forfeitType === "pool" && (
+            <p className="text-xs text-muted-foreground">
+              Winner pool: no charity needed — failed stakes go to the members
+              who succeed.
+            </p>
+          )}
         </div>
       )}
 
@@ -391,6 +440,8 @@ export function NewChallengeForm() {
             <p>
               {values.mode === "solo" ? "Solo" : "Group"}
               {values.mode === "group" &&
+                ` · ${values.forfeitType === "pool" ? "winner pool" : "charity forfeit"}`}
+              {values.mode === "group" &&
                 (values.maxMembers !== ""
                   ? ` · up to ${values.maxMembers} members`
                   : " · no member cap")}
@@ -405,7 +456,9 @@ export function NewChallengeForm() {
               {values.skipDays} skip{values.skipDays === "1" ? "" : "s"} allowed
             </p>
             <p>
-              ${values.stakeAmount} to {values.charityName} if you fail
+              {values.mode === "group" && values.forfeitType === "pool"
+                ? `$${values.stakeAmount} to the winners if you fail`
+                : `$${values.stakeAmount} to ${values.charityName} if you fail`}
             </p>
           </CardContent>
         </Card>

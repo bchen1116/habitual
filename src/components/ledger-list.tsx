@@ -181,8 +181,15 @@ export function LedgerList({ uid, initialTab }: { uid: string; initialTab: Tab }
       ) : (
         grouped!.map(([name, items]) => (
           <div key={name} className="flex flex-col gap-2">
-            <div className="flex items-baseline justify-between">
-              <h3 className="text-sm font-semibold">{name}</h3>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {(tab === "owed" || items[0]?.toType === "user") && (
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
+                    {name.trim().charAt(0).toUpperCase() || "?"}
+                  </span>
+                )}
+                <h3 className="text-sm font-semibold">{name}</h3>
+              </div>
               <span className="text-xs text-muted-foreground">
                 {formatAmount(
                   items

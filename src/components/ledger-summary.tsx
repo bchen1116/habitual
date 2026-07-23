@@ -65,6 +65,15 @@ export function LedgerSummary({ uid }: { uid: string }) {
     );
   }
 
+  const toPeople = debts
+    .filter((e) => e.toType === "user")
+    .reduce((sum, e) => sum + e.amount, 0);
+  const toCharities = debtTotal - toPeople;
+  const breakdown =
+    toPeople > 0 && toCharities > 0
+      ? ` (${formatAmount(toPeople)} to people, ${formatAmount(toCharities)} to charities)`
+      : "";
+
   return (
     <Card>
       <CardContent className="flex flex-col gap-1 p-4 text-sm">
@@ -72,6 +81,7 @@ export function LedgerSummary({ uid }: { uid: string }) {
           <Link href="/ledger?tab=owe" className="hover:underline">
             You owe <span className="font-semibold">{formatAmount(debtTotal)}</span>{" "}
             across {debts.length} debt{debts.length === 1 ? "" : "s"}
+            {breakdown}
           </Link>
         )}
         {credits.length > 0 && (

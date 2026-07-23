@@ -24,9 +24,11 @@ import {
 export function JoinPanel({
   joinCode,
   stakeAmount,
+  forfeitType,
 }: {
   joinCode: string;
   stakeAmount: number;
+  forfeitType: "charity" | "pool";
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -35,14 +37,17 @@ export function JoinPanel({
   const [error, setError] = useState<string | null>(null);
 
   async function join() {
-    if (!charityName.trim()) {
+    if (forfeitType === "charity" && !charityName.trim()) {
       setError("Name the charity you'd owe if you fail.");
       return;
     }
     setSubmitting(true);
     setError(null);
     try {
-      const challengeId = await joinChallenge(joinCode, charityName.trim());
+      const challengeId = await joinChallenge(
+        joinCode,
+        forfeitType === "charity" ? charityName.trim() : null
+      );
       router.replace(`/challenges/${challengeId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't join. Try again.");
@@ -59,20 +64,23 @@ export function JoinPanel({
         <DialogHeader>
           <DialogTitle>Join this challenge</DialogTitle>
           <DialogDescription>
-            You&apos;re staking {formatAmount(stakeAmount)}. Fail, and you owe it
-            to a charity of your choosing.
+            {forfeitType === "charity"
+              ? `You're staking ${formatAmount(stakeAmount)}. Fail, and you owe it to a charity of your choosing.`
+              : `You're staking ${formatAmount(stakeAmount)}. Fail, and it's split among the members who succeed.`}
           </DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="join-charity">If you fail, you donate to…</Label>
-          <Input
-            id="join-charity"
-            placeholder="e.g. Red Cross"
-            value={charityName}
-            maxLength={80}
-            onChange={(e) => setCharityName(e.target.value)}
-          />
-        </div>
+        {forfeitType === "charity" && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="join-charity">If you fail, you donate to…</Label>
+            <Input
+              id="join-charity"
+              placeholder="e.g. Red Cross"
+              value={charityName}
+              maxLength={80}
+              onChange={(e) => setCharityName(e.target.value)}
+            />
+          </div>
+        )}
         {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={() => setOpen(false)} disabled={submitting}>
