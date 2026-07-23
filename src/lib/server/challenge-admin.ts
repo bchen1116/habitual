@@ -70,6 +70,7 @@ export async function createChallengeAdmin(
   const userSnap = await db.collection("users").doc(uid).get();
   const displayName =
     (userSnap.data()?.displayName as string | undefined) ?? fallbackName;
+  const username = (userSnap.data()?.username as string | undefined) ?? null;
 
   const joinCode =
     payload.mode === "group" ? await generateUniqueJoinCode() : null;
@@ -99,6 +100,7 @@ export async function createChallengeAdmin(
   });
   batch.set(challengeRef.collection("members").doc(uid), {
     displayName,
+    username,
     joinedAt: FieldValue.serverTimestamp(),
     charityName: payload.charityName,
     outcome: null,
@@ -192,6 +194,7 @@ export async function joinChallengeAdmin(
   const userSnap = await db.collection("users").doc(uid).get();
   const displayName =
     (userSnap.data()?.displayName as string | undefined) ?? fallbackName;
+  const username = (userSnap.data()?.username as string | undefined) ?? null;
 
   const snap = await db
     .collection("challenges")
@@ -225,6 +228,7 @@ export async function joinChallengeAdmin(
     t.update(challengeRef, { memberIds: FieldValue.arrayUnion(uid) });
     t.set(challengeRef.collection("members").doc(uid), {
       displayName,
+      username,
       joinedAt: FieldValue.serverTimestamp(),
       charityName: forfeitType === "charity" ? charityName!.trim() : null,
       outcome: null,
@@ -234,4 +238,37 @@ export async function joinChallengeAdmin(
   });
 
   return { challengeId: challengeRef.id };
+}
+
+export type DeleteChallengeErrorCode = "not-found" | "not-owner" | "not-solo";
+
+export class DeleteChallengeError extends Error {
+  constructor(public code: DeleteChallengeErrorCode) {
+    super(code);
+  }
+}
+
+/**
+ * Solo only, creator only, any status — a solo challenge affects nobody but
+ * its creator, so unlike group challenges there's no one else's record to
+ * preserve. Ledger entries the challenge already produced are left alone
+ * (same reasoning as account deletion: they're the debtor's standing
+ * obligation, independent of whether the source challenge still exists).
+ * recursiveDelete wipes the challenge doc plus its members/checkins
+ * subcollections in one call.
+ */
+export async function deleteChallengeAdmin(
+  uid: string,
+  challengeId: string
+): Promise<void> {
+  const db = getAdminDb();
+  const ref = db.collection("challenges").doc(challengeId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new DeleteChallengeError("not-found");
+
+  const data = snap.data()!;
+  if (data.createdBy !== uid) throw new DeleteChallengeError("not-owner");
+  if (data.mode !== "solo") throw new DeleteChallengeError("not-solo");
+
+  await db.recursiveDelete(ref);
 }

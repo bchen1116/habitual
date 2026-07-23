@@ -46,10 +46,11 @@ export async function deleteAccountAdmin(uid: string): Promise<void> {
       checkins.docs.forEach((d) => batch.delete(d.ref));
     } else {
       // Ended / adjudicated / cancelled: the record stays for the other
-      // members, but the identity is scrubbed.
+      // members, but the identity is scrubbed — username too, or it'd leak
+      // right next to "Deleted user".
       batch.set(
         challengeDoc.ref.collection("members").doc(uid),
-        { displayName: "Deleted user" },
+        { displayName: "Deleted user", username: null },
         { merge: true }
       );
     }
@@ -63,8 +64,12 @@ export async function deleteAccountAdmin(uid: string): Promise<void> {
     db.collection("ledgerEntries").where("toUid", "==", uid).get(),
   ]);
   await Promise.all([
-    ...debts.docs.map((d) => d.ref.update({ fromName: "Deleted user" })),
-    ...credits.docs.map((d) => d.ref.update({ toName: "Deleted user" })),
+    ...debts.docs.map((d) =>
+      d.ref.update({ fromName: "Deleted user", fromUsername: null })
+    ),
+    ...credits.docs.map((d) =>
+      d.ref.update({ toName: "Deleted user", toUsername: null })
+    ),
   ]);
 
   // 3. Uploaded files (receipts, avatar). Best-effort — a missing bucket
@@ -77,7 +82,15 @@ export async function deleteAccountAdmin(uid: string): Promise<void> {
     console.error("storage cleanup failed during account deletion:", err);
   }
 
-  // 4. The user doc, then the auth account (re-signup with the same email
+  // 4. Release the claimed username, if any, so it becomes available again
+  // — read it before the user doc goes away.
+  const userSnap = await db.collection("users").doc(uid).get();
+  const username = userSnap.data()?.username as string | undefined;
+  if (username) {
+    await db.collection("usernames").doc(username.toLowerCase()).delete();
+  }
+
+  // 5. The user doc, then the auth account (re-signup with the same email
   // creates a fresh account).
   await db.collection("users").doc(uid).delete();
   await getAdminAuth().deleteUser(uid);

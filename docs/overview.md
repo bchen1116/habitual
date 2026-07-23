@@ -112,9 +112,11 @@ Plus: empty states, loading skeletons, error toasts, page transitions.
 **States:**
 - Idle
 - Signing in / creating account (button loading state)
-- **Name step:** shown once, right after email/password sign-up (or when
-  signing in to an account that never finished it) — email/password gives
-  no name, unlike Google, so this collects the one thing we're missing
+- **Profile step:** shown once, whenever a name and/or username is still
+  missing after sign-in — always true for a brand-new account (any
+  provider), and recovers an account that never finished this step (tab
+  closed mid-signup) or predates the username feature. Only asks for
+  whichever of the two is actually missing.
 - Error (inline error message; distinct copy for "email already in use,"
   "wrong password," etc.)
 
@@ -184,7 +186,9 @@ Plus: empty states, loading skeletons, error toasts, page transitions.
 **Group variant** (adds):
 - Forfeit type badge (Charity / Pool)
 - Join code + copy/share button (before start only)
-- Member list with live progress bars (Firestore realtime)
+- Member list with live progress bars (Firestore realtime); each row shows
+  name + `@username` when the member has one set, to tell apart same-named
+  members
 - Group summary ("3 of 5 on track")
 
 **Adjudicated states:**
@@ -269,6 +273,9 @@ Plus: empty states, loading skeletons, error toasts, page transitions.
 ### Settings — Profile (`/settings`)
 
 - Avatar + display name (editable inline)
+- Username (editable inline) — unique handle shown alongside the name in
+  group member lists and ledger entries, so people with the same display
+  name can be told apart
 - Email (read-only)
 - Notifications → `/settings/notifications`
 - About: version, terms, privacy

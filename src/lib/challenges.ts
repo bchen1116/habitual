@@ -82,6 +82,21 @@ export async function cancelChallenge(challengeId: string): Promise<void> {
 }
 
 /**
+ * Permanently deletes a solo challenge (creator-only, any status) via the
+ * server — recursive subcollection deletes aren't available to the client
+ * SDK, and the rules block client-side challenge deletes outright.
+ */
+export async function deleteChallenge(challengeId: string): Promise<void> {
+  const response = await fetch(`/api/challenges/${challengeId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.error ?? "Couldn't delete the challenge");
+  }
+}
+
+/**
  * Check in for a local date. The doc ID (`<localDate>_<uid>`) enforces
  * one-per-day; rules verify the ID shape, the server timestamp, and that
  * localDate is within ±1 day of server time.

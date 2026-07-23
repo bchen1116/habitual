@@ -62,6 +62,8 @@ export function LedgerEntryDetail({ id, uid }: { id: string; uid: string }) {
       : iOwe
         ? (entry.toName ?? "Someone")
         : entry.fromName;
+  const counterpartyUsername =
+    entry.toType === "charity" ? null : iOwe ? entry.toUsername : entry.fromUsername;
 
   return (
     <div className="flex flex-col gap-4">
@@ -71,6 +73,7 @@ export function LedgerEntryDetail({ id, uid }: { id: string; uid: string }) {
             {formatAmount(entry.amount)}{" "}
             <span className="text-base font-normal text-muted-foreground">
               {iOwe ? "to" : "from"} {counterparty}
+              {counterpartyUsername && ` (@${counterpartyUsername})`}
             </span>
           </CardTitle>
           <CardDescription>

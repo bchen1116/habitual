@@ -12,14 +12,15 @@ import {
   updateProfile,
   type User,
 } from "firebase/auth";
-import { getClientAuth } from "@/lib/firebase/client";
+import { doc, getDoc } from "firebase/firestore";
+import { getClientAuth, getClientDb } from "@/lib/firebase/client";
 import { ensureUserDoc } from "@/lib/user";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 type Mode = "signin" | "signup";
-type Step = "credentials" | "name";
+type Step = "credentials" | "profile";
 
 /** Only allow same-site relative paths as post-login destinations. */
 function safeNext(next: string | null): string {
@@ -64,22 +65,28 @@ function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [profileUsername, setProfileUsername] = useState("");
+  const [needsNameField, setNeedsNameField] = useState(false);
+  const [needsUsernameField, setNeedsUsernameField] = useState(false);
   const [pendingUser, setPendingUser] = useState<User | null>(null);
   const [pending, setPending] = useState<"google" | "email" | null>(null);
   const [finishing, setFinishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const completeSignIn = useCallback(
+  const establishSession = useCallback(async (user: User) => {
+    const idToken = await user.getIdToken();
+    const response = await fetch("/api/auth/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken }),
+    });
+    if (!response.ok) {
+      throw new Error("Failed to establish a session. Please try again.");
+    }
+  }, []);
+
+  const finishSignIn = useCallback(
     async (user: User) => {
-      const idToken = await user.getIdToken();
-      const response = await fetch("/api/auth/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idToken }),
-      });
-      if (!response.ok) {
-        throw new Error("Failed to establish a session. Please try again.");
-      }
       // Best-effort: the session cookie is already set, so a failed profile
       // write must not strand the user here — it re-runs on every sign-in.
       await ensureUserDoc(user).catch((err) =>
@@ -90,6 +97,40 @@ function LoginForm() {
     [router, searchParams]
   );
 
+  /**
+   * Session first, then figure out what's missing. A username lookup needs
+   * the caller to already be authenticated against the rules (reading their
+   * own users/{uid} doc), and the later username-claim API call needs the
+   * session cookie to exist — so the cookie has to land before any of this.
+   */
+  const proceedAfterAuth = useCallback(
+    async (user: User) => {
+      await establishSession(user);
+
+      let hasUsername = false;
+      try {
+        const snap = await getDoc(doc(getClientDb(), "users", user.uid));
+        hasUsername = Boolean(snap.data()?.username);
+      } catch {
+        // A failed lookup shouldn't block sign-in over a nice-to-have gate;
+        // worst case they're asked for a username again next time.
+        hasUsername = true;
+      }
+
+      const needsName = !user.displayName;
+      const needsUsername = !hasUsername;
+      if (needsName || needsUsername) {
+        setPendingUser(user);
+        setNeedsNameField(needsName);
+        setNeedsUsernameField(needsUsername);
+        setStep("profile");
+      } else {
+        await finishSignIn(user);
+      }
+    },
+    [establishSession, finishSignIn]
+  );
+
   // Completes the Google redirect-based flow (mobile browsers that block popups).
   useEffect(() => {
     let cancelled = false;
@@ -97,7 +138,7 @@ function LoginForm() {
       .then((result) => {
         if (result?.user && !cancelled) {
           setFinishing(true);
-          return completeSignIn(result.user);
+          return proceedAfterAuth(result.user);
         }
       })
       .catch(() => {
@@ -109,7 +150,7 @@ function LoginForm() {
     return () => {
       cancelled = true;
     };
-  }, [completeSignIn]);
+  }, [proceedAfterAuth]);
 
   async function signInWithGoogle() {
     setError(null);
@@ -118,7 +159,7 @@ function LoginForm() {
     const provider = new GoogleAuthProvider();
     try {
       const result = await signInWithPopup(auth, provider);
-      await completeSignIn(result.user);
+      await proceedAfterAuth(result.user);
     } catch (err: unknown) {
       const code = (err as { code?: string })?.code ?? "";
       if (
@@ -156,24 +197,17 @@ function LoginForm() {
           email,
           password
         );
-        // Email/password gives us no name — Google gives one for free.
-        // Collect the one piece of info we're actually missing.
-        setPendingUser(cred.user);
-        setStep("name");
+        await proceedAfterAuth(cred.user);
       } else {
         const cred = await signInWithEmailAndPassword(
           getClientAuth(),
           email,
           password
         );
-        if (!cred.user.displayName) {
-          // Recovers an account that never finished the name step (e.g. the
-          // tab was closed mid-signup) instead of leaving them stuck.
-          setPendingUser(cred.user);
-          setStep("name");
-        } else {
-          await completeSignIn(cred.user);
-        }
+        // Naturally recovers an account that never finished the profile step
+        // (e.g. the tab was closed mid-signup) — proceedAfterAuth re-checks
+        // both the name and the username instead of assuming either is set.
+        await proceedAfterAuth(cred.user);
       }
     } catch (err) {
       setError(authErrorMessage(err));
@@ -182,16 +216,31 @@ function LoginForm() {
     }
   }
 
-  async function submitName(e: FormEvent) {
+  async function submitProfile(e: FormEvent) {
     e.preventDefault();
     if (!pendingUser) return;
     setError(null);
     setPending("email");
     try {
-      await updateProfile(pendingUser, { displayName: displayName.trim() });
-      await completeSignIn(pendingUser);
-    } catch {
-      setError("Couldn't save your name. Please try again.");
+      if (needsNameField) {
+        await updateProfile(pendingUser, { displayName: displayName.trim() });
+      }
+      if (needsUsernameField) {
+        const response = await fetch("/api/account/username", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: profileUsername.trim() }),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => null);
+          throw new Error(body?.error ?? "Couldn't save that username.");
+        }
+      }
+      await finishSignIn(pendingUser);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Something went wrong. Please try again."
+      );
       setPending(null);
     }
   }
@@ -283,23 +332,49 @@ function LoginForm() {
           </>
         )}
 
-        {step === "name" && (
-          <form onSubmit={submitName} className="flex flex-col gap-3">
+        {step === "profile" && (
+          <form onSubmit={submitProfile} className="flex flex-col gap-3">
             <p className="text-center text-sm text-muted-foreground">
-              One more thing — what should we call you?
+              One more thing before you&apos;re in.
             </p>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="displayName">Name</Label>
-              <Input
-                id="displayName"
-                autoFocus
-                required
-                maxLength={50}
-                disabled={pending !== null}
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-              />
-            </div>
+            {needsNameField && (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="displayName">Name</Label>
+                <Input
+                  id="displayName"
+                  autoFocus
+                  required
+                  maxLength={50}
+                  disabled={pending !== null}
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                />
+              </div>
+            )}
+            {needsUsernameField && (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="profileUsername">Username</Label>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">@</span>
+                  <Input
+                    id="profileUsername"
+                    autoFocus={!needsNameField}
+                    required
+                    minLength={3}
+                    maxLength={20}
+                    pattern="[A-Za-z0-9_]+"
+                    title="Letters, numbers, and underscores only"
+                    disabled={pending !== null}
+                    value={profileUsername}
+                    onChange={(e) => setProfileUsername(e.target.value)}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Shown alongside your name in groups — helps tell apart people
+                  with the same name.
+                </p>
+              </div>
+            )}
             <Button type="submit" size="lg" disabled={pending !== null}>
               {pending === "email" ? "Saving…" : "Continue"}
             </Button>

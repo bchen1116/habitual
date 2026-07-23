@@ -127,7 +127,7 @@ function ChallengeCard({ challenge, uid }: { challenge: Challenge; uid: string }
               "type-overline rounded-full px-2.5 py-1 text-[11px] " +
               (challenge.mode === "group"
                 ? "border-[1.5px] border-foreground text-foreground"
-                : "bg-foreground text-primary")
+                : "bg-ink text-primary")
             }
           >
             {challenge.mode === "group" ? "Group" : "Solo"}

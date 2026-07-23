@@ -19,13 +19,39 @@ import {
 type Tab = "owe" | "owed";
 type Filter = "all" | "unsettled" | "settled";
 
-function counterpartyName(entry: LedgerEntry, tab: Tab): string {
+interface CounterpartyLabel {
+  name: string;
+  username: string | null;
+  isUser: boolean; // vs. charity
+}
+
+/**
+ * Groups by actual identity (uid, or charity name), not by display-name
+ * text — two different people who happen to share a display name must not
+ * be merged into one group. This is the same disambiguation problem
+ * usernames solve in group member lists.
+ */
+function counterpartyKey(entry: LedgerEntry, tab: Tab): string {
   if (tab === "owe") {
     return entry.toType === "charity"
-      ? (entry.toCharityName ?? "Charity")
-      : (entry.toName ?? "Someone");
+      ? `charity:${entry.toCharityName ?? "Charity"}`
+      : `user:${entry.toUid ?? "unknown"}`;
   }
-  return entry.fromName;
+  return `user:${entry.fromUid}`;
+}
+
+function counterpartyLabel(entry: LedgerEntry, tab: Tab): CounterpartyLabel {
+  if (tab === "owe") {
+    if (entry.toType === "charity") {
+      return { name: entry.toCharityName ?? "Charity", username: null, isUser: false };
+    }
+    return {
+      name: entry.toName ?? "Someone",
+      username: entry.toUsername ?? null,
+      isUser: true,
+    };
+  }
+  return { name: entry.fromName, username: entry.fromUsername ?? null, isUser: true };
 }
 
 export function LedgerList({ uid, initialTab }: { uid: string; initialTab: Tab }) {
@@ -91,10 +117,12 @@ export function LedgerList({ uid, initialTab }: { uid: string; initialTab: Tab }
 
   const grouped = useMemo(() => {
     if (!filtered) return null;
-    const map = new Map<string, LedgerEntry[]>();
+    const map = new Map<string, { label: CounterpartyLabel; items: LedgerEntry[] }>();
     for (const entry of filtered) {
-      const key = counterpartyName(entry, tab);
-      map.set(key, [...(map.get(key) ?? []), entry]);
+      const key = counterpartyKey(entry, tab);
+      const existing = map.get(key);
+      if (existing) existing.items.push(entry);
+      else map.set(key, { label: counterpartyLabel(entry, tab), items: [entry] });
     }
     return [...map.entries()];
   }, [filtered, tab]);
@@ -179,16 +207,23 @@ export function LedgerList({ uid, initialTab }: { uid: string; initialTab: Tab }
           </CardHeader>
         </Card>
       ) : (
-        grouped!.map(([name, items]) => (
-          <div key={name} className="flex flex-col gap-2">
+        grouped!.map(([key, { label, items }]) => (
+          <div key={key} className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                {(tab === "owed" || items[0]?.toType === "user") && (
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-foreground text-xs font-bold text-primary">
-                    {name.trim().charAt(0).toUpperCase() || "?"}
+                {label.isUser && (
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-ink text-xs font-bold text-primary">
+                    {label.name.trim().charAt(0).toUpperCase() || "?"}
                   </span>
                 )}
-                <h3 className="text-sm font-semibold">{name}</h3>
+                <div className="flex items-baseline gap-1.5">
+                  <h3 className="text-sm font-semibold">{label.name}</h3>
+                  {label.username && (
+                    <span className="text-xs text-muted-foreground">
+                      @{label.username}
+                    </span>
+                  )}
+                </div>
               </div>
               <span className="text-xs text-muted-foreground">
                 {formatAmount(
