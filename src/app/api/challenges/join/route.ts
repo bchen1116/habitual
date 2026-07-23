@@ -47,7 +47,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result);
   } catch (err) {
     if (err instanceof JoinError) {
-      const mapped = JOIN_ERROR_RESPONSES[err.code];
+      const mapped = JOIN_ERROR_RESPONSES[err.code] ?? {
+        status: 500,
+        message: "Couldn't join the challenge",
+      };
       return NextResponse.json(
         { error: mapped.message, code: err.code },
         { status: mapped.status }

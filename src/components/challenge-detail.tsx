@@ -89,7 +89,10 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
             (d) => ({ uid: d.id, ...d.data() }) as { uid: string } & ChallengeMember
           )
         ),
-      () => setMembers(null)
+      (err) => {
+        console.error("members query failed:", err);
+        setMembers(null);
+      }
     );
     return unsubscribe;
   }, [id]);
