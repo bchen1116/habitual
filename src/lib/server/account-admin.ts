@@ -13,29 +13,48 @@ import { getAdminAuth, getAdminDb } from "@/lib/firebase/admin";
 export async function deleteAccountAdmin(uid: string): Promise<void> {
   const db = getAdminDb();
 
-  // 1. Active challenges the user belongs to.
+  // 1. Every challenge the user belongs to, in any state.
   const challenges = await db
     .collection("challenges")
     .where("memberIds", "array-contains", uid)
-    .where("status", "==", "active")
     .get();
 
   for (const challengeDoc of challenges.docs) {
-    const memberIds = (challengeDoc.data().memberIds as string[]) ?? [];
-    if (memberIds.length <= 1) {
-      // Sole member (all solo challenges, plus group ones nobody joined):
-      // cancel rather than leave an empty challenge for the grader.
-      await challengeDoc.ref.update({ status: "cancelled" });
-    } else {
-      await challengeDoc.ref.update({ memberIds: FieldValue.arrayRemove(uid) });
-    }
-    await challengeDoc.ref.collection("members").doc(uid).delete();
+    const data = challengeDoc.data();
+    // One batch per challenge so removal is atomic — a partial write must
+    // never leave a member doc behind for the grader without a matching
+    // memberIds entry.
+    const batch = db.batch();
 
-    const checkins = await challengeDoc.ref
-      .collection("checkins")
-      .where("uid", "==", uid)
-      .get();
-    await Promise.all(checkins.docs.map((d) => d.ref.delete()));
+    if (data.status === "active") {
+      const memberIds = (data.memberIds as string[]) ?? [];
+      if (memberIds.length <= 1) {
+        // Sole member (all solo challenges, plus group ones nobody joined):
+        // cancel rather than leave an empty challenge for the grader.
+        batch.update(challengeDoc.ref, { status: "cancelled" });
+      } else {
+        batch.update(challengeDoc.ref, {
+          memberIds: FieldValue.arrayRemove(uid),
+        });
+      }
+      batch.delete(challengeDoc.ref.collection("members").doc(uid));
+
+      const checkins = await challengeDoc.ref
+        .collection("checkins")
+        .where("uid", "==", uid)
+        .get();
+      checkins.docs.forEach((d) => batch.delete(d.ref));
+    } else {
+      // Ended / adjudicated / cancelled: the record stays for the other
+      // members, but the identity is scrubbed.
+      batch.set(
+        challengeDoc.ref.collection("members").doc(uid),
+        { displayName: "Deleted user" },
+        { merge: true }
+      );
+    }
+
+    await batch.commit();
   }
 
   // 2. Anonymize ledger entries in both directions; amounts and status stay.
