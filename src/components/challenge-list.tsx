@@ -123,7 +123,7 @@ function ChallengeCard({ challenge, uid }: { challenge: Challenge; uid: string }
             <CardTitle>{challenge.name}</CardTitle>
           </Link>
           <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
-            Solo
+            {challenge.mode === "group" ? "Group" : "Solo"}
           </span>
         </div>
         <CardDescription>

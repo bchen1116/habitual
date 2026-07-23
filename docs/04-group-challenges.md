@@ -38,6 +38,15 @@ maxMembers: int | null            # optional cap (default: no cap)
 
 ## Backend
 
+> **Implementation note:** the server-side functions below shipped as
+> authenticated Next.js route handlers (`/api/challenges`,
+> `/api/challenges/join`) rather than callable Cloud Functions — same trust
+> level (Admin SDK behind session-cookie verification), one less deploy
+> surface, no CORS. The preview lookup runs directly in the `/join/[code]`
+> server component via the Admin SDK. The requirement that matters —
+> clients cannot write challenges/members directly — is enforced by rules
+> either way.
+
 **Callable Cloud Function `createChallenge(payload)`:**
 - Validates the payload (whole-week duration for `weekly_count`, stake > 0, endDate after startDate, mode/forfeit consistency)
 - Atomically creates the challenge doc, the creator's member doc, and — for group mode — a collision-checked join code

@@ -32,39 +32,32 @@ service cloud.firestore {
     }
 
     match /challenges/{cid} {
-      allow create: if request.auth != null
-                    && request.auth.uid == request.resource.data.createdBy
-                    && request.resource.data.mode == "solo"
-                    && request.resource.data.forfeitType == "charity"
-                    && request.resource.data.status == "active"
-                    && request.resource.data.memberIds == [request.auth.uid]
-                    && request.resource.data.stakeAmount is number
-                    && request.resource.data.stakeAmount > 0
-                    && request.resource.data.startDate is string
-                    && request.resource.data.endDate is string
-                    && request.resource.data.endDate >= request.resource.data.startDate;
+      // All creation goes through the server (see /api/challenges): join
+      // codes need collision checks clients can't perform under these
+      // read rules, and the creator's member doc is written server-side.
+      allow create: if false;
       allow read: if request.auth != null
                   && request.auth.uid in resource.data.memberIds;
-      // Creator may edit — or cancel (status -> "cancelled") — only while
-      // active and before the start date.
+      // Term edits (name, dates, stake…) only while the creator is the
+      // sole member. Once anyone else joins, the only permitted change is
+      // cancelling before the start date — members joined under specific
+      // terms, and those terms can't shift under them.
       allow update: if request.auth != null
                     && request.auth.uid == resource.data.createdBy
                     && resource.data.status == "active"
-                    && dateInt(request.time) < int(resource.data.startDate);
+                    && dateInt(request.time) < int(resource.data.startDate)
+                    && (
+                         resource.data.memberIds.size() == 1
+                         || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status"])
+                             && request.resource.data.status == "cancelled")
+                       );
       allow delete: if false;
 
       match /members/{uid} {
         allow read: if request.auth != null
                     && request.auth.uid in get(/databases/$(database)/documents/challenges/$(cid)).data.memberIds;
-        // Solo: only self writes own member doc, and only when they're in
-        // the challenge's memberIds. getAfter (not get) so the
-        // create-challenge batch — where the challenge doc lands in the
-        // same commit — passes, while injecting a member doc into someone
-        // else's challenge is denied. Replaced by the createChallenge /
-        // joinChallenge functions in step 4.
-        allow write: if request.auth != null
-                     && request.auth.uid == uid
-                     && request.auth.uid in getAfter(/databases/$(database)/documents/challenges/$(cid)).data.memberIds;
+        // Written server-side only (create + join routes).
+        allow write: if false;
       }
 
       // NOT {cid} — must not shadow the outer challenge-ID binding.

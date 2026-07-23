@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { getClientAuth } from "@/lib/firebase/client";
 import { createChallenge } from "@/lib/challenges";
 import {
   addDaysYmd,
@@ -27,6 +26,13 @@ const formSchema = z
   .object({
     name: z.string().trim().min(1, "Give your challenge a name").max(60),
     description: z.string().trim().max(200),
+    mode: z.enum(["solo", "group"]),
+    maxMembers: z
+      .string()
+      .refine(
+        (v) => v === "" || (/^\d+$/.test(v) && Number(v) >= 2 && Number(v) <= 100),
+        "Between 2 and 100 (or leave empty for no cap)"
+      ),
     frequencyType: z.enum(["daily", "weekly_count"]),
     target: z.string().regex(/^[1-7]$/, "Between 1 and 7 per week"),
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a start date"),
@@ -54,10 +60,11 @@ const formSchema = z
 
 type FormValues = z.infer<typeof formSchema>;
 
-const STEPS = ["Basics", "Schedule", "Stakes", "Review"] as const;
+const STEPS = ["Basics", "Mode", "Schedule", "Stakes", "Review"] as const;
 
 const STEP_FIELDS: (keyof FormValues)[][] = [
   ["name", "description"],
+  ["mode", "maxMembers"],
   ["frequencyType", "target", "startDate", "durationDays"],
   ["skipDays", "stakeAmount", "charityName"],
   [],
@@ -75,6 +82,8 @@ export function NewChallengeForm() {
     defaultValues: {
       name: "",
       description: "",
+      mode: "solo",
+      maxMembers: "",
       frequencyType: "daily",
       target: "5",
       startDate: ymdToDateInput(todayYmd(browserTimezone())),
@@ -107,17 +116,17 @@ export function NewChallengeForm() {
   }
 
   async function onSubmit(data: FormValues) {
-    const user = getClientAuth().currentUser;
-    if (!user) {
-      setSubmitError("Your sign-in has expired. Please sign in again.");
-      return;
-    }
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const id = await createChallenge(user, {
+      const id = await createChallenge({
         name: data.name.trim(),
         description: data.description.trim(),
+        mode: data.mode,
+        maxMembers:
+          data.mode === "group" && data.maxMembers !== ""
+            ? Number(data.maxMembers)
+            : null,
         frequencyType: data.frequencyType,
         target: Number(data.target),
         startDate: dateInputToYmd(data.startDate),
@@ -127,8 +136,12 @@ export function NewChallengeForm() {
         charityName: data.charityName.trim(),
       });
       router.replace(`/challenges/${id}`);
-    } catch {
-      setSubmitError("Couldn't create the challenge. Please try again.");
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error
+          ? err.message
+          : "Couldn't create the challenge. Please try again."
+      );
       setSubmitting(false);
     }
   }
@@ -191,6 +204,54 @@ export function NewChallengeForm() {
       )}
 
       {step === 1 && (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Label>Mode</Label>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={values.mode === "solo" ? "default" : "outline"}
+                onClick={() => form.setValue("mode", "solo")}
+              >
+                Solo
+              </Button>
+              <Button
+                type="button"
+                variant={values.mode === "group" ? "default" : "outline"}
+                onClick={() => form.setValue("mode", "group")}
+              >
+                Group
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {values.mode === "solo"
+                ? "Just you versus your habit."
+                : "Friends join with an invite link. Everyone stakes their own money and picks their own charity."}
+            </p>
+          </div>
+          {values.mode === "group" && (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="maxMembers">Max members (optional)</Label>
+              <Input
+                id="maxMembers"
+                type="number"
+                min={2}
+                max={100}
+                placeholder="No cap"
+                className="w-32"
+                {...form.register("maxMembers")}
+              />
+              {errors.maxMembers && (
+                <p className="text-sm text-destructive">
+                  {errors.maxMembers.message}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {step === 2 && (
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
             <Label>Frequency</Label>
@@ -263,7 +324,7 @@ export function NewChallengeForm() {
         </div>
       )}
 
-      {step === 2 && (
+      {step === 3 && (
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="skipDays">Allowed skips</Label>
@@ -303,6 +364,12 @@ export function NewChallengeForm() {
               placeholder="e.g. Red Cross"
               {...form.register("charityName")}
             />
+            {values.mode === "group" && (
+              <p className="text-xs text-muted-foreground">
+                This is your charity — each member picks their own when they
+                join.
+              </p>
+            )}
             {errors.charityName && (
               <p className="text-sm text-destructive">
                 {errors.charityName.message}
@@ -312,7 +379,7 @@ export function NewChallengeForm() {
         </div>
       )}
 
-      {step === 3 && (
+      {step === 4 && (
         <Card>
           <CardHeader>
             <CardTitle>{values.name}</CardTitle>
@@ -321,6 +388,13 @@ export function NewChallengeForm() {
             {values.description && (
               <p className="text-muted-foreground">{values.description}</p>
             )}
+            <p>
+              {values.mode === "solo" ? "Solo" : "Group"}
+              {values.mode === "group" &&
+                (values.maxMembers !== ""
+                  ? ` · up to ${values.maxMembers} members`
+                  : " · no member cap")}
+            </p>
             <p>
               {values.frequencyType === "daily"
                 ? "Every day"

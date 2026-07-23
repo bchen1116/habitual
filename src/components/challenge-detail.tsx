@@ -10,6 +10,8 @@ import {
   challengeState,
   dailyHistory,
   progressSummary,
+  skipsUsed,
+  totalRequired,
   weeklyWindows,
 } from "@/lib/progress";
 import Link from "next/link";
@@ -17,6 +19,7 @@ import { daysBetweenInclusive, formatYmd, todayYmd } from "@/lib/dates";
 import { formatAmount } from "@/lib/ledger";
 import type { Challenge, ChallengeMember } from "@/lib/types";
 import { CheckinDialog } from "@/components/checkin-dialog";
+import { ShareLink } from "@/components/share-link";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -30,8 +33,13 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   const router = useRouter();
   const timezone = useUserTimezone(uid);
   const [challenge, setChallenge] = useState<Challenge | null | undefined>(undefined);
-  const [checkinYmds, setCheckinYmds] = useState<string[]>([]);
+  const [allCheckins, setAllCheckins] = useState<
+    { uid: string; localDate: string }[]
+  >([]);
   const [member, setMember] = useState<ChallengeMember | null>(null);
+  const [members, setMembers] = useState<
+    ({ uid: string } & ChallengeMember)[] | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
 
@@ -52,16 +60,16 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
     const unsubscribe = onSnapshot(
       collection(getClientDb(), "challenges", id, "checkins"),
       (snap) => {
-        setCheckinYmds(
-          snap.docs
-            .map((d) => d.data())
-            .filter((c) => c.uid === uid)
-            .map((c) => c.localDate as string)
+        setAllCheckins(
+          snap.docs.map((d) => {
+            const data = d.data();
+            return { uid: data.uid as string, localDate: data.localDate as string };
+          })
         );
       }
     );
     return unsubscribe;
-  }, [id, uid]);
+  }, [id]);
 
   useEffect(() => {
     const unsubscribe = onSnapshot(
@@ -71,6 +79,24 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
     );
     return unsubscribe;
   }, [id, uid]);
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      collection(getClientDb(), "challenges", id, "members"),
+      (snap) =>
+        setMembers(
+          snap.docs.map(
+            (d) => ({ uid: d.id, ...d.data() }) as { uid: string } & ChallengeMember
+          )
+        ),
+      () => setMembers(null)
+    );
+    return unsubscribe;
+  }, [id]);
+
+  const checkinYmds = allCheckins
+    .filter((c) => c.uid === uid)
+    .map((c) => c.localDate);
 
   if (challenge === undefined) {
     return <div className="h-64 animate-pulse rounded-xl bg-muted" />;
@@ -117,14 +143,39 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
             </p>
           )}
         </div>
-        <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
-          {state === "upcoming" && "Not started"}
-          {state === "active" && "Active"}
-          {state === "ended" && "Ended"}
-          {state === "cancelled" && "Cancelled"}
-          {state === "adjudicated" && "Complete"}
-        </span>
+        <div className="flex shrink-0 gap-1.5">
+          {challenge.mode === "group" && (
+            <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
+              Group
+            </span>
+          )}
+          <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
+            {state === "upcoming" && "Not started"}
+            {state === "active" && "Active"}
+            {state === "ended" && "Ended"}
+            {state === "cancelled" && "Cancelled"}
+            {state === "adjudicated" && "Complete"}
+          </span>
+        </div>
       </div>
+
+      {challenge.mode === "group" && state === "upcoming" && challenge.joinCode && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle>Invite friends</CardTitle>
+            <CardDescription>
+              Share this link before the challenge starts — joining closes on{" "}
+              {formatYmd(challenge.startDate)}.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex items-center gap-3">
+            <code className="rounded-md bg-secondary px-3 py-1.5 font-mono text-sm tracking-widest">
+              {challenge.joinCode}
+            </code>
+            <ShareLink joinCode={challenge.joinCode} name={challenge.name} />
+          </CardContent>
+        </Card>
+      )}
 
       {state === "adjudicated" && member?.outcome === "succeeded" && (
         <Card className="border-primary">
@@ -233,6 +284,16 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
         </Card>
       )}
 
+      {challenge.mode === "group" && members && members.length > 0 && (
+        <MembersCard
+          challenge={challenge}
+          members={members}
+          allCheckins={allCheckins}
+          today={today}
+          selfUid={uid}
+        />
+      )}
+
       {(state === "active" || state === "ended" || state === "adjudicated") && (
         <Card>
           <CardHeader className="pb-3">
@@ -263,6 +324,86 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
         </p>
       )}
     </div>
+  );
+}
+
+function MembersCard({
+  challenge,
+  members,
+  allCheckins,
+  today,
+  selfUid,
+}: {
+  challenge: Challenge;
+  members: ({ uid: string } & ChallengeMember)[];
+  allCheckins: { uid: string; localDate: string }[];
+  today: string;
+  selfUid: string;
+}) {
+  const total = totalRequired(challenge);
+  const state = challengeState(challenge, today);
+
+  const rows = members.map((m) => {
+    const ymds = allCheckins
+      .filter((c) => c.uid === m.uid)
+      .map((c) => c.localDate)
+      .filter((d) => d >= challenge.startDate && d <= challenge.endDate);
+    const used = skipsUsed(challenge, ymds, today);
+    return {
+      ...m,
+      completed: m.outcome !== null ? m.completedCount : ymds.length,
+      onTrack: used <= challenge.skipDays,
+    };
+  });
+  const onTrackCount = rows.filter((r) => r.onTrack).length;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle>Members</CardTitle>
+        {state === "active" && (
+          <CardDescription>
+            {onTrackCount} of {rows.length} on track
+          </CardDescription>
+        )}
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {rows.map((row) => (
+          <div key={row.uid} className="flex items-center gap-3">
+            <span
+              className={
+                "flex-1 truncate text-sm " +
+                (row.uid === selfUid ? "font-semibold" : "")
+              }
+            >
+              {row.displayName}
+              {row.uid === selfUid ? " (you)" : ""}
+            </span>
+            {row.outcome === "succeeded" && (
+              <span className="text-xs font-medium text-primary">Succeeded ✓</span>
+            )}
+            {row.outcome === "failed" && (
+              <span className="text-xs font-medium text-destructive">Failed ✗</span>
+            )}
+            {row.outcome === null && (
+              <>
+                <div className="h-1.5 w-24 overflow-hidden rounded-full bg-secondary">
+                  <div
+                    className="h-full rounded-full bg-primary"
+                    style={{
+                      width: `${total > 0 ? Math.min(100, (row.completed / total) * 100) : 0}%`,
+                    }}
+                  />
+                </div>
+                <span className="w-10 text-right text-xs text-muted-foreground">
+                  {row.completed}/{total}
+                </span>
+              </>
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
 
