@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
 import { getClientDb } from "@/lib/firebase/client";
+import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -130,22 +131,11 @@ export function ProfileEditor({ uid }: { uid: string }) {
           onClick={() => fileInputRef.current?.click()}
           disabled={uploading}
           title="Change avatar"
-          className="relative h-16 w-16 shrink-0 overflow-hidden rounded-full bg-secondary"
+          className="relative shrink-0 rounded-full"
         >
-          {profile.photoURL ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={profile.photoURL}
-              alt="Your avatar"
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <span className="flex h-full w-full items-center justify-center text-xl font-semibold text-secondary-foreground">
-              {(profile.displayName || "?").charAt(0).toUpperCase()}
-            </span>
-          )}
+          <Avatar src={profile.photoURL} name={profile.displayName} size="lg" />
           {uploading && (
-            <span className="absolute inset-0 flex items-center justify-center bg-black/50 text-xs text-white">
+            <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50 text-xs text-white">
               …
             </span>
           )}

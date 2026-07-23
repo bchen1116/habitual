@@ -20,6 +20,7 @@ import { formatAmount } from "@/lib/ledger";
 import type { Challenge, ChallengeMember } from "@/lib/types";
 import { CheckinDialog } from "@/components/checkin-dialog";
 import { ShareLink } from "@/components/share-link";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -168,17 +169,17 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
         </div>
         <div className="flex shrink-0 gap-1.5">
           {challenge.mode === "group" && (
-            <span className="type-overline rounded-full border-[1.5px] border-foreground px-2.5 py-1 text-[11px] text-foreground">
+            <Badge variant="outline">
               {challenge.forfeitType === "pool" ? "Winner pool" : "Group"}
-            </span>
+            </Badge>
           )}
-          <span className="type-overline rounded-full bg-secondary px-2.5 py-1 text-[11px] text-secondary-foreground">
+          <Badge variant="secondary">
             {state === "upcoming" && "Not started"}
             {state === "active" && "Active"}
             {state === "ended" && "Ended"}
             {state === "cancelled" && "Cancelled"}
             {state === "adjudicated" && "Complete"}
-          </span>
+          </Badge>
         </div>
       </div>
 
