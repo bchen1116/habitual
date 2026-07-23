@@ -35,6 +35,15 @@
      use --foreground here: it flips to near-white in dark mode, which
      paired with volt text (also stable) reads as unreadable lime-on-white. */
   --ink: #111111;
+  /* Always-ink surfaces per the Volt spec (sidebar, week strip, bottom nav) —
+     literal and theme-invariant for the same reason as --ink above: these
+     panels stay ink-colored regardless of app theme, so their supporting
+     tones (empty bars, inactive icons/labels) must not flip with it either. */
+  --ink-panel: #1c1c1c;
+  --ink-bar-empty: #333333;
+  --ink-icon-inactive: #555555;
+  --ink-label: #888888;
+  --ink-nav-inactive: #777777;
 }
 
 .dark {
@@ -80,6 +89,11 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-ink: var(--ink);
+  --color-ink-panel: var(--ink-panel);
+  --color-ink-bar-empty: var(--ink-bar-empty);
+  --color-ink-icon-inactive: var(--ink-icon-inactive);
+  --color-ink-label: var(--ink-label);
+  --color-ink-nav-inactive: var(--ink-nav-inactive);
   --radius-sm: calc(var(--radius) - 6px);
   --radius-md: calc(var(--radius) - 4px);
   --radius-lg: var(--radius);

@@ -11,6 +11,7 @@ import { challengeState } from "@/lib/progress";
 import { formatYmd, todayYmd } from "@/lib/dates";
 import type { Challenge } from "@/lib/types";
 import { CheckinDialog } from "@/components/checkin-dialog";
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -122,16 +123,9 @@ function ChallengeCard({ challenge, uid }: { challenge: Challenge; uid: string }
           <Link href={`/challenges/${challenge.id}`} className="hover:underline">
             <CardTitle>{challenge.name}</CardTitle>
           </Link>
-          <span
-            className={
-              "type-overline rounded-full px-2.5 py-1 text-[11px] " +
-              (challenge.mode === "group"
-                ? "border-[1.5px] border-foreground text-foreground"
-                : "bg-ink text-primary")
-            }
-          >
+          <Badge variant={challenge.mode === "group" ? "outline" : "ink"}>
             {challenge.mode === "group" ? "Group" : "Solo"}
-          </span>
+          </Badge>
         </div>
         <CardDescription>
           {state === "upcoming" && `Starts ${formatYmd(challenge.startDate)}`}
