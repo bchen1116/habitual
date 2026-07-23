@@ -26,3 +26,17 @@ Planning docs live in [`docs/`](./docs/):
 - **Vercel** for hosting
 
 No payment processor. No escrow. No KYC. No native app.
+
+## Getting started
+
+1. Complete the Firebase / Apple / Vercel console setup in [docs/01-scaffolding-and-auth.md](./docs/01-scaffolding-and-auth.md) (§ "What the user does").
+2. Copy `.env.example` to `.env.local` and fill in the Firebase web config + service account key.
+3. Deploy `firestore.rules` to your Firebase project (Firebase console → Firestore → Rules, or `firebase deploy --only firestore:rules`).
+4. Install and run:
+
+```bash
+npm install
+npm run dev
+```
+
+The app runs at `http://localhost:3000`. Sign-in requires the Firebase Auth providers (Google, Apple) to be enabled and `localhost` present in Firebase Auth's authorized domains (it is by default).
