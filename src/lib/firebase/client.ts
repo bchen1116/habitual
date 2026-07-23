@@ -2,7 +2,13 @@
 
 import { getApps, initializeApp, type FirebaseApp } from "firebase/app";
 import { getAuth, type Auth } from "firebase/auth";
-import { getFirestore, type Firestore } from "firebase/firestore";
+import {
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  type Firestore,
+} from "firebase/firestore";
 
 // Lazy singletons so importing this module never touches Firebase during
 // prerender/build — config is only read when a browser actually needs it.
@@ -31,6 +37,24 @@ export function getClientAuth(): Auth {
   return getAuth(getFirebaseApp());
 }
 
+let db: Firestore | null = null;
+
+/**
+ * Firestore with offline persistence (IndexedDB, multi-tab). Reads serve
+ * from cache when offline; writes queue and sync on reconnect (docs/02).
+ * Falls back to the default in-memory instance if IndexedDB is unavailable.
+ */
 export function getClientDb(): Firestore {
-  return getFirestore(getFirebaseApp());
+  if (!db) {
+    try {
+      db = initializeFirestore(getFirebaseApp(), {
+        localCache: persistentLocalCache({
+          tabManager: persistentMultipleTabManager(),
+        }),
+      });
+    } catch {
+      db = getFirestore(getFirebaseApp());
+    }
+  }
+  return db;
 }

@@ -1,8 +1,69 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // yyyymmdd integer for a timestamp (UTC). Rules can't do timezone math,
+    // so date checks that need user-local awareness use a ±1-day tolerance.
+    function dateInt(ts) {
+      return ts.year() * 10000 + ts.month() * 100 + ts.day();
+    }
+
     match /users/{uid} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    match /challenges/{cid} {
+      allow create: if request.auth != null
+                    && request.auth.uid == request.resource.data.createdBy
+                    && request.resource.data.mode == "solo"
+                    && request.resource.data.forfeitType == "charity"
+                    && request.resource.data.status == "active"
+                    && request.resource.data.memberIds == [request.auth.uid]
+                    && request.resource.data.stakeAmount is number
+                    && request.resource.data.stakeAmount > 0
+                    && request.resource.data.startDate is string
+                    && request.resource.data.endDate is string
+                    && request.resource.data.endDate >= request.resource.data.startDate;
+      allow read: if request.auth != null
+                  && request.auth.uid in resource.data.memberIds;
+      // Creator may edit — or cancel (status -> "cancelled") — only while
+      // active and before the start date.
+      allow update: if request.auth != null
+                    && request.auth.uid == resource.data.createdBy
+                    && resource.data.status == "active"
+                    && dateInt(request.time) < int(resource.data.startDate);
+      allow delete: if false;
+
+      match /members/{uid} {
+        allow read: if request.auth != null
+                    && request.auth.uid in get(/databases/$(database)/documents/challenges/$(cid)).data.memberIds;
+        // Solo: only self writes own member doc, and only when they're in
+        // the challenge's memberIds. getAfter (not get) so the
+        // create-challenge batch — where the challenge doc lands in the
+        // same commit — passes, while injecting a member doc into someone
+        // else's challenge is denied. Replaced by the createChallenge /
+        // joinChallenge functions in step 4.
+        allow write: if request.auth != null
+                     && request.auth.uid == uid
+                     && request.auth.uid in getAfter(/databases/$(database)/documents/challenges/$(cid)).data.memberIds;
+      }
+
+      // NOT {cid} — must not shadow the outer challenge-ID binding.
+      match /checkins/{checkinId} {
+        allow read: if request.auth != null
+                    && request.auth.uid in get(/databases/$(database)/documents/challenges/$(cid)).data.memberIds;
+        // Anti-backfill: the doc ID must be "<localDate>_<uid>" for the
+        // caller, completedAt must be the server's time, and localDate must
+        // be within ±1 day of the server date (covers every timezone).
+        allow create: if request.auth != null
+                      && request.auth.uid == request.resource.data.uid
+                      && request.auth.uid in get(/databases/$(database)/documents/challenges/$(cid)).data.memberIds
+                      && checkinId == request.resource.data.localDate + '_' + request.auth.uid
+                      && request.resource.data.completedAt == request.time
+                      && int(request.resource.data.localDate) >= dateInt(request.time - duration.value(1, 'd'))
+                      && int(request.resource.data.localDate) <= dateInt(request.time + duration.value(1, 'd'));
+        allow update, delete: if false;
+      }
     }
   }
 }
