@@ -8,9 +8,11 @@ export interface Challenge {
   name: string;
   description: string | null;
   createdBy: string;
-  mode: "solo";
+  mode: "solo" | "group";
   forfeitType: "charity";
-  charityName: string;
+  charityName: string; // creator's charity; each group member picks their own on join
+  joinCode?: string | null; // group only
+  maxMembers?: number | null; // group only, optional cap
   frequency: {
     type: FrequencyType;
     target: number; // check-ins per 7-day window; meaningful for weekly_count

@@ -8,18 +8,17 @@ import {
   updateDoc,
   setDoc,
   where,
-  writeBatch,
   type Firestore,
   type Query,
 } from "firebase/firestore";
-import type { User } from "firebase/auth";
 import { getClientDb } from "@/lib/firebase/client";
-import { addDaysYmd } from "@/lib/dates";
 import type { Challenge, FrequencyType } from "@/lib/types";
 
 export interface CreateChallengeInput {
   name: string;
   description: string;
+  mode: "solo" | "group";
+  maxMembers: number | null;
   frequencyType: FrequencyType;
   target: number;
   startDate: string; // yyyymmdd
@@ -39,50 +38,40 @@ export function activeChallengesQuery(db: Firestore, uid: string): Query {
 }
 
 /**
- * Creates the challenge doc + the creator's member doc in one batch.
- * (Step 4 moves this into a `createChallenge` Cloud Function when group
- * mode and join codes arrive; for solo, client-side writes are fine.)
+ * Creates a challenge via the server (join codes need server-side collision
+ * checks, and the rules block client challenge writes). Identity comes from
+ * the session cookie. Requires network — creation isn't an offline flow.
  */
 export async function createChallenge(
-  user: User,
   input: CreateChallengeInput
 ): Promise<string> {
-  const db = getClientDb();
-  const challengeRef = doc(collection(db, "challenges"));
-  const memberRef = doc(db, "challenges", challengeRef.id, "members", user.uid);
-
-  const endDate = addDaysYmd(input.startDate, input.durationDays - 1);
-
-  const batch = writeBatch(db);
-  batch.set(challengeRef, {
-    name: input.name,
-    description: input.description || null,
-    createdBy: user.uid,
-    mode: "solo",
-    forfeitType: "charity",
-    charityName: input.charityName,
-    frequency: {
-      type: input.frequencyType,
-      target: input.frequencyType === "daily" ? 1 : input.target,
-    },
-    skipDays: input.skipDays,
-    stakeAmount: input.stakeAmount,
-    startDate: input.startDate,
-    endDate,
-    status: "active",
-    memberIds: [user.uid],
-    createdAt: serverTimestamp(),
+  const response = await fetch("/api/challenges", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
   });
-  batch.set(memberRef, {
-    displayName: user.displayName ?? user.email ?? "Anonymous",
-    joinedAt: serverTimestamp(),
-    charityName: input.charityName,
-    outcome: null,
-    completedCount: 0,
-    skipsUsed: 0,
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(body?.error ?? "Couldn't create the challenge");
+  }
+  return body.id as string;
+}
+
+/** Joins a group challenge by code; resolves to the challenge id. */
+export async function joinChallenge(
+  joinCode: string,
+  charityName: string
+): Promise<string> {
+  const response = await fetch("/api/challenges/join", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ joinCode, charityName }),
   });
-  await batch.commit();
-  return challengeRef.id;
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(body?.error ?? "Couldn't join the challenge");
+  }
+  return body.challengeId as string;
 }
 
 /** Creator-only, before startDate (enforced by Firestore rules). */
