@@ -34,3 +34,14 @@ for (const { file, size, pad } of targets) {
   await sharp(Buffer.from(iconSvg(size, pad))).png().toFile(file);
   console.log(`wrote ${file}`);
 }
+
+// Default OG image (1200x630) for link previews.
+const ogSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630">
+  <rect width="1200" height="630" fill="${BG}"/>
+  <text x="600" y="280" font-family="Arial, Helvetica, sans-serif" font-weight="bold"
+    font-size="120" fill="${FG}" text-anchor="middle">Habitual</text>
+  <text x="600" y="380" font-family="Arial, Helvetica, sans-serif"
+    font-size="44" fill="#a3a3a3" text-anchor="middle">Put your money where your habits are.</text>
+</svg>`;
+await sharp(Buffer.from(ogSvg)).png().toFile("public/og-image.png");
+console.log("wrote public/og-image.png");

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { NetworkBanner } from "@/components/network-banner";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,9 +14,18 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
+  ),
   title: "Habitual",
   description:
     "Put your money where your habits are. Track habits solo or with friends — with real stakes.",
+  openGraph: {
+    title: "Habitual",
+    description:
+      "Put your money where your habits are. Track habits solo or with friends — with real stakes.",
+    images: ["/og-image.png"],
+  },
   icons: {
     apple: "/icons/apple-touch-icon.png",
   },
@@ -54,6 +64,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
       >
+        <NetworkBanner />
         {children}
       </body>
     </html>

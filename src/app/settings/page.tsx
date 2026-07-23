@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
+import { DeleteAccount } from "@/components/delete-account";
+import { ProfileEditor } from "@/components/profile-editor";
 import { SignOutButton } from "@/components/sign-out-button";
 import {
   Card,
@@ -30,19 +32,9 @@ export default async function SettingsPage() {
         <Card>
           <CardHeader>
             <CardTitle>Profile</CardTitle>
-            <CardDescription>
-              Editing arrives in a later milestone.
-            </CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-col gap-2">
-            <p className="text-sm">
-              <span className="text-muted-foreground">Name: </span>
-              {user.displayName ?? "—"}
-            </p>
-            <p className="text-sm">
-              <span className="text-muted-foreground">Email: </span>
-              {user.email ?? "—"}
-            </p>
+          <CardContent>
+            <ProfileEditor uid={user.uid} />
           </CardContent>
         </Card>
 
@@ -65,10 +57,25 @@ export default async function SettingsPage() {
 
         <Card>
           <CardHeader>
+            <CardTitle>About</CardTitle>
+          </CardHeader>
+          <CardContent className="flex gap-4 text-sm">
+            <Link href="/terms" className="underline hover:text-foreground">
+              Terms of Service
+            </Link>
+            <Link href="/privacy" className="underline hover:text-foreground">
+              Privacy Policy
+            </Link>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>Account</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="flex flex-col items-start gap-4">
             <SignOutButton />
+            <DeleteAccount />
           </CardContent>
         </Card>
       </main>

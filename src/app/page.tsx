@@ -23,8 +23,14 @@ export default async function LandingPage() {
           <Link href="/login">Get started</Link>
         </Button>
       </main>
-      <footer className="p-6 text-center text-sm text-muted-foreground">
-        © {new Date().getFullYear()} Habitual
+      <footer className="flex items-center justify-center gap-4 p-6 text-sm text-muted-foreground">
+        <span>© {new Date().getFullYear()} Habitual</span>
+        <Link href="/terms" className="hover:text-foreground">
+          Terms
+        </Link>
+        <Link href="/privacy" className="hover:text-foreground">
+          Privacy
+        </Link>
       </footer>
     </div>
   );
