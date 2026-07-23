@@ -48,6 +48,23 @@ export default async function SettingsPage() {
 
         <Card>
           <CardHeader>
+            <CardTitle>Notifications</CardTitle>
+            <CardDescription>
+              Push reminders, results, and ledger updates.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link
+              href="/settings/notifications"
+              className="text-sm underline hover:text-foreground"
+            >
+              Notification settings
+            </Link>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>Account</CardTitle>
           </CardHeader>
           <CardContent>

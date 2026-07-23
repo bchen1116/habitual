@@ -16,6 +16,14 @@ export const metadata: Metadata = {
   title: "Habitual",
   description:
     "Put your money where your habits are. Track habits solo or with friends — with real stakes.",
+  icons: {
+    apple: "/icons/apple-touch-icon.png",
+  },
+  appleWebApp: {
+    capable: true,
+    title: "Habitual",
+    statusBarStyle: "default",
+  },
 };
 
 // Applies the .dark class from the system preference before first paint and

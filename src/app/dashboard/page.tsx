@@ -2,7 +2,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { ChallengeList } from "@/components/challenge-list";
+import { InstallBanner } from "@/components/install-banner";
 import { LedgerSummary } from "@/components/ledger-summary";
+import { PushProvider } from "@/components/push-provider";
 import { Button } from "@/components/ui/button";
 
 export default async function DashboardPage() {
@@ -22,6 +24,8 @@ export default async function DashboardPage() {
       </header>
 
       <main className="flex flex-1 flex-col gap-4">
+        <PushProvider uid={user.uid} />
+        <InstallBanner />
         <LedgerSummary uid={user.uid} />
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Your challenges</h2>

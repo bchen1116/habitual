@@ -33,6 +33,10 @@ function getFirebaseApp(): FirebaseApp {
   return app;
 }
 
+export function getClientApp(): FirebaseApp {
+  return getFirebaseApp();
+}
+
 export function getClientAuth(): Auth {
   return getAuth(getFirebaseApp());
 }
