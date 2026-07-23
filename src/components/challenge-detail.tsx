@@ -201,7 +201,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
             <CardDescription>
               {state === "active" &&
                 `${summary.daysRemaining} day${summary.daysRemaining === 1 ? "" : "s"} remaining · ${summary.skipsUsed} of ${challenge.skipDays} skips used`}
-              {state === "ended" && "Ended — results land within two days"}
+              {state === "ended" && "Ended — results land in the next day or two"}
               {state === "adjudicated" &&
                 `${formatYmd(challenge.startDate)} – ${formatYmd(challenge.endDate)}`}
             </CardDescription>

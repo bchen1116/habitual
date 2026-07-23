@@ -12,20 +12,39 @@ import { Card, CardContent } from "@/components/ui/card";
 export function LedgerSummary({ uid }: { uid: string }) {
   const [owedByMe, setOwedByMe] = useState<LedgerEntry[] | null>(null);
   const [owedToMe, setOwedToMe] = useState<LedgerEntry[] | null>(null);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     const db = getClientDb();
-    const unsubscribeFrom = onSnapshot(owedByMeQuery(db, uid), (snap) =>
-      setOwedByMe(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as LedgerEntry))
+    const onError = (err: unknown) => {
+      console.error("ledger summary query failed:", err);
+      setLoadError(true);
+    };
+    const unsubscribeFrom = onSnapshot(
+      owedByMeQuery(db, uid),
+      (snap) =>
+        setOwedByMe(
+          snap.docs.map((d) => ({ id: d.id, ...d.data() }) as LedgerEntry)
+        ),
+      onError
     );
-    const unsubscribeTo = onSnapshot(owedToMeQuery(db, uid), (snap) =>
-      setOwedToMe(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as LedgerEntry))
+    const unsubscribeTo = onSnapshot(
+      owedToMeQuery(db, uid),
+      (snap) =>
+        setOwedToMe(
+          snap.docs.map((d) => ({ id: d.id, ...d.data() }) as LedgerEntry)
+        ),
+      onError
     );
     return () => {
       unsubscribeFrom();
       unsubscribeTo();
     };
   }, [uid]);
+
+  // Auxiliary card: on error, render nothing rather than spin forever or
+  // falsely claim "all settled".
+  if (loadError) return null;
 
   if (owedByMe === null || owedToMe === null) {
     return <div className="h-16 animate-pulse rounded-xl bg-muted" />;
