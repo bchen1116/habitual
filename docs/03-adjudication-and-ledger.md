@@ -41,7 +41,7 @@ adjudicatedAt: timestamp
 
 **`challenges/{cid}`** (updated)
 ```
-status: "active" | "adjudicated"
+status: "active" | "cancelled" | "adjudicated"
 adjudicatedAt: timestamp | null
 ```
 
@@ -50,18 +50,17 @@ adjudicatedAt: timestamp | null
 **Cloud Function `adjudicateEndedChallenges`:**
 - Trigger: scheduled, every 24 hours at 03:00 UTC
 - Logic:
-  1. Query `challenges where status == "active" and endDate < now`
+  1. Query `challenges where status == "active" and endDate <= yyyymmdd(now − 36h)`. Dates are `yyyymmdd` strings, which sort chronologically, so this is a plain string comparison. The 36-hour buffer matters: check-ins are keyed by **user-local** dates, so a challenge ending "July 22" isn't over everywhere until July 23 12:00 UTC (end of day in UTC−12). Grading at a bare `endDate < now` would mark members in lagging timezones as failed while their final day is still in progress. `endDate <= yyyymmdd(now − 36h)` first becomes true exactly at endDate + 36h — safe for every timezone, at the cost of results landing up to a day later. (Refinement for later: gate per-challenge on the max of members' actual local end-of-day instants.) Cancelled challenges are never picked up — the status filter excludes them.
   2. For each challenge, run adjudication **inside a Firestore transaction** so ledger entry creation + challenge status update are atomic (if the function dies mid-way, next run picks up cleanly)
   3. For each member:
-     - Count check-ins with `localDate in [startDate, endDate]`
-     - Compute required count:
-       - `daily`: `endDate - startDate` days
-       - `weekly_count`: `target × ceil((endDate - startDate) / 7)` — one target per rolling 7-day window from startDate
-     - `missed = required - completed`
+     - Count check-ins with `localDate in [startDate, endDate]` (string range over the subcollection)
+     - Compute missed count:
+       - `daily`: `required = number of days in [startDate, endDate]`; `missed = required − completed`
+       - `weekly_count`: split the challenge into sequential 7-day windows from `startDate` (durations are whole weeks — enforced at creation, step 2). Per window: `missed_w = max(0, target − checkinsInWindow)`; `missed = Σ missed_w`. Per-window accounting is what makes the pace real — 10 check-ins crammed into week one of a two-week 5×/week challenge still misses week two entirely.
      - `outcome = "succeeded" if missed <= skipDays else "failed"`
      - Write outcome, completedCount, skipsUsed, adjudicatedAt to member doc
   4. Create ledger entries (see below)
-  5. Set `challenge.status = "adjudicated"`, `adjudicatedAt = now`
+  5. Set `challenge.status = "adjudicated"`, `adjudicatedAt = now` — this runs for **every** processed challenge, including ones that produced zero ledger entries (all-succeeded, and later the all-fail pool wash in step 5)
 - **Idempotency:** transaction reads `challenge.status`; skips if already `"adjudicated"`
 
 **Ledger creation (solo + charity in this step):**
@@ -84,7 +83,12 @@ match /ledgerEntries/{entryId} {
   allow create: if false;                    # server only
   allow update: if request.auth.uid == resource.data.fromUid
                 && request.resource.data.diff(resource.data).affectedKeys()
-                     .hasOnly(["status", "settledAt", "receiptURL", "note"]);
+                     .hasOnly(["status", "settledAt", "receiptURL", "note"])
+                # settling is one-way and can't be backdated:
+                && request.resource.data.status == "settled"
+                && (resource.data.status == "unsettled"
+                      ? request.resource.data.settledAt == request.time
+                      : request.resource.data.settledAt == resource.data.settledAt);
   allow delete: if false;
 }
 ```
@@ -103,7 +107,8 @@ match /receipts/{uid}/{entryId} {
 ```
 
 **Firestore indexes:**
-- `ledgerEntries`: `(fromUid, status)`, `(toUid, status)`, `(challengeId)`
+- `ledgerEntries`: `(fromUid, status)`, `(toUid, status)` — single-field `challengeId` lookups are automatic
+- `challenges`: `(status, endDate)` — the adjudication query
 
 ## Frontend
 

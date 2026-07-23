@@ -152,9 +152,9 @@ Plus: empty states, loading skeletons, error toasts, page transitions.
 
 **Steps** (each a section or step page; designer's call):
 1. **Basics** — name (required), description (optional)
-2. **Mode** — Solo / Group
+2. **Mode** — Solo / Group; if Group, optional max-members cap
 3. **Frequency** — Daily / N times per week (with target)
-4. **Duration** — start date, end date (or duration presets)
+4. **Duration** — start date, end date (or duration presets); weekly-count challenges must be a whole number of weeks
 5. **Skip days** — how many misses allowed
 6. **Stake** — dollar amount (USD)
 7. **Forfeit type** (Group only) — Charity forfeit / Winner pool
@@ -169,7 +169,7 @@ Plus: empty states, loading skeletons, error toasts, page transitions.
 ### Challenge detail (`/challenges/[id]`)
 
 **Solo variant:**
-- Header: name, mode badge (Solo), status pill
+- Header: name, mode badge (Solo), status pill (Active / Ended / Adjudicated / Cancelled)
 - Progress card: X of Y complete, streak, days remaining
 - Skip days used
 - **Check in for today** button (or "Checked in ✓")
@@ -276,7 +276,7 @@ Plus: empty states, loading skeletons, error toasts, page transitions.
 - **PWA install status:** if not installed, show install button/instructions
 - **Push permission status:** if not granted, prompt with explanation + request button
 - Per-category toggles:
-  - Group activity (someone joined, someone checked in)
+  - Group activity (someone joined your challenge)
   - Challenge lifecycle (starting, ending soon, results in)
   - Ledger (new debt, someone settled)
 - If push is unsupported (e.g., iOS Safari without install): show explanation + install instructions

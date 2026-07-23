@@ -29,18 +29,20 @@ forfeitType: "charity" | "pool"
 if challenge.forfeitType == "pool":
   winners = members.filter(outcome == "succeeded")
   losers  = members.filter(outcome == "failed")
-  if winners.length == 0:
-    # wash — everyone loses face, nobody owes
-    return
-  perWinnerShare = challenge.stakeAmount / winners.length
-  for loser in losers:
-    for winner in winners:
-      create ledger entry:
-        fromUid = loser.uid,   fromName = loser.displayName
-        toType  = "user"
-        toUid   = winner.uid,  toName  = winner.displayName
-        amount  = perWinnerShare       # stored as number
-        status  = "unsettled"
+  if winners.length > 0:
+    perWinnerShare = challenge.stakeAmount / winners.length
+    for loser in losers:
+      for winner in winners:
+        create ledger entry:
+          fromUid = loser.uid,   fromName = loser.displayName
+          toType  = "user"
+          toUid   = winner.uid,  toName  = winner.displayName
+          amount  = perWinnerShare       # stored as number
+          status  = "unsettled"
+  # winners.length == 0 → wash: create NO ledger entries, but do NOT return
+  # early — execution must fall through to step 3's final step so the
+  # challenge is still marked "adjudicated". An early return here would
+  # leave it "active" and re-processed by every future run, forever.
 elif challenge.forfeitType == "charity":
   # unchanged from step 4
 ```

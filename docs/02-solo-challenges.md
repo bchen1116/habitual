@@ -27,9 +27,9 @@ frequency: {
 }
 skipDays: int
 stakeAmount: number
-startDate: timestamp
-endDate: timestamp
-status: "active"
+startDate: "yyyymmdd"            # calendar date, inclusive; each member's days run in their own timezone
+endDate: "yyyymmdd"              # calendar date, inclusive last day; sorts chronologically as a string
+status: "active" | "cancelled"   # "adjudicated" added in step 3; cancel = creator only, before startDate
 memberIds: [uid]                 # just [creatorUid] for solo
 createdAt: timestamp
 ```
@@ -49,7 +49,7 @@ skipsUsed: 0
 Doc ID enforces one check-in per user per day.
 ```
 uid: string
-localDate: "YYYY-MM-DD"          # computed from user.timezone
+localDate: "yyyymmdd"            # computed from user.timezone; matches the doc-ID prefix so rules can validate it with plain string concat
 completedAt: timestamp
 note: string | null
 ```
@@ -59,37 +59,54 @@ note: string | null
 Clarifying because these matter for adjudication in step 3:
 
 - **`daily`:** one check-in required per day. `skipDays` = number of missed days allowed across the whole challenge.
-- **`weekly_count`:** `target` check-ins required per rolling 7-day window from `startDate`. `skipDays` = total missed check-ins allowed across the whole challenge (not missed weeks).
+- **`weekly_count`:** the challenge is divided into **sequential 7-day windows** starting at `startDate`; each window requires `target` check-ins. `skipDays` = total missed check-ins allowed across the whole challenge (pooled across windows, not missed weeks). The create flow **enforces whole-week durations** (7, 14, 21, 28 days…) for `weekly_count` — a partial final window would demand `target` check-ins in fewer than 7 days, which can be arithmetically impossible.
 
-Rolling 7-day windows are used to avoid timezone-sensitive week boundaries (Sun–Sat vs Mon–Sun etc.).
+Sequential windows anchored to `startDate` (not calendar weeks) avoid timezone-sensitive week boundaries (Sun–Sat vs Mon–Sun etc.). They're also more forgiving than a true rolling-window constraint while still preventing someone from front-loading all their check-ins into week one.
 
 ## Backend
 
 **Firestore rules:**
 ```
+// Helper: yyyymmdd integer for a timestamp (UTC). Rules can't do timezone
+// math, so date checks that need user-local awareness use a ±1-day tolerance.
+function dateInt(ts) {
+  return ts.year() * 10000 + ts.month() * 100 + ts.day();
+}
+
 match /challenges/{cid} {
   allow create: if request.auth.uid == request.resource.data.createdBy;
   allow read: if request.auth.uid in resource.data.memberIds;
+  // Creator may edit — or cancel (status → "cancelled") — only while active
+  // and before the start date.
   allow update: if request.auth.uid == resource.data.createdBy
                 && resource.data.status == "active"
-                && request.time < resource.data.startDate;
+                && dateInt(request.time) < int(resource.data.startDate);
 
   match /members/{uid} {
     allow read: if request.auth.uid in get(/databases/$(database)/documents/challenges/$(cid)).data.memberIds;
-    allow write: if request.auth.uid == uid;   # solo: only self writes own member doc
+    allow write: if request.auth.uid == uid;   # solo: only self writes own member doc (replaced by server functions in step 4)
   }
 
-  match /checkins/{cid} {
+  match /checkins/{checkinId} {                # NOT {cid} — must not shadow the outer challenge-ID binding
     allow read: if request.auth.uid in get(/databases/$(database)/documents/challenges/$(cid)).data.memberIds;
-    allow create: if request.auth.uid == request.resource.data.uid;
+    // Anti-backfill: the doc ID must be "<localDate>_<uid>" for the caller,
+    // completedAt must be the server's time, and localDate must be within
+    // ±1 day of the server date (the tolerance covers every timezone).
+    // Without these checks a client could hand-craft writes for past days
+    // and erase misses — and money rides on this.
+    allow create: if request.auth.uid == request.resource.data.uid
+                  && checkinId == request.resource.data.localDate + '_' + request.auth.uid
+                  && request.resource.data.completedAt == request.time
+                  && int(request.resource.data.localDate) >= dateInt(request.time - duration.value(1, 'd'))
+                  && int(request.resource.data.localDate) <= dateInt(request.time + duration.value(1, 'd'));
     allow update, delete: if false;            # check-ins immutable
   }
 }
 ```
 
 **Firestore indexes:**
-- `challenges`: `(createdBy, status)`
-- `checkins` (collection group): `(challengeId, localDate)`
+- `challenges`: `(memberIds array-contains, status)` — the dashboard's "my active challenges" query
+- No check-in indexes needed: adjudication and history read each challenge's `checkins` subcollection directly (check-in docs carry no `challengeId` field, so there's no collection-group query)
 
 **No Cloud Functions in this step.**
 
@@ -101,9 +118,9 @@ match /challenges/{cid} {
 
 **Today's date for check-in:**
 ```ts
-const today = formatInTimeZone(new Date(), user.timezone, 'yyyy-MM-dd')
+const today = formatInTimeZone(new Date(), user.timezone, 'yyyyMMdd')
 ```
-This gives the user's local date consistently regardless of what timezone they're currently in.
+This gives the user's local date consistently regardless of what timezone they're currently in, in the same `yyyymmdd` format used by the check-in doc ID (`${today}_${uid}`) and the `localDate` field.
 
 **Offline persistence:**
 ```ts
@@ -123,7 +140,7 @@ enableIndexedDbPersistence(db).catch(err => {
 
 ## Screens
 
-- **Dashboard** (`/dashboard`) — populated with active challenges, ledger summary
+- **Dashboard** (`/dashboard`) — populated with active challenges (the ledger summary card arrives in step 3, once the ledger exists)
 - **Create challenge** (`/challenges/new`) — multi-step form (see `overview.md`)
 - **Challenge detail** (`/challenges/[id]`) — solo variant: progress, check-in button, history
 - **Check-in confirmation** — bottom sheet (mobile) / modal (desktop) with optional note

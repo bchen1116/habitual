@@ -26,7 +26,7 @@ timezone: string           # IANA tz (e.g., "America/Los_Angeles")
 createdAt: timestamp
 ```
 
-`timezone` is captured on first sign-in from `Intl.DateTimeFormat().resolvedOptions().timeZone` and used later for day-boundary calculations and (in step 6) push scheduling.
+`timezone` is captured on first sign-in from `Intl.DateTimeFormat().resolvedOptions().timeZone` and used later for day-boundary calculations and (in step 6) push scheduling. On subsequent sign-ins, refresh it **only if the user has no active challenges** — freezing the timezone mid-challenge keeps day boundaries stable (and blocks timezone-hopping shenanigans), while refreshing between challenges keeps things correct for users who move.
 
 ## Stack
 
