@@ -1,13 +1,7 @@
 "use client";
 
 import { doc, setDoc } from "firebase/firestore";
-import {
-  getMessaging,
-  getToken,
-  isSupported,
-  onMessage,
-  type MessagePayload,
-} from "firebase/messaging";
+import { getMessaging, getToken, isSupported } from "firebase/messaging";
 import { getClientApp, getClientDb } from "@/lib/firebase/client";
 
 export type PushStatus =
@@ -46,7 +40,10 @@ export async function syncPushToken(uid: string): Promise<void> {
     console.warn("NEXT_PUBLIC_FIREBASE_VAPID_KEY not set; push disabled");
     return;
   }
-  const registration = await navigator.serviceWorker.ready;
+  // getRegistration (not .ready) — .ready never resolves when no SW is
+  // registered, e.g. in dev where Serwist is disabled.
+  const registration = await navigator.serviceWorker.getRegistration();
+  if (!registration) return;
   const messaging = getMessaging(getClientApp());
   const token = await getToken(messaging, {
     vapidKey,
@@ -72,21 +69,28 @@ export async function enablePush(uid: string): Promise<PushStatus> {
   return permission as PushStatus;
 }
 
-/** Foreground messages (page open) — surface as an in-app toast. */
-export async function listenForegroundMessages(
+/**
+ * Foreground messages — our service worker posts pushes to the focused
+ * window (see sw.ts) instead of showing a system notification. (FCM's
+ * onMessage only works with FCM's own worker, which we don't use.)
+ */
+export function listenForegroundMessages(
   onNotification: (payload: {
     title: string;
     body: string;
     targetUrl: string;
   }) => void
-): Promise<() => void> {
-  if (!(await isSupported().catch(() => false))) return () => {};
-  const messaging = getMessaging(getClientApp());
-  return onMessage(messaging, (payload: MessagePayload) => {
+): () => void {
+  if (!("serviceWorker" in navigator)) return () => {};
+  const handler = (event: MessageEvent) => {
+    if (event.data?.type !== "PUSH_MESSAGE") return;
+    const { title, body, targetUrl } = event.data.payload ?? {};
     onNotification({
-      title: payload.notification?.title ?? "Habitual",
-      body: payload.notification?.body ?? "",
-      targetUrl: payload.data?.targetUrl ?? "/dashboard",
+      title: title ?? "Habitual",
+      body: body ?? "",
+      targetUrl: targetUrl ?? "/dashboard",
     });
-  });
+  };
+  navigator.serviceWorker.addEventListener("message", handler);
+  return () => navigator.serviceWorker.removeEventListener("message", handler);
 }

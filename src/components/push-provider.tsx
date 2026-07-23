@@ -37,19 +37,10 @@ export function PushProvider({ uid }: { uid: string }) {
   }, [uid]);
 
   useEffect(() => {
-    let unsubscribe: (() => void) | undefined;
-    let cancelled = false;
-    listenForegroundMessages((payload) => {
+    return listenForegroundMessages((payload) => {
       setToast(payload);
       setTimeout(() => setToast((t) => (t === payload ? null : t)), 6000);
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unsubscribe = fn;
     });
-    return () => {
-      cancelled = true;
-      unsubscribe?.();
-    };
   }, []);
 
   if (!toast) return null;

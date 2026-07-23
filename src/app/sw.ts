@@ -23,7 +23,10 @@ serwist.addEventListeners();
 /**
  * FCM web push, handled directly (no firebase SDK in the worker). The
  * server sends `webpush.notification` + `data.targetUrl`; we display and
- * route clicks ourselves.
+ * route clicks ourselves. When a window is focused, the payload is posted
+ * to it for an in-app toast instead of a system notification — the page
+ * listens via navigator.serviceWorker "message" events (the FCM SDK's
+ * onMessage only works with FCM's own worker, which we don't use).
  */
 self.addEventListener("push", (event) => {
   if (!event.data) return;
@@ -37,12 +40,29 @@ self.addEventListener("push", (event) => {
     return;
   }
   const title = payload.notification?.title ?? "Habitual";
+  const body = payload.notification?.body ?? "";
+  const targetUrl = payload.data?.targetUrl ?? "/dashboard";
+
   event.waitUntil(
-    self.registration.showNotification(title, {
-      body: payload.notification?.body,
-      icon: "/icons/icon-192.png",
-      data: { targetUrl: payload.data?.targetUrl ?? "/dashboard" },
-    })
+    (async () => {
+      const windows = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      const focused = windows.find((client) => client.focused);
+      if (focused) {
+        focused.postMessage({
+          type: "PUSH_MESSAGE",
+          payload: { title, body, targetUrl },
+        });
+        return;
+      }
+      await self.registration.showNotification(title, {
+        body,
+        icon: "/icons/icon-192.png",
+        data: { targetUrl },
+      });
+    })()
   );
 });
 
