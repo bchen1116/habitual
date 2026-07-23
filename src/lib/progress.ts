@@ -1,14 +1,20 @@
 import { addDaysYmd, daysBetweenInclusive, todayYmd } from "@/lib/dates";
 import type { Challenge } from "@/lib/types";
 
-export type ChallengeState = "upcoming" | "active" | "ended" | "cancelled";
+export type ChallengeState =
+  | "upcoming"
+  | "active"
+  | "ended"
+  | "cancelled"
+  | "adjudicated";
 
 /**
  * The lifecycle state as seen by one member "today" (their local date).
- * "ended" means past endDate but not yet adjudicated (that's step 3).
+ * "ended" means past endDate but not yet adjudicated.
  */
 export function challengeState(challenge: Challenge, today: string): ChallengeState {
   if (challenge.status === "cancelled") return "cancelled";
+  if (challenge.status === "adjudicated") return "adjudicated";
   if (today < challenge.startDate) return "upcoming";
   if (today > challenge.endDate) return "ended";
   return "active";

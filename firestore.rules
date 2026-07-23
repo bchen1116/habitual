@@ -12,6 +12,25 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
 
+    match /ledgerEntries/{entryId} {
+      allow read: if request.auth != null
+                  && (request.auth.uid == resource.data.fromUid
+                      || request.auth.uid == resource.data.toUid);
+      allow create: if false;   // server only (adjudication function)
+      // Only the debtor updates, only settlement fields, settling is
+      // one-way, and settledAt can't be backdated (server time on the
+      // unsettled -> settled transition, immutable afterwards).
+      allow update: if request.auth != null
+                    && request.auth.uid == resource.data.fromUid
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(["status", "settledAt", "receiptURL", "note"])
+                    && request.resource.data.status == "settled"
+                    && (resource.data.status == "unsettled"
+                          ? request.resource.data.settledAt == request.time
+                          : request.resource.data.settledAt == resource.data.settledAt);
+      allow delete: if false;
+    }
+
     match /challenges/{cid} {
       allow create: if request.auth != null
                     && request.auth.uid == request.resource.data.createdBy
