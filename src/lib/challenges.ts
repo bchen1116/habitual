@@ -39,6 +39,20 @@ export function activeChallengesQuery(db: Firestore, uid: string): Query {
 }
 
 /**
+ * Every challenge the user has ever completed (lifetime stats). Uses the
+ * same `memberIds` + `status` composite index as activeChallengesQuery —
+ * Firestore composite indexes are defined by field, not by the specific
+ * value filtered on, so no new index is needed for the different status.
+ */
+export function completedChallengesQuery(db: Firestore, uid: string): Query {
+  return query(
+    collection(db, "challenges"),
+    where("memberIds", "array-contains", uid),
+    where("status", "==", "adjudicated")
+  );
+}
+
+/**
  * Creates a challenge via the server (join codes need server-side collision
  * checks, and the rules block client challenge writes). Identity comes from
  * the session cookie. Requires network — creation isn't an offline flow.
