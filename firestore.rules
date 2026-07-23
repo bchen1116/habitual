@@ -37,9 +37,15 @@ service cloud.firestore {
       match /members/{uid} {
         allow read: if request.auth != null
                     && request.auth.uid in get(/databases/$(database)/documents/challenges/$(cid)).data.memberIds;
-        // Solo: only self writes own member doc. Replaced by the
-        // createChallenge / joinChallenge functions in step 4.
-        allow write: if request.auth != null && request.auth.uid == uid;
+        // Solo: only self writes own member doc, and only when they're in
+        // the challenge's memberIds. getAfter (not get) so the
+        // create-challenge batch — where the challenge doc lands in the
+        // same commit — passes, while injecting a member doc into someone
+        // else's challenge is denied. Replaced by the createChallenge /
+        // joinChallenge functions in step 4.
+        allow write: if request.auth != null
+                     && request.auth.uid == uid
+                     && request.auth.uid in getAfter(/databases/$(database)/documents/challenges/$(cid)).data.memberIds;
       }
 
       // NOT {cid} — must not shadow the outer challenge-ID binding.

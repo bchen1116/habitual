@@ -21,6 +21,7 @@ import {
 
 export function ChallengeList({ uid }: { uid: string }) {
   const [challenges, setChallenges] = useState<Challenge[] | null>(null);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onSnapshot(
@@ -31,11 +32,30 @@ export function ChallengeList({ uid }: { uid: string }) {
         );
         items.sort((a, b) => a.startDate.localeCompare(b.startDate));
         setChallenges(items);
+        setLoadError(false);
       },
-      () => setChallenges([])
+      (err) => {
+        // Don't disguise errors (e.g. a missing Firestore index) as an
+        // empty list — that reads as "no challenges" and misleads.
+        console.error("challenges query failed:", err);
+        setLoadError(true);
+      }
     );
     return unsubscribe;
   }, [uid]);
+
+  if (loadError) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Couldn&apos;t load your challenges</CardTitle>
+          <CardDescription>
+            Check your connection and try refreshing the page.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
 
   if (challenges === null) {
     return (

@@ -93,6 +93,19 @@ export function NewChallengeForm() {
     if (valid) setStep((s) => s + 1);
   }
 
+  /** Submit-time validation can fail for fields on earlier steps (e.g. the
+   * start date slipping into the past at midnight) — jump to where the
+   * error is visible instead of failing silently on the review step. */
+  function onInvalid(errs: Record<string, unknown>) {
+    const errorFields = Object.keys(errs);
+    for (let i = 0; i < STEP_FIELDS.length; i++) {
+      if (STEP_FIELDS[i].some((f) => errorFields.includes(f))) {
+        setStep(i);
+        return;
+      }
+    }
+  }
+
   async function onSubmit(data: FormValues) {
     const user = getClientAuth().currentUser;
     if (!user) {
@@ -126,7 +139,10 @@ export function NewChallengeForm() {
   const endYmd = addDaysYmd(startYmd, Number(values.durationDays) - 1);
 
   return (
-    <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-6">
+    <form
+      onSubmit={form.handleSubmit(onSubmit, onInvalid)}
+      className="flex flex-col gap-6"
+    >
       <ol className="flex items-center gap-2 text-xs text-muted-foreground">
         {STEPS.map((label, i) => (
           <li

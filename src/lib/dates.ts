@@ -1,4 +1,3 @@
-import { format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 
 /**
@@ -49,9 +48,4 @@ export function dateInputToYmd(value: string): string {
 /** yyyymmdd → yyyy-mm-dd for native date inputs. */
 export function ymdToDateInput(ymd: string): string {
   return `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`;
-}
-
-/** Today as a native date-input value in the given timezone. */
-export function todayDateInput(timezone: string): string {
-  return format(ymdToDate(todayYmd(timezone)), "yyyy-MM-dd");
 }
