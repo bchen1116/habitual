@@ -8,7 +8,9 @@ const payloadSchema = z.object({
     .string()
     .trim()
     .regex(/^[A-Za-z0-9]{6}$/, "Join codes are 6 characters"),
-  charityName: z.string().trim().min(1).max(80),
+  // Required for charity-forfeit challenges; ignored for pool. The server
+  // decides based on the challenge's forfeitType.
+  charityName: z.string().trim().max(80).nullable(),
 });
 
 const JOIN_ERROR_RESPONSES: Record<string, { status: number; message: string }> = {
@@ -17,6 +19,10 @@ const JOIN_ERROR_RESPONSES: Record<string, { status: number; message: string }> 
   full: { status: 409, message: "This challenge is full." },
   "already-member": { status: 409, message: "You're already in this challenge." },
   "not-group": { status: 404, message: "No open challenge has that code." },
+  "charity-required": {
+    status: 400,
+    message: "Name the charity you'd owe if you fail.",
+  },
 };
 
 export async function POST(request: NextRequest) {

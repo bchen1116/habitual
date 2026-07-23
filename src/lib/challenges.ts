@@ -18,6 +18,7 @@ export interface CreateChallengeInput {
   name: string;
   description: string;
   mode: "solo" | "group";
+  forfeitType: "charity" | "pool";
   maxMembers: number | null;
   frequencyType: FrequencyType;
   target: number;
@@ -25,7 +26,7 @@ export interface CreateChallengeInput {
   durationDays: number; // whole weeks: 7 / 14 / 21 / 28
   skipDays: number;
   stakeAmount: number;
-  charityName: string;
+  charityName: string | null; // null in pool mode
 }
 
 /** Active challenges the user belongs to (dashboard query). */
@@ -60,7 +61,7 @@ export async function createChallenge(
 /** Joins a group challenge by code; resolves to the challenge id. */
 export async function joinChallenge(
   joinCode: string,
-  charityName: string
+  charityName: string | null
 ): Promise<string> {
   const response = await fetch("/api/challenges/join", {
     method: "POST",

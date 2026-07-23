@@ -149,7 +149,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
         <div className="flex shrink-0 gap-1.5">
           {challenge.mode === "group" && (
             <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
-              Group
+              {challenge.forfeitType === "pool" ? "Winner pool" : "Group"}
             </span>
           )}
           <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
@@ -186,10 +186,19 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
             <CardTitle>You did it! 🎉</CardTitle>
             <CardDescription>
               {member.completedCount} check-ins, {member.skipsUsed} of{" "}
-              {challenge.skipDays} skips used. Your{" "}
-              {formatAmount(challenge.stakeAmount)} stays yours.
+              {challenge.skipDays} skips used.{" "}
+              {challenge.forfeitType === "pool"
+                ? "Your stake stays yours — and any forfeited stakes appear in your ledger."
+                : `Your ${formatAmount(challenge.stakeAmount)} stays yours.`}
             </CardDescription>
           </CardHeader>
+          {challenge.forfeitType === "pool" && (
+            <CardContent>
+              <Button asChild variant="outline">
+                <Link href="/ledger?tab=owed">View in ledger</Link>
+              </Button>
+            </CardContent>
+          )}
         </Card>
       )}
 
@@ -198,8 +207,9 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
           <CardHeader>
             <CardTitle>You missed too many days</CardTitle>
             <CardDescription>
-              You owe {formatAmount(challenge.stakeAmount)} to{" "}
-              {member.charityName}.
+              {challenge.forfeitType === "pool"
+                ? `You owe ${formatAmount(challenge.stakeAmount)}, split among the members who succeeded. (If nobody succeeded, no one owes anything.)`
+                : `You owe ${formatAmount(challenge.stakeAmount)} to ${member.charityName ?? "your charity"}.`}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -322,8 +332,9 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
 
       {state !== "cancelled" && state !== "adjudicated" && (
         <p className="text-center text-xs text-muted-foreground">
-          If you fail, you owe {formatAmount(challenge.stakeAmount)} to{" "}
-          {challenge.charityName}.
+          {challenge.forfeitType === "pool"
+            ? `If you fail, your ${formatAmount(challenge.stakeAmount)} is split among the members who succeed.`
+            : `If you fail, you owe ${formatAmount(challenge.stakeAmount)} to ${member?.charityName ?? challenge.charityName ?? "your charity"}.`}
         </p>
       )}
     </div>

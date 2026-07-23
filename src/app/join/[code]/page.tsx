@@ -91,6 +91,11 @@ export default async function JoinPage({
                   {formatAmount(preview.stakeAmount)} stake · {preview.skipDays}{" "}
                   skip{preview.skipDays === 1 ? "" : "s"} allowed
                 </p>
+                <p>
+                  {preview.forfeitType === "pool"
+                    ? "Winner pool — failed stakes split among members who succeed"
+                    : "Charity forfeit — each member names a charity they'd owe"}
+                </p>
                 <p className="text-muted-foreground">
                   {preview.memberCount} member
                   {preview.memberCount === 1 ? "" : "s"}
@@ -110,7 +115,11 @@ export default async function JoinPage({
                 This challenge has already started — joining is closed.
               </p>
             ) : user ? (
-              <JoinPanel joinCode={code} stakeAmount={preview.stakeAmount} />
+              <JoinPanel
+                joinCode={code}
+                stakeAmount={preview.stakeAmount}
+                forfeitType={preview.forfeitType}
+              />
             ) : (
               <Button asChild size="lg">
                 <Link href={`/login?next=/join/${encodeURIComponent(code)}`}>

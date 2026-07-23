@@ -7,21 +7,39 @@ import {
 } from "@/lib/server/challenge-admin";
 import { addDaysYmd } from "@/lib/dates";
 
-const payloadSchema = z.object({
-  name: z.string().trim().min(1).max(60),
-  description: z.string().trim().max(200),
-  mode: z.enum(["solo", "group"]),
-  maxMembers: z.number().int().min(2).max(100).nullable(),
-  frequencyType: z.enum(["daily", "weekly_count"]),
-  target: z.number().int().min(1).max(7),
-  startDate: z.string().regex(/^\d{8}$/),
-  durationDays: z.number().refine((v) => [7, 14, 21, 28].includes(v), {
-    message: "Whole-week durations only",
-  }),
-  skipDays: z.number().int().min(0).max(30),
-  stakeAmount: z.number().positive().max(10000),
-  charityName: z.string().trim().min(1).max(80),
-});
+const payloadSchema = z
+  .object({
+    name: z.string().trim().min(1).max(60),
+    description: z.string().trim().max(200),
+    mode: z.enum(["solo", "group"]),
+    forfeitType: z.enum(["charity", "pool"]),
+    maxMembers: z.number().int().min(2).max(100).nullable(),
+    frequencyType: z.enum(["daily", "weekly_count"]),
+    target: z.number().int().min(1).max(7),
+    startDate: z.string().regex(/^\d{8}$/),
+    durationDays: z.number().refine((v) => [7, 14, 21, 28].includes(v), {
+      message: "Whole-week durations only",
+    }),
+    skipDays: z.number().int().min(0).max(30),
+    stakeAmount: z.number().positive().max(10000),
+    charityName: z.string().trim().max(80).nullable(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.forfeitType === "pool" && data.mode !== "group") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["forfeitType"],
+        message: "Winner pool is only available for group challenges",
+      });
+    }
+    if (data.forfeitType === "charity" && !data.charityName?.trim()) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["charityName"],
+        message: "Charity mode needs a charity name",
+      });
+    }
+  });
 
 export async function POST(request: NextRequest) {
   const user = await getCurrentUser();
@@ -63,6 +81,7 @@ export async function POST(request: NextRequest) {
         name: data.name,
         description: data.description,
         mode: data.mode,
+        forfeitType: data.forfeitType,
         maxMembers: data.mode === "group" ? data.maxMembers : null,
         frequencyType: data.frequencyType,
         target: data.target,
@@ -70,7 +89,8 @@ export async function POST(request: NextRequest) {
         endDate: addDaysYmd(data.startDate, data.durationDays - 1),
         skipDays: data.skipDays,
         stakeAmount: data.stakeAmount,
-        charityName: data.charityName,
+        charityName:
+          data.forfeitType === "charity" ? data.charityName!.trim() : null,
       }
     );
     return NextResponse.json(result);
