@@ -1,120 +1,136 @@
 # 07 — Polish & Launch Prep
 
-**Goal:** empty states, error handling, loading polish, settings, and everything needed to distribute to TestFlight and Play Store internal testing.
+**Goal:** empty states, error handling, loading polish, settings, custom domain, analytics, legal pages — everything to make the site feel finished and go live at a real URL.
 
 ## What ships
 
-- **Empty states** for all list screens (home, ledger, member lists, filters)
-- **Loading skeletons** replacing raw spinners on primary content
-- **Error boundaries and messaging** for network failures, auth failures, Cloud Function errors
-- **Snackbar / toast pattern** for transient feedback (success, info, error)
+- **Empty states** for all list screens
+- **Loading skeletons** instead of raw spinners
+- **Error handling:** network failures, permission errors, Cloud Function errors — all surface with clear human copy
+- **Toast pattern** (via `sonner` or shadcn/ui's toast) for transient feedback
 - **Confirmation dialogs** for destructive actions (cancel challenge, mark settled, sign out, delete account)
-- **Profile screen** (edit name, avatar picker)
-- **Settings screen:** notifications, about (version, terms, privacy), delete account
-- **App icon** (iOS + Android adaptive icon)
-- **Splash screen** (both platforms)
-- **iOS privacy manifest** (required for App Store as of 2024)
-- **Android adaptive icon + notification icon**
-- Optional but recommended: separate **dev / prod Firebase projects** and environment configs
+- **Profile screen** (edit display name, avatar upload)
+- **Settings** — notifications, about, delete account
+- **Page transitions** via Framer Motion (subtle, respects `prefers-reduced-motion`)
+- **Custom domain** on Vercel (e.g., `habitual.app`)
+- **SEO basics** — meta tags, OG image, `sitemap.xml`, `robots.txt`
+- **Analytics** — Plausible or PostHog
+- **Legal pages** — `/terms`, `/privacy`
+- **Cookie consent** if using analytics that sets cookies (PostHog does; Plausible doesn't)
+- **Favicons and app icons** at all required sizes
 
 ## Data model changes
 
 **`users/{uid}`** (updated)
 ```
-deletedAt: timestamp | null      # soft-delete marker
+deletedAt: timestamp | null       # soft-delete marker
 ```
 
 ## Backend
 
-**Cloud Function: `deleteAccount`** (callable)
-- Verify calling user's uid matches target
-- Cascade delete:
-  - Cancel any active solo challenges (or mark abandoned)
-  - Remove user from any active group challenges (if allowed) OR mark user as departed
+**Callable Cloud Function `deleteAccount`:**
+- Verify caller uid == target
+- Cascade:
+  - Cancel any active solo challenges (mark abandoned)
+  - Remove user from active group challenges (leave allowed here since account is deleted)
   - Delete all user's check-ins
-  - Anonymize ledger entries: replace `fromName`/`toName` with "Deleted user" but keep amounts (other users may still owe / be owed)
+  - **Anonymize** ledger entries: replace `fromName`/`toName` with "Deleted user" but keep amounts (other users may still owe / be owed — data integrity for them)
   - Delete receipts from Storage
   - Delete user doc
-- Mark user's Firebase Auth account as disabled
-- **Note:** since ledger integrity matters for other users, we don't hard-delete debts. The user's identity is scrubbed; the debt remains.
+- Disable the Firebase Auth account
+- Note: hard-deleting ledger entries would break other users' totals. Anonymize instead.
 
-**Firestore: scheduled backup** (optional, recommended before launch)
-- Configure daily export to Cloud Storage bucket
+**Firestore backup schedule** (optional, recommended): configure daily export to Cloud Storage bucket for disaster recovery.
 
-## Flutter dependencies (new)
+## Custom domain
 
-```yaml
-flutter_launcher_icons
-flutter_native_splash
-```
+1. Buy a domain (e.g., `habitual.app`, `habitualhabits.com`) via Namecheap, Cloudflare Registrar, etc.
+2. In Vercel project → Domains → add your domain
+3. Configure DNS at your registrar per Vercel's instructions (usually an A record and a CNAME)
+4. Vercel issues an SSL cert automatically (Let's Encrypt via Vercel)
+5. Update Firebase Auth **authorized domains** to include the new domain
+6. Update any hardcoded URLs (env vars, OG defaults)
 
-Dev-only:
-```yaml
-flutter_lints          # already default, but enforce
-```
+## SEO
 
-## Screens polish
+- Set `<title>` and `<meta name="description">` per route via Next.js metadata API
+- OG image for social share previews (1200×630)
+- `app/sitemap.ts` generates a sitemap
+- `app/robots.ts` sets sensible crawl rules
+- Structured data (`Organization` schema) on landing page
 
-- **Every list screen** — designed empty state (not a bare "no items")
-- **Every button that triggers async** — pressed state + loading spinner in-place
-- **Every form** — validation errors inline, not just on submit
-- **Network offline** — persistent banner ("You're offline — some things won't work") + retry
-- **Auth error** — clear message, don't just fail silently
-- **Firestore permission denied** — surface as "Something went wrong. Try again." (never expose raw Firestore errors)
+## Analytics
 
-## Settings screen
+Recommendation: **Plausible** (privacy-first, no cookies, GDPR-safe by default) or **PostHog** (more powerful, session recordings, product analytics — but sets cookies, needs consent).
 
-- Profile section: avatar (tap to change), display name (tap to edit), email (read-only)
-- Notifications → routes to Notification Settings (from step 6)
-- About: app version, build number, Terms of Service link, Privacy Policy link
-- **Sign out** button
-- **Delete account** at bottom (danger styling; requires typed confirmation "delete my account")
+Track:
+- Sign-ups (from Firebase Auth trigger or client event)
+- Challenge created (per mode / forfeit type)
+- Check-ins
+- Settlements
+- PWA installs
+- Notification opt-ins
 
-## Store readiness
+## Cookie consent
 
-**iOS:**
-- Privacy manifest (`PrivacyInfo.xcprivacy`) declaring data collected (email, name, device tokens) and required-reason API usage
-- App Store Connect record: screenshots, description, keywords, support URL
-- TestFlight internal testing setup
+- **Plausible:** none needed — no cookies.
+- **PostHog:** show a small banner on first visit; respect user's choice; disable tracking if declined.
+- Use a lightweight library (`cookie-consent` or roll your own — it's ~50 lines).
 
-**Android:**
-- Adaptive icon (foreground + background layers)
-- Notification icon (monochrome)
-- Play Console record: internal testing track, data safety declaration
+## Legal
 
-**Legal:**
-- Terms of Service — must clearly disclaim: no money is processed; users transact off-app; Habitual is not responsible for settling debts
-- Privacy Policy — data collected, retention, deletion process, third-party services (Firebase, Google, Apple)
+- **Terms of Service** — must clearly disclaim:
+  - Habitual does not process, hold, or facilitate payment
+  - Users are solely responsible for settling debts among themselves
+  - Habitual is not liable for disputes between users
+  - Charity donations are the user's responsibility; Habitual doesn't verify
+  - No warranty, service provided as-is
+- **Privacy Policy** — data collected (email, name, timezone, device tokens), retention, deletion process, third-party services (Firebase, Vercel, analytics), cookie usage
+- Recommendation: use a template (Termly, Iubenda, or a lawyer-written template from a similar app) and adapt. **Have a lawyer review before public launch** — even without payment processing, a money-adjacent app can attract disputes.
 
-Both can be simple markdown pages hosted anywhere (GitHub Pages, Notion public page, static site). No lawyer needed for v1 — use a template and adapt.
+## Icons and images
+
+- **Favicon:** 16×16, 32×32, 48×48 ICO
+- **Apple touch icon:** 180×180
+- **PWA icons:** 192×192, 512×512, + maskable variant (with safe-area padding)
+- **OG image:** 1200×630 default (used on landing, join preview, etc.)
+
+Icon generation tools: `sharp` scripts or `next-pwa-utils`.
 
 ## Non-goals
 
-- Analytics (add separately once we know what to measure)
-- Crashlytics (add separately; it's a 15-min integration)
-- A/B testing framework
-- Marketing site / landing page
-- Waitlist / referral flow
-- In-app rating prompt
 - Localization (English only)
+- Referral flow / invites
+- A/B testing framework
+- Email drip campaigns
+- Marketing site separate from the app
+- In-app rating prompt
 
 ## Manual test checklist
 
-- [ ] Turn off wifi → clear offline banner; no crashes on any screen
-- [ ] Turn wifi back on → banner clears, state syncs
-- [ ] Sign out and sign back in → account state fully restored
-- [ ] Delete account → all personal data purged; ledger entries anonymized; re-signup with same email creates a new account
-- [ ] App icon renders correctly on both platforms and in system UI (settings, notifications, home screen)
-- [ ] Splash shows briefly on launch (< 2s)
-- [ ] All empty states look intentional (not blank screens)
-- [ ] Dark mode: every screen readable, no contrast issues
-- [ ] Dynamic type (iOS): all text scales without overflow
-- [ ] VoiceOver / TalkBack: primary flows work; every button has a label
+- [ ] Turn off wifi → offline banner appears; app still functional for cached content; no crashes
+- [ ] Turn wifi back on → banner clears; queued writes sync
+- [ ] Sign out and back in → state fully restored
+- [ ] Delete account → all personal data purged; ledger anonymized; re-signup with same email creates a fresh account
+- [ ] Favicon renders in browser tab
+- [ ] iOS "Add to Home Screen" → icon appears correctly with app name
+- [ ] Android install → icon and splash screen render correctly
+- [ ] Empty states look intentional (not blank pages)
+- [ ] Dark mode across every screen
+- [ ] Dynamic type scaling / zoom respected without layout breaks
+- [ ] Keyboard nav works on desktop (tab order, focus rings, escape to close modals)
+- [ ] Screen reader (VoiceOver / NVDA) can navigate primary flows
+- [ ] Custom domain resolves, HTTPS works, no cert warnings
+- [ ] Firebase Auth accepts sign-in from the custom domain
+- [ ] Analytics captures a signup event end-to-end
+- [ ] `/terms` and `/privacy` load and are linked from the footer
+- [ ] Cookie consent banner appears once, remembers dismissal
 
 ## Acceptance
 
-- App feels polished on both platforms
-- No obvious edge case crashes
-- Terms and Privacy Policy in place
-- App icon + splash + store metadata ready
-- Ready to submit to TestFlight and Play Store internal tracks
+- Site feels polished across mobile / tablet / desktop
+- Custom domain live with HTTPS
+- Terms + Privacy published
+- Analytics tracking basic events
+- PWA installable and behaves correctly when installed
+- Ready to share the URL publicly

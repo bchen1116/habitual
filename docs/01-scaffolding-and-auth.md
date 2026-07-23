@@ -1,15 +1,19 @@
 # 01 — Scaffolding & Auth
 
-**Goal:** get a Flutter app running with Firebase auth (Google + Apple sign-in). No features yet — just a signed-in user landing on an empty home screen.
+**Goal:** get a Next.js web app running with Firebase Auth (Google + Apple sign-in) and deployed to Vercel. No features yet.
 
 ## What ships
 
-- Flutter project scaffolded (`habitual/`)
-- Firebase project connected on both iOS and Android
-- Google + Apple sign-in flows
-- User document auto-created in Firestore on first sign-in
-- Basic home screen: "Hello, [name]" and a sign-out button
-- Basic app theming (light + dark)
+- Next.js 15 (App Router) + TypeScript project scaffolded
+- Tailwind CSS + shadcn/ui installed and configured
+- Firebase Web SDK connected (client + Admin for server)
+- Google + Apple sign-in via Firebase Auth
+- User document created in Firestore on first sign-in
+- Session cookie handling (server-side auth for RSC/route handlers)
+- Basic landing page (public) + dashboard page (authenticated)
+- Sign out
+- Deployed to Vercel with a preview URL
+- Dark mode support (system-preference, no manual override yet)
 
 ## Data model
 
@@ -18,77 +22,105 @@
 displayName: string
 email: string
 photoURL: string | null
+timezone: string           # IANA tz (e.g., "America/Los_Angeles")
 createdAt: timestamp
 ```
+
+`timezone` is captured on first sign-in from `Intl.DateTimeFormat().resolvedOptions().timeZone` and used later for day-boundary calculations and (in step 6) push scheduling.
+
+## Stack
+
+```
+next@15
+react@19
+typescript
+tailwindcss
+shadcn/ui (via `npx shadcn@latest init`)
+firebase (Web SDK — client)
+firebase-admin (server; for RSC auth + Cloud Function shared types)
+framer-motion (installed here so we can use it in later steps)
+zustand (client state store — optional, use if we outgrow React Context)
+react-hook-form + zod (forms, added when we start forms in step 2)
+```
+
+State management: **Zustand or React Context** for client-side state. Server components handle data fetching where possible. **No Redux.**
+
+## URL structure
+
+- `/` — landing page (redirects to `/dashboard` if signed in)
+- `/login` — sign-in page
+- `/dashboard` — main app (auth required)
+- `/settings` — profile (auth required)
+
+Everything else comes in later steps.
 
 ## Backend
 
 **Firestore rules:**
 ```
-match /users/{uid} {
-  allow read, write: if request.auth.uid == uid;
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read, write: if request.auth.uid == uid;
+    }
+  }
 }
 ```
 
-**No Cloud Functions yet.** Firestore only.
+Auth via Firebase Admin SDK for server-side session verification. Next.js middleware validates the session cookie and redirects unauthenticated users away from protected routes.
 
-## Flutter dependencies
+**No Cloud Functions in this step.** All auth is client-side + Firebase's built-in server SDKs.
 
-```yaml
-firebase_core
-firebase_auth
-cloud_firestore
-google_sign_in
-sign_in_with_apple
-```
+## Auth flow
 
-State management: **Riverpod** (recommended) or Provider. Pick and stick.
+- **Client sign-in:** `signInWithPopup(GoogleAuthProvider)` or `signInWithPopup(OAuthProvider('apple.com'))`. On mobile Safari, fallback to `signInWithRedirect`.
+- **Session cookie:** after client sign-in, POST the ID token to `/api/auth/session`. Server verifies with Admin SDK and sets an HTTP-only session cookie.
+- **Server components:** read the session cookie in `layout.tsx` / server components; call `admin.auth().verifySessionCookie(cookie)` to get uid.
+- **Sign out:** client `signOut()` + POST to `/api/auth/session/delete` to clear the cookie.
 
-## Screens
+## What the user does (Firebase console + Apple + Vercel — manual)
 
-- Splash (auth-state resolver, shows briefly)
-- Sign in (Google + Apple buttons)
-- Home (empty state: "Hello, [name]. No challenges yet.") + sign out button
+1. **Firebase project.** Create at [console.firebase.google.com](https://console.firebase.google.com) (name: `habitual` or similar).
+2. **Add a Web app** to the project — get the config object (apiKey, authDomain, etc.). Copy it to `.env.local` (I'll list the exact env var names in the PR).
+3. **Enable Authentication providers:**
+   - **Google** — one click, auto-configured.
+   - **Apple** — needs an Apple Developer account. Create a Services ID (`com.bchen1116.habitual.web`), enable Sign In with Apple, add your Vercel domain as a return URL. Fill in Firebase's Apple provider config (Team ID, Key ID, private key).
+4. **Enable Firestore** in Native mode (start in production; rules go in the code).
+5. **Enable Cloud Storage** (used in step 3).
+6. **Upgrade to Blaze** plan (needed for Cloud Functions in step 3; free-tier limits still apply).
+7. **Authorized domains.** In Firebase Auth settings, add your Vercel deploy URL(s) so OAuth redirects are allowed.
+8. **Vercel project.** Import the GitHub repo, connect to the project, set the env vars (Firebase config + `FIREBASE_SERVICE_ACCOUNT_KEY` for the Admin SDK), deploy.
 
-## What the user does (Firebase console, manual)
-
-This step is mostly clicking around in the Firebase console. Do these before I scaffold the Flutter side:
-
-1. Create a Firebase project at [console.firebase.google.com](https://console.firebase.google.com). Suggest `habitual-app` or similar.
-2. Add an iOS app: bundle ID `com.bchen1116.habitual` (or your preferred). Download `GoogleService-Info.plist`.
-3. Add an Android app: package name `com.bchen1116.habitual`. Download `google-services.json`.
-4. Enable **Authentication** providers:
-   - **Google** — auto-configured (uses the project's OAuth client)
-   - **Apple** — requires an Apple Developer Team ID + Sign in with Apple Service ID (configured in developer.apple.com)
-5. Enable **Cloud Firestore** in Native mode. Start in production mode (deny-by-default). We'll add rules in the code.
-6. Upgrade the project to **Blaze** (pay-as-you-go). Required for Cloud Functions later; free tier still applies until you exceed generous quotas.
-7. In Google Cloud Console (linked from Firebase), configure the **OAuth consent screen** for Google sign-in (external, in-testing is fine initially).
-8. iOS: in Xcode, enable **Sign in with Apple** capability on the app target. Add the same to your Apple Developer app ID.
-
-Once done, drop the two config files where the PR tells you. I can't do any of the above steps for you — they require your Google/Apple accounts.
+None of the above can be automated from within this repo — they're clicks on Firebase, Apple, and Vercel consoles under your accounts.
 
 ## Non-goals
 
-- Any actual habit/challenge functionality
-- Email/password auth
-- FCM push notifications
-- Deep links
-- Analytics
+- Any features (challenges, ledger, etc.)
+- Custom domain (later, in step 7)
+- PWA setup (step 6)
+- Push notifications (step 6)
+- Analytics (step 7)
 
 ## Manual test checklist
 
-- [ ] Cold install on iOS simulator: Google sign-in works, user doc appears in Firestore
-- [ ] Cold install on iOS simulator: Apple sign-in works
-- [ ] Cold install on Android emulator: Google sign-in works
-- [ ] Sign out returns to sign-in screen
-- [ ] Kill and reopen: still signed in, goes straight to home
-- [ ] Dark mode: both auth and home render correctly
-- [ ] Firestore rules: signed-out client cannot read any user doc
+- [ ] Google sign-in works on Chrome desktop
+- [ ] Google sign-in works on iOS Safari (may use redirect flow)
+- [ ] Google sign-in works on Android Chrome
+- [ ] Apple sign-in works on desktop and iOS Safari
+- [ ] User doc created in Firestore on first sign-in
+- [ ] `timezone` field populated correctly (e.g., "America/Los_Angeles")
+- [ ] Signed-in reload: session cookie persists, no re-auth
+- [ ] Sign out clears cookie and returns to landing
+- [ ] Middleware blocks unauthenticated access to `/dashboard`
+- [ ] Firestore rule: signed-out client cannot read any user doc
+- [ ] Deployed Vercel URL works with real auth
+- [ ] Dark mode: landing and dashboard render correctly at system dark
 
 ## Acceptance
 
-- Users can sign in on both platforms
+- Users can sign in from any modern browser (mobile + desktop)
 - User doc exists in Firestore with correct fields
-- Home is intentionally empty (feature-free)
-- Sign out works
-- Clean build, no warnings
+- Deployed and reachable at a Vercel URL
+- Sign in / sign out cycle is smooth (no visible flash, no auth flicker)
+- Clean TypeScript build with no errors
