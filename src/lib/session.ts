@@ -30,7 +30,14 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
       displayName: (decoded.name as string | undefined) ?? null,
       photoURL: (decoded.picture as string | undefined) ?? null,
     };
-  } catch {
+  } catch (err) {
+    // Expired/revoked/invalid cookies are routine — treat as signed out
+    // silently. Anything else (e.g. a malformed service-account key) is a
+    // configuration problem that should be visible in server logs.
+    const code = (err as { code?: string })?.code ?? "";
+    if (!code.startsWith("auth/")) {
+      console.error("getCurrentUser failed for a non-auth reason:", err);
+    }
     return null;
   }
 }

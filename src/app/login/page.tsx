@@ -35,6 +35,7 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [pending, setPending] = useState<Provider | null>(null);
+  const [finishing, setFinishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const completeSignIn = useCallback(
@@ -48,7 +49,11 @@ function LoginForm() {
       if (!response.ok) {
         throw new Error("Failed to establish a session. Please try again.");
       }
-      await ensureUserDoc(user);
+      // Best-effort: the session cookie is already set, so a failed profile
+      // write must not strand the user here — it re-runs on every sign-in.
+      await ensureUserDoc(user).catch((err) =>
+        console.error("ensureUserDoc failed:", err)
+      );
       router.replace(safeNext(searchParams.get("next")));
     },
     [router, searchParams]
@@ -60,7 +65,7 @@ function LoginForm() {
     getRedirectResult(getClientAuth())
       .then((result) => {
         if (result?.user && !cancelled) {
-          setPending("google"); // show a busy state while the session is created
+          setFinishing(true);
           return completeSignIn(result.user);
         }
       })
@@ -68,7 +73,7 @@ function LoginForm() {
         if (!cancelled) setError("Sign-in was interrupted. Please try again.");
       })
       .finally(() => {
-        if (!cancelled) setPending(null);
+        if (!cancelled) setFinishing(false);
       });
     return () => {
       cancelled = true;
@@ -113,7 +118,7 @@ function LoginForm() {
         <Button
           size="lg"
           variant="outline"
-          disabled={pending !== null}
+          disabled={pending !== null || finishing}
           onClick={() => signIn("google")}
         >
           {pending === "google" ? "Signing in…" : "Continue with Google"}
@@ -121,11 +126,16 @@ function LoginForm() {
         <Button
           size="lg"
           variant="outline"
-          disabled={pending !== null}
+          disabled={pending !== null || finishing}
           onClick={() => signIn("apple")}
         >
           {pending === "apple" ? "Signing in…" : "Continue with Apple"}
         </Button>
+        {finishing && (
+          <p className="text-center text-sm text-muted-foreground">
+            Finishing sign-in…
+          </p>
+        )}
         {error && (
           <p className="text-center text-sm text-destructive">{error}</p>
         )}

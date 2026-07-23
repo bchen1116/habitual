@@ -18,8 +18,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "idToken is required" }, { status: 400 });
   }
 
+  let adminAuth;
   try {
-    const adminAuth = getAdminAuth();
+    adminAuth = getAdminAuth();
+  } catch (err) {
+    console.error("Admin SDK unavailable (check FIREBASE_SERVICE_ACCOUNT_KEY):", err);
+    return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
+  }
+
+  try {
     // Reject stale ID tokens: only mint a session for a recent sign-in.
     const decoded = await adminAuth.verifyIdToken(idToken);
     const authTimeMs = decoded.auth_time * 1000;
