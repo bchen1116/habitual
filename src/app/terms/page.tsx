@@ -10,7 +10,7 @@ export default function TermsPage() {
         <Link href="/" className="text-sm text-muted-foreground hover:text-foreground">
           ← Habitual
         </Link>
-        <h1 className="mt-2 text-2xl font-bold tracking-tight">
+        <h1 className="mt-2 type-display text-3xl">
           Terms of Service
         </h1>
       </header>

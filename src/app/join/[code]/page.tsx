@@ -53,9 +53,9 @@ export default async function JoinPage({
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-lg flex-col gap-6 p-6">
       <header className="text-center">
-        <h1 className="text-2xl font-bold tracking-tight">Habitual</h1>
-        <p className="text-sm text-muted-foreground">
-          Put your money where your habits are.
+        <h1 className="type-display text-4xl">Habitual</h1>
+        <p className="type-overline mt-2 text-xs text-muted-foreground">
+          Put your money where your habits are
         </p>
       </header>
 

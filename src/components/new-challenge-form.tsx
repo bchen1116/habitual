@@ -178,7 +178,7 @@ export function NewChallengeForm() {
             className={
               "rounded-full px-2 py-0.5 " +
               (i === step
-                ? "bg-primary text-primary-foreground"
+                ? "bg-foreground text-background"
                 : i < step
                   ? "bg-secondary text-secondary-foreground"
                   : "")
@@ -225,14 +225,14 @@ export function NewChallengeForm() {
             <div className="flex gap-2">
               <Button
                 type="button"
-                variant={values.mode === "solo" ? "default" : "outline"}
+                variant={values.mode === "solo" ? "secondary" : "outline"}
                 onClick={() => form.setValue("mode", "solo")}
               >
                 Solo
               </Button>
               <Button
                 type="button"
-                variant={values.mode === "group" ? "default" : "outline"}
+                variant={values.mode === "group" ? "secondary" : "outline"}
                 onClick={() => form.setValue("mode", "group")}
               >
                 Group
@@ -250,14 +250,14 @@ export function NewChallengeForm() {
               <div className="flex gap-2">
                 <Button
                   type="button"
-                  variant={values.forfeitType === "charity" ? "default" : "outline"}
+                  variant={values.forfeitType === "charity" ? "secondary" : "outline"}
                   onClick={() => form.setValue("forfeitType", "charity")}
                 >
                   Their charity
                 </Button>
                 <Button
                   type="button"
-                  variant={values.forfeitType === "pool" ? "default" : "outline"}
+                  variant={values.forfeitType === "pool" ? "secondary" : "outline"}
                   onClick={() => form.setValue("forfeitType", "pool")}
                 >
                   The winners
@@ -299,7 +299,7 @@ export function NewChallengeForm() {
             <div className="flex gap-2">
               <Button
                 type="button"
-                variant={values.frequencyType === "daily" ? "default" : "outline"}
+                variant={values.frequencyType === "daily" ? "secondary" : "outline"}
                 onClick={() => form.setValue("frequencyType", "daily")}
               >
                 Every day
@@ -307,7 +307,7 @@ export function NewChallengeForm() {
               <Button
                 type="button"
                 variant={
-                  values.frequencyType === "weekly_count" ? "default" : "outline"
+                  values.frequencyType === "weekly_count" ? "secondary" : "outline"
                 }
                 onClick={() => form.setValue("frequencyType", "weekly_count")}
               >
@@ -351,7 +351,7 @@ export function NewChallengeForm() {
                 <Button
                   key={d}
                   type="button"
-                  variant={values.durationDays === d ? "default" : "outline"}
+                  variant={values.durationDays === d ? "secondary" : "outline"}
                   onClick={() => form.setValue("durationDays", d)}
                 >
                   {Number(d) / 7} week{d === "7" ? "" : "s"}

@@ -14,7 +14,7 @@ export default async function DashboardPage() {
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-6 p-6">
       <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold tracking-tight">Habitual</h1>
+        <h1 className="type-display text-3xl">Habitual</h1>
         <Link
           href="/settings"
           className="text-sm text-muted-foreground hover:text-foreground"
@@ -28,8 +28,8 @@ export default async function DashboardPage() {
         <InstallBanner />
         <LedgerSummary uid={user.uid} />
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Your challenges</h2>
-          <Button asChild size="sm">
+          <h2 className="type-display text-xl">Your challenges</h2>
+          <Button asChild size="sm" variant="secondary">
             <Link href="/challenges/new">+ New challenge</Link>
           </Button>
         </div>

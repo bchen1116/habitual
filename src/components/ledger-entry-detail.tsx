@@ -86,7 +86,7 @@ export function LedgerEntryDetail({ id, uid }: { id: string; uid: string }) {
         <CardContent className="flex flex-col gap-3">
           <span
             className={
-              "w-fit rounded-full px-2 py-0.5 text-xs " +
+              "type-overline w-fit rounded-full px-2.5 py-1 text-[11px] " +
               (entry.status === "unsettled"
                 ? "bg-destructive/15 text-destructive"
                 : "bg-secondary text-secondary-foreground")
@@ -223,7 +223,7 @@ function SettleDialog({ entry }: { entry: LedgerEntry }) {
         {progress !== null && (
           <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
             <div
-              className="h-full rounded-full bg-primary transition-all"
+              className="h-full rounded-full bg-foreground transition-all"
               style={{ width: `${Math.round(progress * 100)}%` }}
             />
           </div>
