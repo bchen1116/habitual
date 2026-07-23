@@ -39,7 +39,7 @@ This sidesteps escrow, KYC, payment processing, and gambling-law questions while
 
 ## Core user flows
 
-1. **Onboarding:** Landing page → Sign in (Google/Apple) → Empty home → "+" → Create challenge.
+1. **Onboarding:** Landing page → Sign in (Google, or email/password with a quick name step) → Empty home → "+" → Create challenge.
 2. **Daily loop:** Open the site → home shows today's pending check-ins → tap to check in.
 3. **End of challenge:** Notification (if enabled) or user opens the site → challenge detail shows outcomes → if you owe, tap ledger entry, pay off-app, mark settled.
 4. **Join a group:** Friend shares a link (`habitual.app/join/AB4X9K`) → open on any device → see challenge preview → sign in if needed → confirm stake + pick charity (if applicable) → done.
@@ -68,7 +68,7 @@ Web notifications are less powerful than native. The plan:
 |---|---|---|
 | Public | Landing (`/`) | Marketing + sign-in for signed-out users |
 | Public | Join preview (`/join/[code]`) | Renders even for signed-out users so shared links show a preview with OG meta |
-| Auth | Sign in (`/login`) | Google + Apple |
+| Auth | Sign in (`/login`) | Google, or email/password with a name step |
 | Home | Dashboard (`/dashboard`) | Active challenges, today's check-ins, ledger summary |
 | Challenge | Create (`/challenges/new`) | Multi-step form |
 | Challenge | Detail (`/challenges/[id]`) | Progress, check-in, adjudication result; solo vs group variants |
@@ -106,17 +106,21 @@ Plus: empty states, loading skeletons, error toasts, page transitions.
 **Elements:**
 - App name + logo
 - **Continue with Google** button
-- **Continue with Apple** button
+- Divider, then a Sign in / Sign up toggle with email + password fields
 - Terms + Privacy links
 
 **States:**
 - Idle
-- Signing in (button loading state)
-- Error (inline error message)
+- Signing in / creating account (button loading state)
+- **Name step:** shown once, right after email/password sign-up (or when
+  signing in to an account that never finished it) — email/password gives
+  no name, unlike Google, so this collects the one thing we're missing
+- Error (inline error message; distinct copy for "email already in use,"
+  "wrong password," etc.)
 
 **Design notes:**
-- No email/password in v1
-- Auth via Firebase popup (desktop) or redirect (mobile — some browsers block popups)
+- Apple sign-in is deferred (needs a paid Apple Developer account) — see docs/01
+- Auth via Firebase popup (desktop) or redirect (mobile — some browsers block popups); email/password has no popup/redirect concern
 
 ### Dashboard (`/dashboard`)
 
