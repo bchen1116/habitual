@@ -10,11 +10,11 @@ const withSerwist = withSerwistInit({
 });
 
 const nextConfig: NextConfig = {
-  // firebase-admin depends on jwks-rsa -> jose (ESM-only). Webpack's
-  // server bundling of that chain mangles jwks-rsa's require('jose') into
-  // a call Node then rejects ("require() of ES Module ... not supported").
-  // Excluding firebase-admin from bundling lets Node's own module loader
-  // resolve it directly, which handles the CJS/ESM boundary correctly.
+  // firebase-admin is a large SDK with dynamic requires; recommended
+  // practice is to keep it out of the webpack bundle and let Node's own
+  // module resolution load it. (This alone does NOT fix the jose/jwks-rsa
+  // ESM crash below — that's a Node-version-dependent CJS/ESM interop
+  // gap, fixed via the "jose" override in package.json instead.)
   serverExternalPackages: ["firebase-admin"],
 };
 
