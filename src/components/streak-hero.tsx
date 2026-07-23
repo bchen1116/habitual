@@ -1,3 +1,6 @@
+"use client";
+
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 /**
@@ -17,9 +20,15 @@ export function StreakHero({ streak, className }: { streak: number; className?: 
       <div className="flex flex-col gap-1">
         <span className="type-overline text-primary">Current streak</span>
         <div className="flex items-end gap-2">
-          <span className="type-display text-[76px] leading-[0.85] text-white lg:text-[130px] lg:leading-[0.8]">
+          <motion.span
+            key={streak}
+            initial={{ scale: 0.85 }}
+            animate={{ scale: 1 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+            className="type-display text-[76px] leading-[0.85] text-white lg:text-[130px] lg:leading-[0.8]"
+          >
             {streak}
-          </span>
+          </motion.span>
           <span className="type-display pb-2 text-2xl text-white lg:pb-4 lg:text-[34px]">
             days
           </span>
