@@ -19,6 +19,8 @@ const eslintConfig = [
       "build/**",
       "next-env.d.ts",
       "functions/**", // separate workspace with its own toolchain
+      "public/sw.js", // Serwist build output
+      "public/swe-worker*.js",
     ],
   },
 ];

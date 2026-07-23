@@ -1,6 +1,7 @@
 import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { addDaysYmd, dateToYmdUTC, daysBetweenInclusive } from "./dates";
+import { sendPushToMany } from "./notifications";
 
 interface ChallengeData {
   name: string;
@@ -79,6 +80,8 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
   let processed = 0;
   for (const challengeDoc of ended.docs) {
     try {
+      let notifyMemberUids: string[] = [];
+      let notifiedChallengeName = "";
       await db.runTransaction(async (t) => {
         // Reads first (transaction requirement), starting with the
         // idempotency guard: another run may have adjudicated it already.
@@ -177,8 +180,22 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
         // Runs for every processed challenge, including zero-ledger ones —
         // an early return above this point would re-process forever.
         t.update(challengeDoc.ref, { status: "adjudicated", adjudicatedAt });
+
+        notifyMemberUids = outcomes.map((o) => o.uid);
+        notifiedChallengeName = challenge.name;
       });
       processed++;
+
+      // After the commit — a notification failure must not roll back or
+      // re-run adjudication.
+      if (notifyMemberUids.length > 0) {
+        await sendPushToMany(notifyMemberUids, {
+          title: "Results are in",
+          body: `"${notifiedChallengeName}" has been graded — see how everyone did.`,
+          targetUrl: `/challenges/${challengeDoc.id}`,
+          category: "challengeLifecycle",
+        }).catch((err) => logger.warn("results push failed", err));
+      }
     } catch (err) {
       // One bad challenge must not block the rest; it retries next run.
       logger.error(`Adjudication failed for challenge ${challengeDoc.id}`, err);
