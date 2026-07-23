@@ -4,37 +4,36 @@
 
 ## What ships
 
-- **Cloud Function:** scheduled adjudication (runs daily at 03:00 UTC)
+- **Cloud Function:** scheduled daily adjudication at 03:00 UTC
 - Ledger entries created for failed solo challenges (charity mode)
-- **Ledger overview** screen (two tabs: I owe / I'm owed)
-- **Ledger entry detail** screen
-- **Mark settled** action with optional receipt upload
-- **Home dashboard** ledger summary card
+- **Ledger overview** (`/ledger`) with tabs: I owe / I'm owed
+- **Ledger entry detail** (`/ledger/[entryId]`)
+- **Mark settled** action with optional receipt upload (drag-and-drop on desktop, native picker on mobile)
+- **Dashboard ledger summary** card
 
 ## Data model
 
 **`ledgerEntries/{entryId}`** (new, top-level for easy per-user queries)
 ```
 challengeId: string
-challengeName: string            # denormalized for display
+challengeName: string            # denormalized
 fromUid: uid
-fromName: string                 # denormalized
+fromName: string
 toType: "charity" | "user"
-toUid: uid | null                # set if toType == "user"
-toName: string | null            # denormalized user display name
-toCharityName: string | null     # set if toType == "charity"
+toUid: uid | null
+toName: string | null
+toCharityName: string | null
 amount: number
 status: "unsettled" | "settled"
 settledAt: timestamp | null
-receiptURL: string | null        # Cloud Storage URL
-note: string | null              # from settlement flow
+receiptURL: string | null        # Firebase Storage URL
+note: string | null
 createdAt: timestamp
 ```
 
 **`challenges/{cid}/members/{uid}`** (updated)
 ```
-# Existing fields plus:
-outcome: "succeeded" | "failed"  # set at adjudication
+outcome: "succeeded" | "failed"
 completedCount: int
 skipsUsed: int
 adjudicatedAt: timestamp
@@ -42,38 +41,40 @@ adjudicatedAt: timestamp
 
 **`challenges/{cid}`** (updated)
 ```
-status: "active" | "adjudicated"   # new state
+status: "active" | "adjudicated"
 adjudicatedAt: timestamp | null
 ```
 
 ## Backend
 
-**Cloud Function (`adjudicateEndedChallenges`):**
+**Cloud Function `adjudicateEndedChallenges`:**
 - Trigger: scheduled, every 24 hours at 03:00 UTC
 - Logic:
   1. Query `challenges where status == "active" and endDate < now`
-  2. For each challenge:
-     - For each member (subcollection):
-       - Count check-ins with `localDate in [startDate, endDate]`
-       - Compute required count based on `frequency` (daily = days between; weekly_count = target × weeks)
-       - `missed = required - completed`
-       - `if missed <= challenge.skipDays: outcome = "succeeded"`
-       - `else: outcome = "failed"`
-       - Write outcome, completedCount, skipsUsed, adjudicatedAt to member doc
-     - **Create ledger entries** (see below)
-     - Set `challenge.status = "adjudicated"`, `adjudicatedAt = now`
-  3. Idempotent: skip challenges already marked "adjudicated"
+  2. For each challenge, run adjudication **inside a Firestore transaction** so ledger entry creation + challenge status update are atomic (if the function dies mid-way, next run picks up cleanly)
+  3. For each member:
+     - Count check-ins with `localDate in [startDate, endDate]`
+     - Compute required count:
+       - `daily`: `endDate - startDate` days
+       - `weekly_count`: `target × ceil((endDate - startDate) / 7)` — one target per rolling 7-day window from startDate
+     - `missed = required - completed`
+     - `outcome = "succeeded" if missed <= skipDays else "failed"`
+     - Write outcome, completedCount, skipsUsed, adjudicatedAt to member doc
+  4. Create ledger entries (see below)
+  5. Set `challenge.status = "adjudicated"`, `adjudicatedAt = now`
+- **Idempotency:** transaction reads `challenge.status`; skips if already `"adjudicated"`
 
-**Ledger creation (this step: solo charity only):**
-- For each failed member: create one entry
-  ```
-  fromUid: member.uid
-  fromName: member.displayName
-  toType: "charity"
-  toCharityName: member.charityName
-  amount: challenge.stakeAmount
-  status: "unsettled"
-  ```
+**Ledger creation (solo + charity in this step):**
+```
+for failed_member in challenge.members:
+  create ledger entry:
+    fromUid    = member.uid
+    fromName   = member.displayName
+    toType     = "charity"
+    toCharityName = member.charityName
+    amount     = challenge.stakeAmount
+    status     = "unsettled"
+```
 
 **Firestore rules:**
 ```
@@ -88,56 +89,69 @@ match /ledgerEntries/{entryId} {
 }
 ```
 
-**Storage rules (Cloud Storage):**
+**Storage rules:**
 ```
 match /receipts/{uid}/{entryId} {
   allow read: if request.auth.uid == uid
-              || request.auth.uid == firestore.get(/databases/(default)/documents/ledgerEntries/$(entryId)).data.toUid;
-  allow write: if request.auth.uid == uid;
+              || request.auth.uid == firestore.get(
+                   /databases/(default)/documents/ledgerEntries/$(entryId)
+                 ).data.toUid;
+  allow write: if request.auth.uid == uid
+               && request.resource.size < 5 * 1024 * 1024   # 5MB max
+               && request.resource.contentType.matches('image/.*');
 }
 ```
 
 **Firestore indexes:**
 - `ledgerEntries`: `(fromUid, status)`, `(toUid, status)`, `(challengeId)`
 
-## Flutter dependencies (new)
+## Frontend
 
-```yaml
-firebase_storage
-image_picker
-```
+**Receipt upload:**
+- Desktop: drag-and-drop into a dropzone (use `react-dropzone` or a small custom hook)
+- Mobile: file input with `capture="environment"` for camera capture — `<input type="file" accept="image/*" capture="environment">`. Also allows picking from photo library.
+- Upload directly to Firebase Storage via the Web SDK; write the resulting URL to the ledger entry doc.
+- Show upload progress bar during upload.
+
+**Ledger UI:**
+- Two tabs implemented with a URL query param (`?tab=owe`) so the state is shareable/refreshable
+- Grouped list: use `Object.groupBy` (or manual reduce) by counterparty
+- Row action patterns per platform:
+  - Mobile: swipe-to-reveal action (use `framer-motion` for drag gesture)
+  - Desktop: hover reveals inline "Mark settled" button
 
 ## Screens
 
-- **Home ledger summary card** — added to top of dashboard
-- **Ledger overview** — tabs (I owe / I'm owed), filters, grouped list
-- **Ledger entry detail** — full info + settle action
-- **Settle sheet** — confirm + optional receipt upload
+- **Dashboard ledger summary card** — added at top of `/dashboard`
+- **Ledger overview** (`/ledger`) — tabs, filter, grouped list
+- **Ledger entry detail** (`/ledger/[entryId]`) — full detail + settle
+- **Settle sheet/modal** — confirm + optional receipt
 
 ## Non-goals
 
-- Group ledger entries (step 4 uses same data model but activates for groups)
+- Group ledger entries (step 4 uses same model — activates for groups)
 - Pool mode ledger entries (step 5)
-- Push notifications on new debt (step 6)
-- Auto-detection of receipts / OCR
+- Push on new debt (step 6)
+- Receipt verification / OCR
 
 ## Manual test checklist
 
-- [ ] Create a solo challenge with `endDate = today`, skip all check-ins
-- [ ] Wait for scheduled function OR trigger `adjudicateEndedChallenges` manually via Firebase console
-- [ ] Challenge status flips to "adjudicated"; member outcome is "failed"
-- [ ] Ledger entry appears under "I owe", amount matches stake, counterparty matches charity
-- [ ] Home dashboard summary card shows "$10 owed"
-- [ ] Tap entry → detail → tap Mark settled → upload receipt → status shows "Settled"
-- [ ] Receipt image appears in entry detail after upload
-- [ ] Create + complete a challenge (all check-ins done) → outcome "succeeded", no ledger entry
-- [ ] Re-run function on already-adjudicated challenge → no duplicate entries
-- [ ] Signed-out user cannot read any ledger entry (Firestore rule)
-- [ ] User cannot read someone else's ledger entry (rule)
+- [ ] Create a solo challenge with `endDate` in the past; no check-ins
+- [ ] Trigger `adjudicateEndedChallenges` manually via Firebase console (or wait)
+- [ ] Challenge flips to `adjudicated`; member outcome is `failed`
+- [ ] Ledger entry appears under "I owe" with correct amount + charity
+- [ ] Dashboard summary shows the total
+- [ ] Click entry → detail → Mark settled → upload receipt via drag-and-drop (desktop) → status flips to Settled
+- [ ] Repeat on mobile: use camera capture; upload works
+- [ ] Complete a challenge (all check-ins done) → outcome `succeeded`, no ledger entry
+- [ ] Re-run function on adjudicated challenge → no duplicate entries (transaction guard)
+- [ ] Signed-out client cannot read any ledger entry
+- [ ] Non-counterparty user cannot read entry
+- [ ] Non-fromUid cannot upload receipt (Storage rule)
 
 ## Acceptance
 
-- Adjudication runs on schedule and produces correct outcomes
-- Ledger entries created for failed solo challenges
-- Users can view, settle, and upload receipts for their debts
-- Home dashboard reflects total owed
+- Adjudication is deterministic, idempotent, and transactional
+- Ledger entries correct for failed solo challenges
+- Receipt upload works on both desktop (drag-and-drop) and mobile (camera or library)
+- Dashboard summary + ledger UI render cleanly across viewports

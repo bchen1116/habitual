@@ -3,6 +3,8 @@
 **For:** designers and anyone new to the project.
 **What it is:** a habit tracker that puts money at stake, but never actually moves the money. Users owe (a charity or a friend) when they fail; Habitual keeps score and lets people mark debts settled after paying off-app.
 
+**Platform:** mobile-first responsive **web app**. Works on any modern browser (mobile, tablet, desktop). Installable as a PWA for a native-feel experience — and to unlock push notifications on iOS.
+
 ---
 
 ## The pitch
@@ -19,7 +21,15 @@ Think **Splitwise for accountability**. The app is a ledger, not a wallet.
   - the group members who succeeded (**winner pool**).
 - **The app never touches money.** Users settle among themselves via Venmo, cash, Zelle — whatever they use already. Habitual just tells them what they owe and lets them mark debts settled (optionally with a receipt as proof).
 
-This sidesteps escrow, KYC, payment processing, App Store IAP restrictions, and gambling law questions. All while keeping the psychological weight of real stakes, because your friends can see what you owe until you pay it.
+This sidesteps escrow, KYC, payment processing, and gambling-law questions while keeping the psychological weight of real stakes — because your friends can see what you owe until you pay it.
+
+## Why web (not native)
+
+- **No app stores.** No review process, no TestFlight, no privacy manifest.
+- **Cross-platform for free.** Same codebase for mobile browsers, desktop browsers, and PWA install.
+- **Shareable URLs.** Group join links are literal URLs — no deep-link infrastructure.
+- **Instant deploys.** Push to `main` → live in seconds.
+- **Trade-off:** notifications are weaker (see Notifications below).
 
 ## Personas
 
@@ -29,277 +39,269 @@ This sidesteps escrow, KYC, payment processing, App Store IAP restrictions, and 
 
 ## Core user flows
 
-1. **Onboarding:** Splash → Sign in (Google/Apple) → Empty home → "+" → Create challenge.
-2. **Daily loop:** Open app → home shows today's pending check-ins → tap to check in.
-3. **End of challenge:** Push notification → tap → challenge detail shows outcomes → if you owe, tap ledger entry, pay off-app, mark settled.
-4. **Join a group:** Friend shares a code → open app → tap "Join by code" → enter code → confirm stake + pick your charity (if applicable) → done.
+1. **Onboarding:** Landing page → Sign in (Google/Apple) → Empty home → "+" → Create challenge.
+2. **Daily loop:** Open the site → home shows today's pending check-ins → tap to check in.
+3. **End of challenge:** Notification (if enabled) or user opens the site → challenge detail shows outcomes → if you owe, tap ledger entry, pay off-app, mark settled.
+4. **Join a group:** Friend shares a link (`habitual.app/join/AB4X9K`) → open on any device → see challenge preview → sign in if needed → confirm stake + pick charity (if applicable) → done.
 5. **Manage debts:** Home → ledger summary → tap → tabs (I owe / I'm owed) → tap entry → mark settled, optionally upload receipt.
+6. **Install to home screen:** After a few visits (or on the notification permission ask), we prompt the user to install Habitual as a PWA. On iOS this is required for push notifications.
+
+---
+
+## Notifications (important context)
+
+Web notifications are less powerful than native. The plan:
+
+- **Chrome, Firefox, Edge (desktop + Android):** web push works after user grants permission. Full support.
+- **Safari on iOS:** web push **only** works if the user installs the site as a PWA (iOS 16.4+). Non-installed users get no push.
+- **Safari on macOS:** web push works if the user "allows notifications" in Safari (no install required).
+
+**Strategy:** encourage PWA install to unlock push everywhere. Users who don't install just need to open the site — everything still works, they just won't get pinged.
+
+**No email or SMS fallback** in v1 (per spec). If a user isn't reachable via push, they see updates when they visit.
 
 ---
 
 ## Screen inventory
 
-| Group | Screen | Purpose |
+| Group | Screen (route) | Purpose |
 |---|---|---|
-| Auth | Splash | Route logged-in users past sign-in |
-| Auth | Sign in | Google + Apple |
-| Home | Dashboard | Active challenges, today's check-ins, ledger summary |
-| Challenge | Create challenge (flow) | Multi-step form to define a new challenge |
-| Challenge | Detail (solo) | View, progress, check-in, adjudication result |
-| Challenge | Detail (group) | Same as solo + member list, join code, forfeit type |
-| Challenge | Check-in confirm | Mark today done, optional note |
-| Challenge | Join by code | Enter code → preview → confirm stake + charity |
-| Ledger | Overview | Two tabs (I owe / I'm owed), filter, grouped by counterparty |
-| Ledger | Entry detail | See a single debt, mark settled, upload receipt |
-| Ledger | Settle sheet | Confirm payment + optional proof |
-| Settings | Profile | Name, avatar, sign out, delete account |
-| Settings | Notifications | Per-category toggles |
+| Public | Landing (`/`) | Marketing + sign-in for signed-out users |
+| Public | Join preview (`/join/[code]`) | Renders even for signed-out users so shared links show a preview with OG meta |
+| Auth | Sign in (`/login`) | Google + Apple |
+| Home | Dashboard (`/dashboard`) | Active challenges, today's check-ins, ledger summary |
+| Challenge | Create (`/challenges/new`) | Multi-step form |
+| Challenge | Detail (`/challenges/[id]`) | Progress, check-in, adjudication result; solo vs group variants |
+| Ledger | Overview (`/ledger`) | Two tabs (I owe / I'm owed), filter, grouped |
+| Ledger | Entry (`/ledger/[entryId]`) | Single debt, mark settled, upload receipt |
+| Settings | Profile (`/settings`) | Name, avatar, sign out, delete account |
+| Settings | Notifications (`/settings/notifications`) | Install prompt, permission toggle, per-category prefs |
+| System | Install prompt | Contextual UI + native `beforeinstallprompt` handling |
 
-Plus system states: empty states, loading skeletons, error snackbars.
+Plus: empty states, loading skeletons, error toasts, page transitions.
 
 ---
 
 ## Screen details
 
-### Splash / launch
+### Landing (`/`)
 
-**Purpose:** briefly branded splash while auth state resolves.
-**Elements:** logo, subtle loading indicator.
-**States:** always loading (short-lived).
-**Navigates to:** Sign in (if signed out) or Home (if signed in).
+**Purpose:** first impression for signed-out visitors + auto-redirect for signed-in ones.
 
-### Sign in
-
-**Purpose:** onboard a new user or return a signed-out user to auth.
 **Elements:**
-- App logo + name (Habitual)
+- Logo + name (Habitual)
 - Tagline: "Put your money where your habits are."
+- Short pitch (2 sentences)
+- **Get started** button → `/login`
+- Footer: Terms, Privacy, About
+
+**States:**
+- Signed out: full landing
+- Signed in: redirect to `/dashboard` (server-side to avoid flash)
+
+### Sign in (`/login`)
+
+**Purpose:** authenticate.
+
+**Elements:**
+- App name + logo
 - **Continue with Google** button
-- **Continue with Apple** button (iOS always; Android if enabled)
-- Terms of Service and Privacy Policy links (small, at bottom)
+- **Continue with Apple** button
+- Terms + Privacy links
 
 **States:**
 - Idle
-- Signing in (buttons disabled, spinner over the tapped one)
-- Error (snackbar with human-readable message; buttons re-enabled)
+- Signing in (button loading state)
+- Error (inline error message)
 
 **Design notes:**
-- No email/password option in v1 — social only.
-- Apple sign-in is required on iOS to comply with App Store guidelines if any social login is offered.
+- No email/password in v1
+- Auth via Firebase popup (desktop) or redirect (mobile — some browsers block popups)
 
-### Home / Dashboard
+### Dashboard (`/dashboard`)
 
-**Purpose:** central hub. First thing users see when signed in.
+**Purpose:** central hub. First screen after sign-in.
 
 **Elements:**
-- Top bar: avatar (tap → profile), app title or logo
-- **Ledger summary card** at top:
-  - "You owe **$47** across 3 debts" (tap → ledger, defaults to "I owe" tab)
-  - "You're owed **$12**" (if any)
-  - "You're all settled" (if nothing outstanding)
+- Top bar: avatar (→ `/settings`), app title, primary "New" button
+- **Ledger summary card:**
+  - "You owe **$47** across 3 debts" → tap opens `/ledger`
+  - "You're owed **$12**"
+  - "You're all settled" if nothing outstanding
 - **Active challenges** section:
-  - Each row: challenge name, mode badge (Solo/Group), small progress bar, days remaining
-  - Prominent "Check in for today" button if today's check-in is still pending
-  - Row tap → challenge detail
-- **Bottom actions** (or FAB):
-  - **+ Create challenge** (primary)
-  - **Join by code** (secondary)
+  - Row per challenge: name, mode badge (Solo/Group), progress bar, days remaining
+  - Prominent "Check in for today" button when pending
+  - Row click → `/challenges/[id]`
+- **Actions:**
+  - **+ Create challenge** (primary; opens `/challenges/new`)
+  - **Join by code** (secondary; opens a small modal to paste a code — since URLs work directly, this is a backup)
+- **PWA install banner:** if not installed and dismissible has been shown < N times, prompt at bottom ("Add Habitual to your home screen — get reminders and quick access")
 
 **States:**
-- Empty (no challenges): friendly copy — "No active challenges yet. Start one to hold yourself to it."
-- Loading: skeleton cards for challenges + ledger summary
+- Empty: friendly copy ("No active challenges yet. Start one to hold yourself to it.")
+- Loading: skeleton
 - Populated
 
 **Behavior:**
-- Pull to refresh
-- Realtime updates when a group member checks in
+- Pull to refresh (mobile) / auto-refresh on focus (desktop)
+- Firestore realtime updates on member check-ins
 
-### Create challenge (multi-step)
+### Create challenge (`/challenges/new`)
 
-**Purpose:** define a new challenge. Multi-step so no single screen is overwhelming.
+**Purpose:** multi-step form.
 
-**Steps** (each can be a page or bottom sheet — designer's call):
-
-1. **Basics** — name (required, e.g. "Stretch 5x a week"), description (optional)
-2. **Mode** — Solo / Group toggle
-3. **Frequency** — Daily / N times per week (with target input if the latter)
-4. **Duration** — start date, end date (or duration picker: 1 week / 2 weeks / month / custom)
-5. **Skip days** — how many misses allowed (0+)
-6. **Stake** — dollar amount (numeric input, USD)
-7. **Forfeit type** (only if Group) — Charity forfeit / Winner pool
-8. **Charity name** (only if Charity mode) — free text input
-9. **Reminder time** — optional daily reminder time picker
-10. **Review** — summary of all fields, "Create challenge" button
+**Steps** (each a section or step page; designer's call):
+1. **Basics** — name (required), description (optional)
+2. **Mode** — Solo / Group
+3. **Frequency** — Daily / N times per week (with target)
+4. **Duration** — start date, end date (or duration presets)
+5. **Skip days** — how many misses allowed
+6. **Stake** — dollar amount (USD)
+7. **Forfeit type** (Group only) — Charity forfeit / Winner pool
+8. **Charity name** (Charity mode) — free text
+9. **Review** — summary + "Create challenge"
 
 **States:**
-- Each step: Next disabled until valid
-- On create (submit): loading spinner
-- On success: navigate to challenge detail. If group, prominent join code display + "Share" action.
-- On error: inline error at step or snackbar
+- Per step: Next disabled until valid
+- On submit: loading, then redirect to challenge detail
+- Group create: prominent join code + "Copy link" / "Share" on success
 
-**Notes:**
-- Group creation shows a shareable join code (e.g., `AB4X9K`) after creation.
-- Solo creation is active immediately.
+### Challenge detail (`/challenges/[id]`)
 
-### Challenge detail (solo)
+**Solo variant:**
+- Header: name, mode badge (Solo), status pill
+- Progress card: X of Y complete, streak, days remaining
+- Skip days used
+- **Check in for today** button (or "Checked in ✓")
+- History list
+- Forfeit info footer ("If you fail, you owe $10 to Red Cross")
+- Overflow menu: cancel (creator only, before start)
 
-**Purpose:** view one solo challenge; check in; see progress and outcome.
-
-**Elements:**
-- Header: challenge name, mode badge (Solo), status pill (Active / Ended / Adjudicated)
-- **Progress card:** X of Y check-ins complete, current streak, days remaining
-- **Skip days used:** "2 of 3 skips used" (subdued if 0)
-- **Today's check-in:** big button "Check in for today" if pending; "Checked in ✓" if done today
-- **History:** list of past days with status (✓ checked in, ⊘ missed / used a skip, — future)
-- **Forfeit info:** subtle footer — "If you fail, you owe $10 to Red Cross"
-- **Overflow menu:** cancel challenge (creator only, only before start)
-
-**States:**
-- Not started (before startDate): show countdown "Starts in 2 days"
-- Active
-- Ended, awaiting adjudication: "Results tomorrow morning"
-- Adjudicated — succeeded: green banner "You did it! 🎉"
-- Adjudicated — failed: red-ish banner "You missed too many days. You owe $10 to Red Cross." — button linking to the ledger entry
-
-### Challenge detail (group)
-
-**Purpose:** same as solo plus member visibility and forfeit-type context.
-
-**Elements** (in addition to solo elements):
-- **Forfeit type badge:** "Charity forfeit" or "Winner pool"
-- **Join code + Share button** (only visible before startDate; hides once challenge starts)
-- **Members section:** list of members with avatar, name, small progress bar (X/Y)
-  - Live-updates as members check in (Firestore realtime)
-- **Group summary:** "3 of 5 on track" at top of member list
-- **Your row** highlighted (you're one of the members)
+**Group variant** (adds):
+- Forfeit type badge (Charity / Pool)
+- Join code + copy/share button (before start only)
+- Member list with live progress bars (Firestore realtime)
+- Group summary ("3 of 5 on track")
 
 **Adjudicated states:**
-- Winners and losers visually distinguished (green check, red mark)
-- If pool mode: show per-member outcome — "You get $10" or "You owe $5 each to Alice, Bob"
+- Succeeded: green banner
+- Failed: red-ish banner with link to ledger entry
+- Group pool mode: per-member outcomes shown ("You owe $5 each to Alice, Bob")
 
-### Check-in confirm
+### Check-in confirmation
 
-**Purpose:** mark today's habit as done.
+**Purpose:** mark today done, optional note.
 
-**Elements** (bottom sheet from challenge detail):
-- Challenge name at top
-- Prominent "Check in" button
-- Optional note field (single line, placeholder "Add a note (optional)")
-- Cancel action
+**Presentation:**
+- **Mobile:** bottom sheet (drawer)
+- **Desktop:** centered modal
+- Prominent Check in button, optional note field, cancel
 
-**States:**
-- Idle
-- Submitting (button disabled, spinner)
-- Success (checkmark animation, auto-dismiss)
+**States:** idle / submitting / success (auto-dismiss with checkmark animation)
 
-**Alternative:** could be inline on challenge detail (tap → done, no sheet). Designer's call — the sheet is only worth it if we want the note field.
+**Optimistic UI:** immediately update the button to "Checked in ✓" and revert if the write fails.
 
-### Join by code
+### Join preview (`/join/[code]`)
 
-**Purpose:** join a group challenge shared by a friend.
+**Purpose:** public URL friends receive. Renders with OG meta so link previews show challenge name + creator. Signed-out users can view; sign-in required to actually join.
 
 **Elements:**
-- Text field for join code (auto-uppercase, format-hint like `AB4X9K`)
-- **Look up** button
-- After lookup: preview card showing challenge name, creator, dates, stake, forfeit type, current members
-- **Join challenge** button
-- Confirm sheet: displays stake amount, charity name input (if charity mode), Cancel/Join
+- Challenge summary card: name, creator name/avatar, dates, stake, forfeit type, member count
+- If signed out: **Sign in to join** → after auth, returns here
+- If signed in: **Join challenge** → confirm sheet (charity input if applicable) → joined
 
 **States:**
-- Empty field
-- Looking up (spinner)
-- Preview shown
-- Confirming (modal)
-- Joined → navigate to challenge detail
-- Errors: invalid code, challenge full, challenge started, already a member
+- Loading, valid preview, invalid code (404-style), challenge started (locked), already a member
 
-### Ledger overview
+### Ledger overview (`/ledger`)
 
-**Purpose:** see all money owed / owed to me. Manage debts.
+**Purpose:** see all debts. Manage settlement.
 
 **Elements:**
 - Tabs: **I owe** (default) | **I'm owed**
 - Filter chips: All / Unsettled / Settled
-- Total banner at top of each tab: "**$47** unsettled"
-- Grouped list by counterparty:
-  - Group header: counterparty avatar + name + subtotal ("Red Cross — $30")
-  - Rows under header: individual challenges → amount → status pill
-  - Row tap → entry detail
-- Optional: swipe left on a row → "Mark settled" quick action
+- Total banner: "**$47** unsettled"
+- Grouped list by counterparty (charity name or user)
+  - Group header + subtotal
+  - Rows: challenge → amount → status pill
+  - Row click → `/ledger/[entryId]`
+
+**Row actions:**
+- **Mobile:** swipe left → Mark Settled (with confirm)
+- **Desktop:** hover reveals inline "Mark settled" button
+- Right-click / long-press: context menu
 
 **States:**
-- Empty (I owe): "You're all settled 🎉" or "No debts yet — nice."
+- Empty (I owe): "You're all settled" / "No debts yet — nice."
 - Empty (I'm owed): "No one owes you right now."
-- Loading: skeleton
-- Populated
+- Loading, populated
 
-### Ledger entry detail
-
-**Purpose:** see one debt or credit. Take action.
+### Ledger entry (`/ledger/[entryId]`)
 
 **Elements:**
-- Header: amount + counterparty ("$10 to Red Cross" or "$5 from Alice")
-- Source challenge (link → challenge detail)
+- Header: amount + counterparty
+- Source challenge (link)
 - Created date, adjudication date
-- Status pill: Unsettled / Settled
-- If unsettled and I owe: **Mark as settled** button
+- Status pill
+- If unsettled + I owe: **Mark as settled** button
 - If settled: settled date + receipt thumbnail (if uploaded)
-- Optional note field (shown if present)
+- Optional note
 
 ### Settle sheet
 
-**Purpose:** confirm the debt is paid; optionally attach proof.
+**Purpose:** confirm payment, optionally attach receipt.
 
-**Elements** (modal from ledger entry detail):
+**Presentation:**
+- Mobile: bottom sheet
+- Desktop: modal
+
+**Elements:**
 - "Confirm you've paid **$10** to **Red Cross**"
-- Optional receipt upload (photo picker with camera or library)
-- Optional note field
+- Optional file input for receipt (drag-and-drop on desktop; tap → camera or photo library on mobile)
+- Optional note
 - **Mark settled** button
 - Cancel
 
-**States:**
-- Idle
-- Uploading receipt (progress bar)
-- Submitting (spinner)
-- Done → back to entry detail, now Settled
+### Settings — Profile (`/settings`)
 
-### Profile
-
-**Purpose:** account settings.
-
-**Elements:**
-- Avatar + display name (tap to edit)
+- Avatar + display name (editable inline)
 - Email (read-only)
-- Notification settings (link → notification screen)
-- About: version, terms, privacy policy
-- Sign out
-- **Delete account** (danger action at bottom, requires confirmation)
+- Notifications → `/settings/notifications`
+- About: version, terms, privacy
+- **Sign out**
+- **Delete account** (danger; requires typing "delete" to confirm)
 
-### Notification settings
+### Settings — Notifications (`/settings/notifications`)
 
-**Purpose:** configure what pushes the user gets. Local reminders (per-challenge) also managed here globally.
-
-**Elements:**
-- Section: **Check-in reminders** — global default time picker + per-challenge overrides
-- Section: **Group activity** — toggle (someone joined, someone checked in)
-- Section: **Challenge lifecycle** — toggle (starting, ending soon, results in)
-- Section: **Ledger** — toggle (new debt, someone settled)
-- If system permissions denied: "Notifications are off in system settings." + link
+- **PWA install status:** if not installed, show install button/instructions
+- **Push permission status:** if not granted, prompt with explanation + request button
+- Per-category toggles:
+  - Group activity (someone joined, someone checked in)
+  - Challenge lifecycle (starting, ending soon, results in)
+  - Ledger (new debt, someone settled)
+- If push is unsupported (e.g., iOS Safari without install): show explanation + install instructions
 
 ---
 
 ## Interactions and gestures
 
-- **Pull to refresh** on lists (home, ledger)
-- **Swipe left** on a ledger row → quick Mark Settled
-- **Tap avatar** in top bar → profile
-- **Long press** on a challenge row → context menu (share, delete if applicable)
-- **Bottom sheet** for check-in confirmation and settlement
-- **Native share sheet** for join codes
+- **Pull to refresh** on mobile lists; auto-refresh on window focus for desktop
+- **Swipe left** on ledger row (mobile) / **hover reveal actions** (desktop)
+- **Right-click** on desktop / **long-press** on mobile → context menu (share, delete)
+- **Bottom sheet** on mobile / **modal dialog** on desktop for the same flows (check-in, settle)
+- **Native share** (`navigator.share`) on mobile / **Copy link** on desktop
+- **Keyboard shortcuts** on desktop (nice-to-have): `n` = new challenge, `l` = ledger, `/` = search
 
 ## Empty and error states
 
-Every list screen needs an intentional empty state. Errors surface as inline messages (for form validation) or snackbars (for network/async). Loading uses skeleton loaders on primary content and spinners for buttons.
+Every list has an intentional empty state (not a blank screen). Errors surface as inline validation (forms) or toasts (async). Loading uses skeleton loaders on primary content and inline spinners for buttons.
+
+## Offline behavior
+
+- **Service worker** caches the app shell (HTML/JS/CSS) — the site loads even offline
+- **Firestore offline persistence** enabled — reads use cache, writes queue and sync on reconnect
+- **Offline banner** appears when navigator reports offline; disappears on reconnect
+- Users can check in offline; it syncs when the network comes back
 
 ## Design considerations
 
@@ -307,31 +309,36 @@ Every list screen needs an intentional empty state. Errors surface as inline mes
 
 **Not:** corporate finance app, punitive tracker, gambling app, gamified point-farm.
 
-**Reference apps:** Splitwise (ledger feel), Streaks (habit UI), Duolingo (streak nudging without harassment).
+**Reference apps/sites:** Splitwise (ledger feel), Linear (crisp web polish), Vercel (motion), Cash App (tight mobile UX).
 
-**Platforms:** Flutter Material 3 with adaptive widgets. Follow platform conventions (iOS-style modals on iOS, Material transitions on Android).
+**Responsive breakpoints (suggestion):**
+- Mobile: < 640px (single column, bottom sheets)
+- Tablet: 640–1024px (single column with wider spacing)
+- Desktop: 1024px+ (two-column: sidebar nav + content; modals instead of sheets)
 
-**Dark mode:** fully supported.
+**Touch targets:** ≥ 44×44px on mobile.
+**Keyboard navigation:** full tab order on desktop; visible focus rings.
+**Motion:** subtle spring animations for page transitions and modals (Framer Motion). Respect `prefers-reduced-motion`.
+**Dark mode:** fully supported (system preference, with manual override in settings).
+**Accessibility:** WCAG AA contrast, semantic HTML, ARIA where needed, no color-only meaning, dynamic type respected.
 
-**Accessibility:** dynamic type, sufficient contrast (WCAG AA), VoiceOver / TalkBack labels on all interactive elements, no color-only meaning.
-
-## Brand direction (TBD by designer)
+## Brand direction (TBD)
 
 - **Name:** Habitual
-- **Tagline:** "Put your money where your habits are" (suggestion — refine as needed)
+- **Domain:** TBD (e.g., `habitual.app`, `habitualhabits.com`)
+- **Tagline:** "Put your money where your habits are" (suggestion)
 - **Palette:** designer's call. Suggestion: warm neutral, not fintech blue.
-- **Icon:** designer's call. Suggestion: something that reads as commitment + tracking (checkmark motif, calendar, streak dots).
-- **Typography:** system stack fine for v1 (SF / Roboto).
-
----
+- **Icon:** designer's call. Needs favicon (32×32, 512×512), Apple touch icon (180×180), PWA icons (192×192, 512×512, maskable), OG image (1200×630).
+- **Typography:** designer's call. Suggestion: Inter or system font stack.
 
 ## What's out of v1
 
-- Photo evidence for check-ins (log-based only in v1)
+- Photo evidence for check-ins (log-based only)
 - Multiple currencies (USD only)
-- Actually processing payments (users settle off-app)
+- Actual payment processing (users settle off-app)
 - Real-time chat within groups
 - Recurring / auto-restart challenges
 - Habit types beyond daily / weekly count
-- Analytics dashboards for the user's own history
-- Charity search / API integration (free-text only in v1)
+- Email/SMS notifications
+- Localization (English only)
+- Native iOS or Android app
