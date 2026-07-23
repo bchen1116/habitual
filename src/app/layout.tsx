@@ -1,11 +1,23 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Anton, Archivo, Barlow_Condensed, Geist_Mono } from "next/font/google";
 import { NetworkBanner } from "@/components/network-banner";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const anton = Anton({
+  weight: "400",
   subsets: ["latin"],
+  variable: "--font-anton",
+});
+
+const archivo = Archivo({
+  subsets: ["latin"],
+  variable: "--font-archivo",
+});
+
+const barlowCondensed = Barlow_Condensed({
+  weight: ["500", "600", "700", "800"],
+  subsets: ["latin"],
+  variable: "--font-barlow",
 });
 
 const geistMono = Geist_Mono({
@@ -37,7 +49,7 @@ export const metadata: Metadata = {
 };
 
 // Applies the .dark class from the system preference before first paint and
-// keeps it in sync if the preference changes. Manual override comes in step 7.
+// keeps it in sync if the preference changes. Manual override comes later.
 const darkModeScript = `
 (function () {
   try {
@@ -62,7 +74,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: darkModeScript }} />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
+        className={`${anton.variable} ${archivo.variable} ${barlowCondensed.variable} ${geistMono.variable} font-sans antialiased`}
       >
         <NetworkBanner />
         {children}

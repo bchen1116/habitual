@@ -10,7 +10,7 @@ export default function PrivacyPage() {
         <Link href="/" className="text-sm text-muted-foreground hover:text-foreground">
           ← Habitual
         </Link>
-        <h1 className="mt-2 text-2xl font-bold tracking-tight">Privacy Policy</h1>
+        <h1 className="mt-2 type-display text-3xl">Privacy Policy</h1>
       </header>
 
       <main className="flex flex-col gap-4 text-sm leading-relaxed [&_h2]:mt-2 [&_h2]:text-base [&_h2]:font-semibold">

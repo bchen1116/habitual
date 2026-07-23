@@ -148,11 +148,11 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
         </div>
         <div className="flex shrink-0 gap-1.5">
           {challenge.mode === "group" && (
-            <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
+            <span className="type-overline rounded-full border-[1.5px] border-foreground px-2.5 py-1 text-[11px] text-foreground">
               {challenge.forfeitType === "pool" ? "Winner pool" : "Group"}
             </span>
           )}
-          <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
+          <span className="type-overline rounded-full bg-secondary px-2.5 py-1 text-[11px] text-secondary-foreground">
             {state === "upcoming" && "Not started"}
             {state === "active" && "Active"}
             {state === "ended" && "Ended"}
@@ -172,7 +172,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex items-center gap-3">
-            <code className="rounded-md bg-secondary px-3 py-1.5 font-mono text-sm tracking-widest">
+            <code className="rounded-full bg-foreground px-4 py-1.5 font-mono text-sm font-bold tracking-widest text-primary">
               {challenge.joinCode}
             </code>
             <ShareLink joinCode={challenge.joinCode} name={challenge.name} />
@@ -273,7 +273,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
           <CardContent className="flex flex-col gap-3">
             <div className="h-2 overflow-hidden rounded-full bg-secondary">
               <div
-                className="h-full rounded-full bg-primary transition-all"
+                className="h-full rounded-full bg-foreground transition-all"
                 style={{
                   width: `${summary.total > 0 ? Math.min(100, (summary.completed / summary.total) * 100) : 0}%`,
                 }}
@@ -394,7 +394,7 @@ function MembersCard({
               {row.uid === selfUid ? " (you)" : ""}
             </span>
             {row.outcome === "succeeded" && (
-              <span className="text-xs font-medium text-primary">Succeeded ✓</span>
+              <span className="text-xs font-bold text-foreground">Succeeded ✓</span>
             )}
             {row.outcome === "failed" && (
               <span className="text-xs font-medium text-destructive">Failed ✗</span>
@@ -403,7 +403,7 @@ function MembersCard({
               <>
                 <div className="h-1.5 w-24 overflow-hidden rounded-full bg-secondary">
                   <div
-                    className="h-full rounded-full bg-primary"
+                    className="h-full rounded-full bg-foreground"
                     style={{
                       width: `${total > 0 ? Math.min(100, (row.completed / total) * 100) : 0}%`,
                     }}
@@ -440,7 +440,7 @@ function DailyHistoryGrid({
           className={
             "flex h-9 items-center justify-center rounded-md text-xs " +
             (entry.state === "done"
-              ? "bg-primary text-primary-foreground"
+              ? "bg-foreground text-background"
               : entry.state === "missed"
                 ? "bg-destructive/15 text-destructive"
                 : entry.state === "today"
@@ -478,7 +478,7 @@ function WeeklyWindowList({
           <span
             className={
               w.state === "complete"
-                ? "font-medium text-primary"
+                ? "font-bold text-foreground"
                 : w.state === "past-incomplete"
                   ? "font-medium text-destructive"
                   : "text-muted-foreground"

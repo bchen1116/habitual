@@ -6,8 +6,8 @@
 import sharp from "sharp";
 import { mkdir } from "node:fs/promises";
 
-const BG = "#171717";
-const FG = "#fafafa";
+const BG = "#111111";
+const FG = "#d8ff00";
 
 function iconSvg(size, pad = 0) {
   const glyphSize = size - pad * 2;
@@ -39,7 +39,7 @@ for (const { file, size, pad } of targets) {
 const ogSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630">
   <rect width="1200" height="630" fill="${BG}"/>
   <text x="600" y="280" font-family="Arial, Helvetica, sans-serif" font-weight="bold"
-    font-size="120" fill="${FG}" text-anchor="middle">Habitual</text>
+    font-size="130" fill="${FG}" text-anchor="middle">HABITUAL</text>
   <text x="600" y="380" font-family="Arial, Helvetica, sans-serif"
     font-size="44" fill="#a3a3a3" text-anchor="middle">Put your money where your habits are.</text>
 </svg>`;

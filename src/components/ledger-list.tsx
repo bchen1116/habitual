@@ -137,9 +137,9 @@ export function LedgerList({ uid, initialTab }: { uid: string; initialTab: Tab }
             key={f}
             onClick={() => setFilter(f)}
             className={
-              "rounded-full px-3 py-1 text-xs transition-colors " +
+              "type-overline rounded-full px-3 py-1 text-[11px] transition-colors " +
               (filter === f
-                ? "bg-primary text-primary-foreground"
+                ? "bg-foreground text-background"
                 : "bg-secondary text-secondary-foreground hover:bg-secondary/70")
             }
           >
@@ -184,7 +184,7 @@ export function LedgerList({ uid, initialTab }: { uid: string; initialTab: Tab }
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 {(tab === "owed" || items[0]?.toType === "user") && (
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-foreground text-xs font-bold text-primary">
                     {name.trim().charAt(0).toUpperCase() || "?"}
                   </span>
                 )}
@@ -213,7 +213,7 @@ export function LedgerList({ uid, initialTab }: { uid: string; initialTab: Tab }
                     </div>
                     <span
                       className={
-                        "rounded-full px-2 py-0.5 text-xs " +
+                        "type-overline rounded-full px-2.5 py-1 text-[11px] " +
                         (entry.status === "unsettled"
                           ? "bg-destructive/15 text-destructive"
                           : "bg-secondary text-secondary-foreground")

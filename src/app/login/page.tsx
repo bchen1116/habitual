@@ -108,16 +108,16 @@ function LoginForm() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-8 px-6">
       <div className="text-center">
-        <h1 className="text-3xl font-bold tracking-tight">Habitual</h1>
-        <p className="mt-2 text-muted-foreground">
-          Put your money where your habits are.
+        <h1 className="type-display text-5xl">Habitual</h1>
+        <p className="type-overline mt-3 text-xs text-muted-foreground">
+          Put your money where your habits are
         </p>
       </div>
 
       <div className="flex w-full max-w-xs flex-col gap-3">
         <Button
           size="lg"
-          variant="outline"
+          variant="secondary"
           disabled={pending !== null || finishing}
           onClick={() => signIn("google")}
         >

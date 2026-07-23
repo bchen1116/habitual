@@ -17,7 +17,7 @@ export default async function LedgerPage({
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-6 p-6">
       <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold tracking-tight">Ledger</h1>
+        <h1 className="type-display text-3xl">Ledger</h1>
         <Link
           href="/dashboard"
           className="text-sm text-muted-foreground hover:text-foreground"

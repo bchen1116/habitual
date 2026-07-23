@@ -122,7 +122,14 @@ function ChallengeCard({ challenge, uid }: { challenge: Challenge; uid: string }
           <Link href={`/challenges/${challenge.id}`} className="hover:underline">
             <CardTitle>{challenge.name}</CardTitle>
           </Link>
-          <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
+          <span
+            className={
+              "type-overline rounded-full px-2.5 py-1 text-[11px] " +
+              (challenge.mode === "group"
+                ? "border-[1.5px] border-foreground text-foreground"
+                : "bg-foreground text-primary")
+            }
+          >
             {challenge.mode === "group" ? "Group" : "Solo"}
           </span>
         </div>
@@ -136,7 +143,7 @@ function ChallengeCard({ challenge, uid }: { challenge: Challenge; uid: string }
       <CardContent className="flex flex-col gap-3">
         <div className="h-2 overflow-hidden rounded-full bg-secondary">
           <div
-            className="h-full rounded-full bg-primary transition-all"
+            className="h-full rounded-full bg-foreground transition-all"
             style={{ width: `${percent}%` }}
           />
         </div>

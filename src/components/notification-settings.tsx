@@ -136,7 +136,7 @@ export function NotificationSettings({ uid }: { uid: string }) {
                 <span
                   className={
                     "relative h-6 w-10 shrink-0 rounded-full transition-colors " +
-                    (enabled ? "bg-primary" : "bg-secondary")
+                    (enabled ? "bg-foreground" : "bg-secondary")
                   }
                 >
                   <span

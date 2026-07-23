@@ -10,9 +10,9 @@ export default async function LandingPage() {
   return (
     <div className="flex min-h-screen flex-col">
       <main className="flex flex-1 flex-col items-center justify-center gap-6 px-6 text-center">
-        <h1 className="text-5xl font-bold tracking-tight">Habitual</h1>
-        <p className="text-xl text-muted-foreground">
-          Put your money where your habits are.
+        <h1 className="type-display text-7xl sm:text-8xl">Habitual</h1>
+        <p className="type-overline text-sm text-muted-foreground">
+          Put your money where your habits are
         </p>
         <p className="max-w-md text-balance text-muted-foreground">
           Commit to a habit with real stakes — solo or with friends. Miss your
