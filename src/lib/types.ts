@@ -14,6 +14,7 @@ export interface Challenge {
   joinCode?: string | null; // group only
   joinPolicy?: "open" | "invite" | null; // group only; missing/null means "open"
   maxMembers?: number | null; // group only, optional cap
+  streakResetAt?: string | null; // yyyymmdd; set when an edit increases skipDays
   frequency: {
     type: FrequencyType;
     target: number; // check-ins per 7-day window; meaningful for weekly_count

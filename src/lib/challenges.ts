@@ -126,6 +126,38 @@ export async function removeMember(challengeId: string, uid: string): Promise<vo
   }
 }
 
+export interface EditChallengeInput {
+  stakeAmount: number;
+  endDate: string; // yyyymmdd
+  skipDays: number;
+}
+
+export interface EditChallengeResult {
+  streakEnded: boolean;
+}
+
+/**
+ * Creator-only: adjust stake/duration/skip days. Only allowed while a
+ * group challenge still has just its creator as a member (terms are
+ * frozen once anyone else has joined, same rule the app already applies
+ * elsewhere) — solo challenges have no such restriction.
+ */
+export async function editChallenge(
+  challengeId: string,
+  input: EditChallengeInput
+): Promise<EditChallengeResult> {
+  const response = await fetch(`/api/challenges/${challengeId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(body?.error ?? "Couldn't update the challenge");
+  }
+  return body as EditChallengeResult;
+}
+
 /** Creator-only, before startDate (enforced by Firestore rules). */
 export async function cancelChallenge(challengeId: string): Promise<void> {
   const db = getClientDb();

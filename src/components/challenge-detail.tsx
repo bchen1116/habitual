@@ -22,8 +22,10 @@ import {
 import Link from "next/link";
 import { daysBetweenInclusive, formatYmd, todayYmd } from "@/lib/dates";
 import { formatAmount } from "@/lib/ledger";
+import { currentStreak } from "@/lib/streak";
 import type { Challenge, ChallengeMember, JoinRequest } from "@/lib/types";
 import { CheckinDialog } from "@/components/checkin-dialog";
+import { EditChallengeDialog } from "@/components/edit-challenge-dialog";
 import { ShareLink } from "@/components/share-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -164,6 +166,15 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   // (below) supersedes it there.
   const canCancel = isCreator && state === "upcoming" && challenge.mode === "group";
   const canDelete = isCreator && challenge.mode === "solo";
+  // Same "terms are frozen once anyone else has joined" rule the app
+  // already applies elsewhere (firestore.rules' challenges/{cid} update
+  // block) — group challenges are only editable pre-join; solo has no one
+  // else to protect, so it's editable any time it's still running.
+  const canEdit =
+    isCreator &&
+    (state === "upcoming" || state === "active") &&
+    (challenge.mode === "solo" || challenge.memberIds.length === 1);
+  const creatorStreak = currentStreak(challenge, checkinYmds, today);
 
   async function handleCancel() {
     if (!window.confirm("Cancel this challenge? This can't be undone.")) return;
@@ -229,7 +240,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
             </p>
           )}
         </div>
-        <div className="flex shrink-0 gap-1.5">
+        <div className="flex shrink-0 items-center gap-1.5">
           {challenge.mode === "group" && (
             <Badge variant="outline">
               {challenge.forfeitType === "pool" ? "Winner pool" : "Group"}
@@ -242,6 +253,9 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
             {state === "cancelled" && "Cancelled"}
             {state === "adjudicated" && "Complete"}
           </Badge>
+          {canEdit && (
+            <EditChallengeDialog challenge={challenge} currentStreak={creatorStreak} />
+          )}
         </div>
       </div>
 
