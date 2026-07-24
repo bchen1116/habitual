@@ -2,12 +2,35 @@ import { addDaysYmd, ymdToDate } from "@/lib/dates";
 import { dailyHistory, weeklyWindows } from "@/lib/progress";
 import type { Challenge } from "@/lib/types";
 
+function streakFloor(challenge: Challenge): string {
+  return challenge.streakResetAt && challenge.streakResetAt > challenge.startDate
+    ? challenge.streakResetAt
+    : challenge.startDate;
+}
+
+export interface StreakRun {
+  streak: number;
+  /**
+   * Whether the run is unbroken all the way back to the challenge's own
+   * floor (its startDate, or streakResetAt if later) — i.e. there's no
+   * miss/incomplete window between the floor and `asOf`. Used by
+   * chain-streak.ts to decide whether it's safe to keep counting into the
+   * cycle this challenge was repeated from.
+   */
+  reachesFloor: boolean;
+}
+
 /**
- * Consecutive-completion streak, ending at the most recent day/window that
- * could still be "current". Daily challenges count backward day by day;
- * weekly_count challenges count backward window by window (skipping an
- * in-progress current window rather than treating it as a break, since it
- * hasn't been decided yet).
+ * Consecutive-completion streak run, as of `asOf` (usually today for a
+ * still-running challenge; a fixed date for an already-ended one — see
+ * chain-streak.ts, which passes `addDaysYmd(endDate, 1)` to get the
+ * *settled* trailing streak of a cycle that's fully in the past). Daily
+ * challenges count backward day by day; weekly_count challenges count
+ * backward window by window (skipping an in-progress "current" window
+ * rather than treating it as a break, since it hasn't been decided yet —
+ * comparing `asOf` against each window's end is what `weeklyWindows`
+ * already uses to tell "current" from "past-incomplete", so passing a
+ * fixed past `asOf` naturally settles every window instead).
  *
  * `challenge.streakResetAt` (set when an edit increases skipDays — see
  * editChallengeAdmin) acts as a floor: checkins before it are invisible to
@@ -16,29 +39,26 @@ import type { Challenge } from "@/lib/types";
  * `longestStreak` below — that's a historical best-ever record, not the
  * live one, and isn't part of what a skip-days edit resets.
  */
-export function currentStreak(
+export function streakRun(
   challenge: Challenge,
   checkinYmds: ReadonlySet<string> | readonly string[],
-  today: string
-): number {
+  asOf: string
+): StreakRun {
   const checkins =
     checkinYmds instanceof Set ? checkinYmds : new Set(checkinYmds);
-  const floor =
-    challenge.streakResetAt && challenge.streakResetAt > challenge.startDate
-      ? challenge.streakResetAt
-      : challenge.startDate;
+  const floor = streakFloor(challenge);
 
   if (challenge.frequency.type === "daily") {
-    let cursor = checkins.has(today) ? today : addDaysYmd(today, -1);
+    let cursor = checkins.has(asOf) ? asOf : addDaysYmd(asOf, -1);
     let streak = 0;
     while (cursor >= floor && checkins.has(cursor)) {
       streak++;
       cursor = addDaysYmd(cursor, -1);
     }
-    return streak;
+    return { streak, reachesFloor: cursor < floor };
   }
 
-  const windows = weeklyWindows(challenge, Array.from(checkins), today).filter(
+  const windows = weeklyWindows(challenge, Array.from(checkins), asOf).filter(
     (w) => w.start >= floor
   );
   let i = windows.length - 1;
@@ -49,7 +69,16 @@ export function currentStreak(
     streak++;
     i--;
   }
-  return streak;
+  return { streak, reachesFloor: i < 0 };
+}
+
+/** currentStreak(...) === streakRun(..., today).streak — kept for the (many) callers that just want the number. */
+export function currentStreak(
+  challenge: Challenge,
+  checkinYmds: ReadonlySet<string> | readonly string[],
+  today: string
+): number {
+  return streakRun(challenge, checkinYmds, today).streak;
 }
 
 /** Longest run ever completed (not required to be ongoing), for a "best" stat. */

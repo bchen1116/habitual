@@ -540,6 +540,8 @@ export class RepeatChallengeError extends Error {
 /**
  * Creator-only. Starts a new cycle of an ended habit — same name,
  * description, mode, forfeitType, joinPolicy, maxMembers, and frequency;
+ * `repeatedFromId` links the new cycle back to this one, so a chain-aware
+ * streak (src/lib/chain-streak.ts) can walk backward through it later;
  * stake/end-date/skip-days can be adjusted, same fields editChallengeAdmin
  * already lets a creator tweak. The new cycle's start date is always
  * max(today, dayAfterOldEndDate) — never user-chosen — so repeated cycles
@@ -606,6 +608,7 @@ export async function repeatChallengeAdmin(
     endDate: payload.endDate,
     status: "active",
     memberIds: memberDocs.docs.map((d) => d.id),
+    repeatedFromId: challengeId,
     createdAt: FieldValue.serverTimestamp(),
   });
   for (const memberDoc of memberDocs.docs) {
