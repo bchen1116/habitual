@@ -165,7 +165,14 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   // solo challenge has no one else to show a cancelled record to — Delete
   // (below) supersedes it there.
   const canCancel = isCreator && state === "upcoming" && challenge.mode === "group";
-  const canDelete = isCreator && challenge.mode === "solo";
+  // Same "terms are frozen once anyone else has joined" gate as canEdit
+  // below — a group challenge is only fully deletable while the creator
+  // is still its sole member; once someone else has joined, Cancel is the
+  // only way out (it keeps a record they can see). Solo has no such
+  // restriction, and — unlike canEdit — no status restriction either: a
+  // solo challenge affects no one but its creator regardless of state.
+  const canDelete =
+    isCreator && (challenge.mode === "solo" || challenge.memberIds.length === 1);
   // Same "terms are frozen once anyone else has joined" rule the app
   // already applies elsewhere (firestore.rules' challenges/{cid} update
   // block) — group challenges are only editable pre-join; solo has no one

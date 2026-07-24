@@ -476,7 +476,7 @@ export async function editChallengeAdmin(
   });
 }
 
-export type DeleteChallengeErrorCode = "not-found" | "not-owner" | "not-solo";
+export type DeleteChallengeErrorCode = "not-found" | "not-owner" | "already-joined";
 
 export class DeleteChallengeError extends Error {
   constructor(public code: DeleteChallengeErrorCode) {
@@ -485,9 +485,14 @@ export class DeleteChallengeError extends Error {
 }
 
 /**
- * Solo only, creator only, any status — a solo challenge affects nobody but
- * its creator, so unlike group challenges there's no one else's record to
- * preserve. Ledger entries the challenge already produced are left alone
+ * Creator-only, any status. Solo challenges affect nobody but their
+ * creator, so there's no one else's record to preserve. A group challenge
+ * is deletable on the same terms it's editable on (editChallengeAdmin) —
+ * only while the creator is still its sole member; once anyone else has
+ * joined, "Cancel" (which keeps a record other members can see) is the
+ * only way out, matching the app's existing "members joined under
+ * specific terms" philosophy (firestore.rules' challenges/{cid} update
+ * block). Ledger entries the challenge already produced are left alone
  * (same reasoning as account deletion: they're the debtor's standing
  * obligation, independent of whether the source challenge still exists).
  * recursiveDelete wipes the challenge doc plus its members/checkins
@@ -504,7 +509,11 @@ export async function deleteChallengeAdmin(
 
   const data = snap.data()!;
   if (data.createdBy !== uid) throw new DeleteChallengeError("not-owner");
-  if (data.mode !== "solo") throw new DeleteChallengeError("not-solo");
+
+  const memberIds = (data.memberIds as string[]) ?? [];
+  if (data.mode === "group" && memberIds.length > 1) {
+    throw new DeleteChallengeError("already-joined");
+  }
 
   await db.recursiveDelete(ref);
 }
