@@ -177,6 +177,13 @@ function LoginForm() {
         console.error("Google sign-in failed:", err);
         setError(authErrorMessage(err));
       }
+    } finally {
+      // Not just an error-path reset: proceedAfterAuth's success case can
+      // also stay on this page (routing to the "profile" step when a
+      // username/name is missing) rather than navigating away, and every
+      // field on that step is disabled={pending !== null} — this used to
+      // only reset on the catch branch, leaving those fields permanently
+      // disabled after a successful Google sign-in that needed a username.
       setPending(null);
     }
   }
