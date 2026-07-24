@@ -12,6 +12,7 @@ export interface Challenge {
   forfeitType: "charity" | "pool"; // pool: group only
   charityName: string | null; // creator's charity (null in pool mode); group members pick their own on join
   joinCode?: string | null; // group only
+  joinPolicy?: "open" | "invite" | null; // group only; missing/null means "open"
   maxMembers?: number | null; // group only, optional cap
   frequency: {
     type: FrequencyType;
@@ -42,6 +43,13 @@ export interface ChallengeMember {
   outcome: MemberOutcome;
   completedCount: number;
   skipsUsed: number;
+}
+
+/** challenges/{cid}/joinRequests/{uid} — pending approval on an invite-only group. */
+export interface JoinRequest {
+  displayName: string;
+  username: string | null;
+  charityName: string | null;
 }
 
 export type LedgerStatus = "unsettled" | "settled";

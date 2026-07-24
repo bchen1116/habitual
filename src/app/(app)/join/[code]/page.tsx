@@ -45,10 +45,8 @@ export default async function JoinPage({
   params: Promise<{ code: string }>;
 }) {
   const { code } = await params;
-  const [preview, user] = await Promise.all([
-    getPreview(code).catch(() => null),
-    getCurrentUser(),
-  ]);
+  const user = await getCurrentUser();
+  const preview = await getPreview(code, user?.uid).catch(() => null);
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-lg flex-col gap-6 p-6">
@@ -96,6 +94,11 @@ export default async function JoinPage({
                     ? "Winner pool — failed stakes split among members who succeed"
                     : "Charity forfeit — each member names a charity they'd owe"}
                 </p>
+                {preview.joinPolicy === "invite" && (
+                  <p className="text-muted-foreground">
+                    Invite only — the creator approves each request
+                  </p>
+                )}
                 <p className="text-muted-foreground">
                   {preview.memberCount} member
                   {preview.memberCount === 1 ? "" : "s"}
@@ -110,6 +113,10 @@ export default async function JoinPage({
                   You&apos;re in — view challenge
                 </Link>
               </Button>
+            ) : user && preview.hasPendingRequest ? (
+              <p className="text-sm text-muted-foreground">
+                Your request is pending — the creator needs to approve you.
+              </p>
             ) : preview.started ? (
               <p className="text-sm text-muted-foreground">
                 This challenge has already started — joining is closed.
@@ -119,6 +126,7 @@ export default async function JoinPage({
                 joinCode={code}
                 stakeAmount={preview.stakeAmount}
                 forfeitType={preview.forfeitType}
+                joinPolicy={preview.joinPolicy}
               />
             ) : (
               <Button asChild size="lg">
