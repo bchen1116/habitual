@@ -11,7 +11,10 @@ import {
 const DELETE_ERROR_RESPONSES: Record<string, { status: number; message: string }> = {
   "not-found": { status: 404, message: "Challenge not found." },
   "not-owner": { status: 403, message: "Only the creator can delete this challenge." },
-  "not-solo": { status: 400, message: "Only solo challenges can be deleted this way." },
+  "already-joined": {
+    status: 400,
+    message: "Can't delete once other members have joined — try cancelling instead.",
+  },
 };
 
 export async function DELETE(
