@@ -6,6 +6,7 @@ import {
   type Transaction,
 } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebase/admin";
+import { daysBetweenInclusive } from "@/lib/dates";
 
 /**
  * Server-side challenge creation and joining. Docs/04 specifies callable
@@ -396,6 +397,83 @@ export async function removeMemberAdmin(
   batch.update(challengeRef, { memberIds: FieldValue.arrayRemove(targetUid) });
   batch.delete(challengeRef.collection("members").doc(targetUid));
   await batch.commit();
+}
+
+export interface EditChallengePayload {
+  stakeAmount: number;
+  endDate: string; // yyyymmdd
+  skipDays: number;
+}
+
+export type EditChallengeErrorCode =
+  | "not-found"
+  | "not-owner"
+  | "ended"
+  | "already-joined"
+  | "invalid-duration"
+  | "invalid-stake";
+
+export class EditChallengeError extends Error {
+  constructor(public code: EditChallengeErrorCode) {
+    super(code);
+  }
+}
+
+/**
+ * Creator-only, matching the same "terms are frozen once anyone else has
+ * joined" rule the app already applies to direct term edits
+ * (firestore.rules' challenges/{cid} update block) — a group challenge is
+ * only editable while the creator is still its sole member; a solo
+ * challenge has no one else to protect, so it's editable any time it's
+ * still active (upcoming or in-progress, not yet ended).
+ *
+ * Increasing skipDays stamps `streakResetAt = today`, which currentStreak()
+ * (src/lib/streak.ts) treats as a floor — checkins before the edit stop
+ * counting toward the live streak, i.e. "starting a new habit," per the
+ * product decision this exists for. Decreasing or leaving skipDays alone
+ * never touches it.
+ */
+export async function editChallengeAdmin(
+  uid: string,
+  challengeId: string,
+  payload: EditChallengePayload
+): Promise<{ streakEnded: boolean }> {
+  const db = getAdminDb();
+  const ref = db.collection("challenges").doc(challengeId);
+
+  return db.runTransaction(async (t) => {
+    const snap = await t.get(ref);
+    const data = snap.data();
+    if (!data) throw new EditChallengeError("not-found");
+    if (data.createdBy !== uid) throw new EditChallengeError("not-owner");
+
+    const today = yyyymmddUTC(new Date());
+    if (data.status !== "active" || today > data.endDate) {
+      throw new EditChallengeError("ended");
+    }
+
+    const memberIds = (data.memberIds as string[]) ?? [];
+    if (data.mode === "group" && memberIds.length > 1) {
+      throw new EditChallengeError("already-joined");
+    }
+
+    const days = daysBetweenInclusive(data.startDate, payload.endDate);
+    if (days % 7 !== 0 || days < 7 || days > 364 || payload.endDate < today) {
+      throw new EditChallengeError("invalid-duration");
+    }
+    if (payload.stakeAmount <= 0 || payload.stakeAmount > 10000) {
+      throw new EditChallengeError("invalid-stake");
+    }
+
+    const streakEnded = payload.skipDays > ((data.skipDays as number) ?? 0);
+    t.update(ref, {
+      stakeAmount: payload.stakeAmount,
+      endDate: payload.endDate,
+      skipDays: payload.skipDays,
+      ...(streakEnded ? { streakResetAt: today } : {}),
+    });
+    return { streakEnded };
+  });
 }
 
 export type DeleteChallengeErrorCode = "not-found" | "not-owner" | "not-solo";

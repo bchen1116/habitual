@@ -8,6 +8,13 @@ import type { Challenge } from "@/lib/types";
  * weekly_count challenges count backward window by window (skipping an
  * in-progress current window rather than treating it as a break, since it
  * hasn't been decided yet).
+ *
+ * `challenge.streakResetAt` (set when an edit increases skipDays — see
+ * editChallengeAdmin) acts as a floor: checkins before it are invisible to
+ * this calculation, so raising skips reads as "starting a new streak" even
+ * though the challenge itself keeps running. Deliberately doesn't affect
+ * `longestStreak` below — that's a historical best-ever record, not the
+ * live one, and isn't part of what a skip-days edit resets.
  */
 export function currentStreak(
   challenge: Challenge,
@@ -16,18 +23,24 @@ export function currentStreak(
 ): number {
   const checkins =
     checkinYmds instanceof Set ? checkinYmds : new Set(checkinYmds);
+  const floor =
+    challenge.streakResetAt && challenge.streakResetAt > challenge.startDate
+      ? challenge.streakResetAt
+      : challenge.startDate;
 
   if (challenge.frequency.type === "daily") {
     let cursor = checkins.has(today) ? today : addDaysYmd(today, -1);
     let streak = 0;
-    while (cursor >= challenge.startDate && checkins.has(cursor)) {
+    while (cursor >= floor && checkins.has(cursor)) {
       streak++;
       cursor = addDaysYmd(cursor, -1);
     }
     return streak;
   }
 
-  const windows = weeklyWindows(challenge, Array.from(checkins), today);
+  const windows = weeklyWindows(challenge, Array.from(checkins), today).filter(
+    (w) => w.start >= floor
+  );
   let i = windows.length - 1;
   while (i >= 0 && windows[i].state === "future") i--;
   if (i >= 0 && windows[i].state === "current") i--; // undecided, skip without breaking
