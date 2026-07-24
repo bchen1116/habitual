@@ -6,7 +6,7 @@ import {
   type Transaction,
 } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebase/admin";
-import { daysBetweenInclusive } from "@/lib/dates";
+import { addDaysYmd, daysBetweenInclusive } from "@/lib/dates";
 
 /**
  * Server-side challenge creation and joining. Docs/04 specifies callable
@@ -516,4 +516,111 @@ export async function deleteChallengeAdmin(
   }
 
   await db.recursiveDelete(ref);
+}
+
+export interface RepeatChallengePayload {
+  stakeAmount: number;
+  endDate: string; // yyyymmdd — the new cycle's end date
+  skipDays: number;
+}
+
+export type RepeatChallengeErrorCode =
+  | "not-found"
+  | "not-owner"
+  | "not-ended"
+  | "invalid-duration"
+  | "invalid-stake";
+
+export class RepeatChallengeError extends Error {
+  constructor(public code: RepeatChallengeErrorCode) {
+    super(code);
+  }
+}
+
+/**
+ * Creator-only. Starts a new cycle of an ended habit — same name,
+ * description, mode, forfeitType, joinPolicy, maxMembers, and frequency;
+ * stake/end-date/skip-days can be adjusted, same fields editChallengeAdmin
+ * already lets a creator tweak. The new cycle's start date is always
+ * max(today, dayAfterOldEndDate) — never user-chosen — so repeated cycles
+ * chain without gaps or overlaps.
+ *
+ * For group habits, every prior member (from the old challenge's members
+ * subcollection, including the creator) carries into the new cycle
+ * automatically, reusing their stored displayName/username/charityName
+ * as-is — a deliberate product choice: repeating re-commits every member's
+ * stake without their own fresh action, the same way it re-commits the
+ * creator's. No "already repeated" link is tracked, so repeating twice
+ * just produces two new cycles.
+ *
+ * Unlike editChallengeAdmin this only reads an already-ended (immutable)
+ * challenge before writing a new one, so there's no concurrent-mutation
+ * race to protect against with a transaction — a plain read + batch write
+ * is enough.
+ */
+export async function repeatChallengeAdmin(
+  uid: string,
+  challengeId: string,
+  payload: RepeatChallengePayload
+): Promise<{ id: string; joinCode: string | null }> {
+  const db = getAdminDb();
+  const oldRef = db.collection("challenges").doc(challengeId);
+  const snap = await oldRef.get();
+  if (!snap.exists) throw new RepeatChallengeError("not-found");
+
+  const data = snap.data()!;
+  if (data.createdBy !== uid) throw new RepeatChallengeError("not-owner");
+
+  const today = yyyymmddUTC(new Date());
+  const ended = data.status === "adjudicated" || today > data.endDate;
+  if (!ended) throw new RepeatChallengeError("not-ended");
+
+  const newStartDate = today > addDaysYmd(data.endDate, 1) ? today : addDaysYmd(data.endDate, 1);
+  const days = daysBetweenInclusive(newStartDate, payload.endDate);
+  if (days % 7 !== 0 || days < 7 || days > 364) {
+    throw new RepeatChallengeError("invalid-duration");
+  }
+  if (payload.stakeAmount <= 0 || payload.stakeAmount > 10000) {
+    throw new RepeatChallengeError("invalid-stake");
+  }
+
+  const joinCode = data.mode === "group" ? await generateUniqueJoinCode() : null;
+
+  const memberDocs = await oldRef.collection("members").get();
+  const newRef = db.collection("challenges").doc();
+  const batch = db.batch();
+  batch.set(newRef, {
+    name: data.name,
+    description: data.description ?? null,
+    createdBy: uid,
+    mode: data.mode,
+    forfeitType: data.forfeitType,
+    charityName: data.charityName,
+    joinCode,
+    joinPolicy: data.joinPolicy ?? null,
+    maxMembers: data.maxMembers ?? null,
+    frequency: data.frequency,
+    skipDays: payload.skipDays,
+    stakeAmount: payload.stakeAmount,
+    startDate: newStartDate,
+    endDate: payload.endDate,
+    status: "active",
+    memberIds: memberDocs.docs.map((d) => d.id),
+    createdAt: FieldValue.serverTimestamp(),
+  });
+  for (const memberDoc of memberDocs.docs) {
+    const member = memberDoc.data();
+    batch.set(newRef.collection("members").doc(memberDoc.id), {
+      displayName: member.displayName,
+      username: member.username ?? null,
+      joinedAt: FieldValue.serverTimestamp(),
+      charityName: member.charityName ?? null,
+      outcome: null,
+      completedCount: 0,
+      skipsUsed: 0,
+    });
+  }
+  await batch.commit();
+
+  return { id: newRef.id, joinCode };
 }
