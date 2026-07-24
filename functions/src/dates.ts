@@ -5,7 +5,7 @@
  */
 
 /** Parse yyyymmdd to a Date pinned to noon UTC (immune to DST edges). */
-export function ymdToDate(ymd: string): Date {
+function ymdToDate(ymd: string): Date {
   const year = Number(ymd.slice(0, 4));
   const month = Number(ymd.slice(4, 6));
   const day = Number(ymd.slice(6, 8));

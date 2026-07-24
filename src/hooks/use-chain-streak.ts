@@ -21,26 +21,20 @@ export function useChainStreak(
   uid: string,
   checkinYmds: readonly string[],
   today: string
-): { streak: number; loading: boolean } {
+): number {
   const local = challenge ? streakRun(challenge, checkinYmds, today) : null;
   const [ancestorStreak, setAncestorStreak] = useState(0);
-  const [loading, setLoading] = useState(false);
 
   const eligible = !!challenge && !!local && chainEligible(challenge, local.reachesFloor);
 
   useEffect(() => {
     if (!challenge || !eligible) {
       setAncestorStreak(0);
-      setLoading(false);
       return;
     }
     let cancelled = false;
-    setLoading(true);
     walkChain(getClientDb(), challenge, uid).then((total) => {
-      if (!cancelled) {
-        setAncestorStreak(total);
-        setLoading(false);
-      }
+      if (!cancelled) setAncestorStreak(total);
     });
     return () => {
       cancelled = true;
@@ -48,7 +42,7 @@ export function useChainStreak(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [challenge?.id, challenge?.repeatedFromId, eligible, uid]);
 
-  return { streak: (local?.streak ?? 0) + ancestorStreak, loading };
+  return (local?.streak ?? 0) + ancestorStreak;
 }
 
 /**
@@ -63,10 +57,9 @@ export function useMaxChainStreak(
   uid: string,
   checkinYmdsByChallenge: Readonly<Record<string, readonly string[]>>,
   today: string
-): { streak: number; loading: boolean } {
+): number {
   const localMax = maxCurrentStreak(challenges, checkinYmdsByChallenge, today);
   const [chainMax, setChainMax] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
 
   const checkinsKey = challenges
     .map((c) => `${c.id}:${(checkinYmdsByChallenge[c.id] ?? []).join("|")}`)
@@ -76,11 +69,9 @@ export function useMaxChainStreak(
   useEffect(() => {
     if (challenges.length === 0) {
       setChainMax(null);
-      setLoading(false);
       return;
     }
     let cancelled = false;
-    setLoading(true);
     const db = getClientDb();
     Promise.all(
       challenges.map(async (c) => {
@@ -92,10 +83,7 @@ export function useMaxChainStreak(
         return local.streak + ancestorTotal;
       })
     ).then((totals) => {
-      if (!cancelled) {
-        setChainMax(totals.length > 0 ? Math.max(...totals) : 0);
-        setLoading(false);
-      }
+      if (!cancelled) setChainMax(totals.length > 0 ? Math.max(...totals) : 0);
     });
     return () => {
       cancelled = true;
@@ -103,5 +91,5 @@ export function useMaxChainStreak(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chainKey, checkinsKey, uid, today]);
 
-  return { streak: chainMax ?? localMax, loading };
+  return chainMax ?? localMax;
 }

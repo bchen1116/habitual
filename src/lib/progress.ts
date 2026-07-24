@@ -108,8 +108,12 @@ export function skipsUsed(
     ).length;
     return Math.max(0, elapsed - done);
   }
+  // Every window's `end` is <= challenge.endDate (weeklyWindows' loop bound),
+  // so once today > endDate every non-"complete" window is already forced to
+  // "past-incomplete" by weeklyWindows' own state logic — a plain
+  // "past-incomplete" filter already covers the ended-challenge case.
   return weeklyWindows(challenge, checkinYmds, today)
-    .filter((w) => w.state === "past-incomplete" || (today > challenge.endDate && w.state !== "complete"))
+    .filter((w) => w.state === "past-incomplete")
     .reduce((sum, w) => sum + Math.max(0, w.target - w.count), 0);
 }
 

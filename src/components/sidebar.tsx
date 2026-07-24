@@ -31,7 +31,7 @@ export function Sidebar({ uid }: { uid: string }) {
       records.map((r) => r.localDate),
     ])
   );
-  const { streak } = useMaxChainStreak(activeChallenges, uid, checkinYmdsByChallenge, today);
+  const streak = useMaxChainStreak(activeChallenges, uid, checkinYmdsByChallenge, today);
   const best = maxLongestStreak(activeChallenges, checkinYmdsByChallenge, today);
 
   return (

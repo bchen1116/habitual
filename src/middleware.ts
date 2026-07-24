@@ -18,5 +18,19 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/settings/:path*"],
+  // Every route under the (app) layout group — route groups aren't part of
+  // the URL, so each top-level segment needs its own entry. Keep this in
+  // sync with src/app/(app)/*; falling behind just means that route's
+  // signed-out redirect happens a beat later, at the layout's own
+  // getCurrentUser() check, rather than at the edge — not a security gap,
+  // but worth keeping current for consistency.
+  matcher: [
+    "/dashboard/:path*",
+    "/challenges/:path*",
+    "/groups/:path*",
+    "/join/:path*",
+    "/ledger/:path*",
+    "/settings/:path*",
+    "/stats/:path*",
+  ],
 };

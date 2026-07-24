@@ -8,7 +8,7 @@ function streakFloor(challenge: Challenge): string {
     : challenge.startDate;
 }
 
-export interface StreakRun {
+interface StreakRun {
   streak: number;
   /**
    * Whether the run is unbroken all the way back to the challenge's own
@@ -82,7 +82,7 @@ export function currentStreak(
 }
 
 /** Longest run ever completed (not required to be ongoing), for a "best" stat. */
-export function longestStreak(
+function longestStreak(
   challenge: Challenge,
   checkinYmds: ReadonlySet<string> | readonly string[],
   today: string
