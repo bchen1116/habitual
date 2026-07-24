@@ -179,6 +179,38 @@ export async function deleteChallenge(challengeId: string): Promise<void> {
   }
 }
 
+export interface RepeatChallengeInput {
+  stakeAmount: number;
+  endDate: string; // yyyymmdd
+  skipDays: number;
+}
+
+export interface RepeatChallengeResult {
+  id: string;
+  joinCode: string | null;
+}
+
+/**
+ * Creator-only: starts a new cycle of an ended habit with the same name,
+ * mode, and frequency; stake/end-date/skip-days can be adjusted. For group
+ * habits, every prior member carries into the new cycle automatically.
+ */
+export async function repeatChallenge(
+  challengeId: string,
+  input: RepeatChallengeInput
+): Promise<RepeatChallengeResult> {
+  const response = await fetch(`/api/challenges/${challengeId}/repeat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(body?.error ?? "Couldn't repeat this habit");
+  }
+  return body as RepeatChallengeResult;
+}
+
 /**
  * Check in for a local date. The doc ID (`<localDate>_<uid>`) enforces
  * one-per-day; rules verify the ID shape, the server timestamp, and that

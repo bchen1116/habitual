@@ -26,6 +26,7 @@ import { currentStreak } from "@/lib/streak";
 import type { Challenge, ChallengeMember, JoinRequest } from "@/lib/types";
 import { CheckinDialog } from "@/components/checkin-dialog";
 import { EditChallengeDialog } from "@/components/edit-challenge-dialog";
+import { RepeatChallengeDialog } from "@/components/repeat-challenge-dialog";
 import { ShareLink } from "@/components/share-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -181,6 +182,11 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
     isCreator &&
     (state === "upcoming" || state === "active") &&
     (challenge.mode === "solo" || challenge.memberIds.length === 1);
+  // Mutually exclusive with canEdit above (upcoming/active vs. ended) — the
+  // creator can start a new cycle once this one is over, with the same
+  // settings carried forward and (for group habits) every prior member
+  // carried over automatically.
+  const canRepeat = isCreator && (state === "ended" || state === "adjudicated");
   const creatorStreak = currentStreak(challenge, checkinYmds, today);
 
   async function handleCancel() {
@@ -262,6 +268,13 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
           </Badge>
           {canEdit && (
             <EditChallengeDialog challenge={challenge} currentStreak={creatorStreak} />
+          )}
+          {canRepeat && (
+            <RepeatChallengeDialog
+              challenge={challenge}
+              today={today}
+              memberCount={members?.length ?? 1}
+            />
           )}
         </div>
       </div>
