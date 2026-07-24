@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useActiveChallengeCheckins } from "@/hooks/use-active-challenge-checkins";
+import { useMaxChainStreak } from "@/hooks/use-chain-streak";
 import { useUserTimezone } from "@/hooks/use-user-timezone";
 import { todayYmd } from "@/lib/dates";
-import { maxCurrentStreak, maxLongestStreak } from "@/lib/streak";
+import { maxLongestStreak } from "@/lib/streak";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -30,7 +31,7 @@ export function Sidebar({ uid }: { uid: string }) {
       records.map((r) => r.localDate),
     ])
   );
-  const streak = maxCurrentStreak(activeChallenges, checkinYmdsByChallenge, today);
+  const { streak } = useMaxChainStreak(activeChallenges, uid, checkinYmdsByChallenge, today);
   const best = maxLongestStreak(activeChallenges, checkinYmdsByChallenge, today);
 
   return (

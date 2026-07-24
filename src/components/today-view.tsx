@@ -4,10 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 import { formatInTimeZone } from "date-fns-tz";
 import { useActiveChallengeCheckins } from "@/hooks/use-active-challenge-checkins";
+import { useMaxChainStreak } from "@/hooks/use-chain-streak";
 import { useUserTimezone } from "@/hooks/use-user-timezone";
 import { todayYmd } from "@/lib/dates";
 import { challengeState, progressSummary } from "@/lib/progress";
-import { maxCurrentStreak, weekStripDays, weekStripPercent } from "@/lib/streak";
+import { weekStripDays, weekStripPercent } from "@/lib/streak";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { GroupCard } from "@/components/group-card";
@@ -50,7 +51,12 @@ export function TodayView({
       records.map((r) => r.localDate),
     ])
   );
-  const heroStreak = maxCurrentStreak(activeChallenges, checkinYmdsByChallenge, today);
+  const { streak: heroStreak } = useMaxChainStreak(
+    activeChallenges,
+    uid,
+    checkinYmdsByChallenge,
+    today
+  );
 
   const activityYmds = new Set(Object.values(checkinYmdsByChallenge).flat());
   const days = weekStripDays(activityYmds, today);

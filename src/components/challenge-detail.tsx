@@ -22,7 +22,7 @@ import {
 import Link from "next/link";
 import { daysBetweenInclusive, formatYmd, todayYmd } from "@/lib/dates";
 import { formatAmount } from "@/lib/ledger";
-import { currentStreak } from "@/lib/streak";
+import { useChainStreak } from "@/hooks/use-chain-streak";
 import type { Challenge, ChallengeMember, JoinRequest } from "@/lib/types";
 import { CheckinDialog } from "@/components/checkin-dialog";
 import { EditChallengeDialog } from "@/components/edit-challenge-dialog";
@@ -140,6 +140,10 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   const checkinYmds = allCheckins
     .filter((c) => c.uid === uid)
     .map((c) => c.localDate);
+  const today = todayYmd(timezone);
+  // Hook, so it has to run unconditionally — ahead of the loading/not-found
+  // early returns below, which is why it takes a possibly-null challenge.
+  const { streak: creatorStreak } = useChainStreak(challenge, uid, checkinYmds, today);
 
   if (challenge === undefined) {
     return <div className="h-64 animate-pulse rounded-xl bg-muted" />;
@@ -157,7 +161,6 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
     );
   }
 
-  const today = todayYmd(timezone);
   const state = challengeState(challenge, today);
   const summary = progressSummary(challenge, checkinYmds, timezone);
   const isCreator = challenge.createdBy === uid;
@@ -187,7 +190,6 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   // settings carried forward and (for group habits) every prior member
   // carried over automatically.
   const canRepeat = isCreator && (state === "ended" || state === "adjudicated");
-  const creatorStreak = currentStreak(challenge, checkinYmds, today);
 
   async function handleCancel() {
     if (!window.confirm("Cancel this challenge? This can't be undone.")) return;
@@ -259,6 +261,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
               {challenge.forfeitType === "pool" ? "Winner pool" : "Group"}
             </Badge>
           )}
+          {creatorStreak > 0 && <Badge variant="volt">Streak {creatorStreak}</Badge>}
           <Badge variant="secondary">
             {state === "upcoming" && "Not started"}
             {state === "active" && "Active"}

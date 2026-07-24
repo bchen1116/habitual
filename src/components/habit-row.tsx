@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import { formatInTimeZone } from "date-fns-tz";
 import { CheckinDialog } from "@/components/checkin-dialog";
 import { challengeState, progressSummary } from "@/lib/progress";
-import { currentStreak } from "@/lib/streak";
+import { useChainStreak } from "@/hooks/use-chain-streak";
 import { formatYmd, todayYmd } from "@/lib/dates";
 import { Badge } from "@/components/ui/badge";
 import type { CheckinRecord } from "@/hooks/use-active-challenge-checkins";
@@ -32,6 +32,7 @@ export function HabitRow({ challenge, uid, timezone, checkins, onError }: HabitR
   const checkinYmds = checkins.map((c) => c.localDate);
   const state = challengeState(challenge, today);
   const summary = progressSummary(challenge, checkinYmds, timezone);
+  const { streak } = useChainStreak(challenge, uid, checkinYmds, today);
 
   // Pops the ring only on a genuine active -> done transition, not on a
   // page load where the habit was already checked in earlier.
@@ -87,7 +88,6 @@ export function HabitRow({ challenge, uid, timezone, checkins, onError }: HabitR
     );
   }
 
-  const streak = currentStreak(challenge, checkinYmds, today);
   return (
     <div className="flex items-center gap-3 rounded-2xl border-2 border-foreground bg-card px-4 py-3.5 lg:px-5 lg:py-4">
       <span className="h-8 w-8 shrink-0 rounded-full border-2 border-foreground" />
