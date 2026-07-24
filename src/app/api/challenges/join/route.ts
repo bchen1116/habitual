@@ -18,6 +18,10 @@ const JOIN_ERROR_RESPONSES: Record<string, { status: number; message: string }> 
   started: { status: 409, message: "This challenge has already started." },
   full: { status: 409, message: "This challenge is full." },
   "already-member": { status: 409, message: "You're already in this challenge." },
+  "already-requested": {
+    status: 409,
+    message: "You've already requested to join this challenge.",
+  },
   "not-group": { status: 404, message: "No open challenge has that code." },
   "charity-required": {
     status: 400,

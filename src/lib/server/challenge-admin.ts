@@ -1,6 +1,10 @@
 import "server-only";
 
-import { FieldValue } from "firebase-admin/firestore";
+import {
+  FieldValue,
+  type DocumentReference,
+  type Transaction,
+} from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebase/admin";
 
 /**
@@ -51,6 +55,7 @@ export interface CreateChallengePayload {
   mode: "solo" | "group";
   forfeitType: "charity" | "pool"; // pool only valid for group
   maxMembers: number | null;
+  joinPolicy: "open" | "invite"; // group only; ignored for solo
   frequencyType: "daily" | "weekly_count";
   target: number;
   startDate: string; // yyyymmdd
@@ -58,6 +63,29 @@ export interface CreateChallengePayload {
   skipDays: number;
   stakeAmount: number;
   charityName: string | null; // null in pool mode
+}
+
+/**
+ * Grants membership inside an in-flight transaction — used both by a direct
+ * open-group join and by approving an invite-only request, so the write
+ * shape (memberIds + members/{uid}) only exists in one place.
+ */
+function grantMembershipInTransaction(
+  t: Transaction,
+  challengeRef: DocumentReference,
+  uid: string,
+  member: { displayName: string; username: string | null; charityName: string | null }
+): void {
+  t.update(challengeRef, { memberIds: FieldValue.arrayUnion(uid) });
+  t.set(challengeRef.collection("members").doc(uid), {
+    displayName: member.displayName,
+    username: member.username,
+    joinedAt: FieldValue.serverTimestamp(),
+    charityName: member.charityName,
+    outcome: null,
+    completedCount: 0,
+    skipsUsed: 0,
+  });
 }
 
 export async function createChallengeAdmin(
@@ -85,6 +113,7 @@ export async function createChallengeAdmin(
     forfeitType: payload.forfeitType,
     charityName: payload.charityName,
     joinCode,
+    joinPolicy: payload.mode === "group" ? payload.joinPolicy : null,
     maxMembers: payload.maxMembers,
     frequency: {
       type: payload.frequencyType,
@@ -117,6 +146,7 @@ export type JoinErrorCode =
   | "started"
   | "full"
   | "already-member"
+  | "already-requested"
   | "not-group"
   | "charity-required";
 
@@ -141,12 +171,19 @@ export interface ChallengePreview {
   memberCount: number;
   maxMembers: number | null;
   started: boolean;
+  joinPolicy: "open" | "invite";
+  hasPendingRequest: boolean;
   isMember: (uid: string) => boolean;
 }
 
-/** Non-sensitive preview for /join/[code]; null when no active challenge has the code. */
+/**
+ * Non-sensitive preview for /join/[code]; null when no active challenge has
+ * the code. `viewerUid`, if given, resolves `hasPendingRequest` for that
+ * user on invite-only groups.
+ */
 export async function getChallengePreview(
-  joinCode: string
+  joinCode: string,
+  viewerUid?: string
 ): Promise<ChallengePreview | null> {
   const db = getAdminDb();
   const snap = await db
@@ -163,6 +200,13 @@ export async function getChallengePreview(
 
   const creatorSnap = await doc.ref.collection("members").doc(data.createdBy).get();
   const memberIds = (data.memberIds as string[]) ?? [];
+  const joinPolicy = (data.joinPolicy as "open" | "invite" | undefined) ?? "open";
+
+  let hasPendingRequest = false;
+  if (viewerUid && joinPolicy === "invite") {
+    const requestSnap = await doc.ref.collection("joinRequests").doc(viewerUid).get();
+    hasPendingRequest = requestSnap.exists;
+  }
 
   return {
     id: doc.id,
@@ -179,16 +223,27 @@ export async function getChallengePreview(
     memberCount: memberIds.length,
     maxMembers: data.maxMembers ?? null,
     started: yyyymmddUTC(new Date()) >= data.startDate,
+    joinPolicy,
+    hasPendingRequest,
     isMember: (uid: string) => memberIds.includes(uid),
   };
 }
 
+export type JoinResult =
+  | { status: "joined"; challengeId: string }
+  | { status: "pending" };
+
+/**
+ * On an "open" group, grants membership immediately. On an "invite" group,
+ * creates a joinRequests/{uid} doc instead and returns "pending" — the
+ * creator approves or rejects it later via respondToJoinRequestAdmin.
+ */
 export async function joinChallengeAdmin(
   uid: string,
   fallbackName: string,
   joinCode: string,
   charityName: string | null
-): Promise<{ challengeId: string }> {
+): Promise<JoinResult> {
   const db = getAdminDb();
 
   const userSnap = await db.collection("users").doc(uid).get();
@@ -205,7 +260,7 @@ export async function joinChallengeAdmin(
   if (snap.empty) throw new JoinError("not-found");
   const challengeRef = snap.docs[0].ref;
 
-  await db.runTransaction(async (t) => {
+  return db.runTransaction<JoinResult>(async (t) => {
     const fresh = await t.get(challengeRef);
     const data = fresh.data();
     if (!data || data.status !== "active") throw new JoinError("not-found");
@@ -219,25 +274,128 @@ export async function joinChallengeAdmin(
     }
 
     // Charity mode: each joiner must name their own charity. Pool mode
-    // has no charity — the stake goes to the winners.
+    // has no charity — the stake goes to the winners. Collected up front
+    // even for a pending request, so it's ready the moment it's approved.
     const forfeitType = data.forfeitType ?? "charity";
     if (forfeitType === "charity" && !charityName?.trim()) {
       throw new JoinError("charity-required");
     }
+    const memberCharityName = forfeitType === "charity" ? charityName!.trim() : null;
 
-    t.update(challengeRef, { memberIds: FieldValue.arrayUnion(uid) });
-    t.set(challengeRef.collection("members").doc(uid), {
+    const joinPolicy = (data.joinPolicy as "open" | "invite" | undefined) ?? "open";
+    if (joinPolicy === "invite") {
+      const requestRef = challengeRef.collection("joinRequests").doc(uid);
+      const existingRequest = await t.get(requestRef);
+      if (existingRequest.exists) throw new JoinError("already-requested");
+      t.set(requestRef, {
+        displayName,
+        username,
+        charityName: memberCharityName,
+        requestedAt: FieldValue.serverTimestamp(),
+      });
+      return { status: "pending" };
+    }
+
+    grantMembershipInTransaction(t, challengeRef, uid, {
       displayName,
       username,
-      joinedAt: FieldValue.serverTimestamp(),
-      charityName: forfeitType === "charity" ? charityName!.trim() : null,
-      outcome: null,
-      completedCount: 0,
-      skipsUsed: 0,
+      charityName: memberCharityName,
     });
+    return { status: "joined", challengeId: challengeRef.id };
   });
+}
 
-  return { challengeId: challengeRef.id };
+export type JoinRequestErrorCode = "not-owner" | "not-found" | "full" | "started";
+
+export class JoinRequestError extends Error {
+  constructor(public code: JoinRequestErrorCode) {
+    super(code);
+  }
+}
+
+/** Creator-only. Approving re-runs the same started/full checks a live join would. */
+export async function respondToJoinRequestAdmin(
+  callerUid: string,
+  challengeId: string,
+  targetUid: string,
+  action: "approve" | "reject"
+): Promise<void> {
+  const db = getAdminDb();
+  const challengeRef = db.collection("challenges").doc(challengeId);
+  const requestRef = challengeRef.collection("joinRequests").doc(targetUid);
+
+  await db.runTransaction(async (t) => {
+    const [challengeSnap, requestSnap] = await Promise.all([
+      t.get(challengeRef),
+      t.get(requestRef),
+    ]);
+    const data = challengeSnap.data();
+    if (!data) throw new JoinRequestError("not-found");
+    if (data.createdBy !== callerUid) throw new JoinRequestError("not-owner");
+    if (!requestSnap.exists) throw new JoinRequestError("not-found");
+
+    if (action === "reject") {
+      t.delete(requestRef);
+      return;
+    }
+
+    const memberIds = (data.memberIds as string[]) ?? [];
+    if (memberIds.includes(targetUid)) {
+      // Already a member somehow — just clear the now-stale request.
+      t.delete(requestRef);
+      return;
+    }
+    if (yyyymmddUTC(new Date()) >= data.startDate) throw new JoinRequestError("started");
+    if (data.maxMembers != null && memberIds.length >= data.maxMembers) {
+      throw new JoinRequestError("full");
+    }
+
+    const request = requestSnap.data()!;
+    grantMembershipInTransaction(t, challengeRef, targetUid, {
+      displayName: request.displayName,
+      username: request.username ?? null,
+      charityName: request.charityName ?? null,
+    });
+    t.delete(requestRef);
+  });
+}
+
+export type RemoveMemberErrorCode =
+  | "not-found"
+  | "not-owner"
+  | "cannot-remove-creator"
+  | "not-active"
+  | "not-member";
+
+export class RemoveMemberError extends Error {
+  constructor(public code: RemoveMemberErrorCode) {
+    super(code);
+  }
+}
+
+/** Creator-only, any active group (upcoming or in-progress); can't remove yourself. */
+export async function removeMemberAdmin(
+  callerUid: string,
+  challengeId: string,
+  targetUid: string
+): Promise<void> {
+  const db = getAdminDb();
+  const challengeRef = db.collection("challenges").doc(challengeId);
+  const snap = await challengeRef.get();
+  if (!snap.exists) throw new RemoveMemberError("not-found");
+
+  const data = snap.data()!;
+  if (data.createdBy !== callerUid) throw new RemoveMemberError("not-owner");
+  if (targetUid === data.createdBy) throw new RemoveMemberError("cannot-remove-creator");
+  if (data.status !== "active") throw new RemoveMemberError("not-active");
+
+  const memberIds = (data.memberIds as string[]) ?? [];
+  if (!memberIds.includes(targetUid)) throw new RemoveMemberError("not-member");
+
+  const batch = db.batch();
+  batch.update(challengeRef, { memberIds: FieldValue.arrayRemove(targetUid) });
+  batch.delete(challengeRef.collection("members").doc(targetUid));
+  await batch.commit();
 }
 
 export type DeleteChallengeErrorCode = "not-found" | "not-owner" | "not-solo";

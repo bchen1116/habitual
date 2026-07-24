@@ -28,6 +28,7 @@ const formSchema = z
     description: z.string().trim().max(200),
     mode: z.enum(["solo", "group"]),
     forfeitType: z.enum(["charity", "pool"]),
+    joinPolicy: z.enum(["open", "invite"]),
     maxMembers: z
       .string()
       .refine(
@@ -74,7 +75,7 @@ const STEPS = ["Basics", "Mode", "Schedule", "Stakes", "Review"] as const;
 
 const STEP_FIELDS: (keyof FormValues)[][] = [
   ["name", "description"],
-  ["mode", "forfeitType", "maxMembers"],
+  ["mode", "forfeitType", "joinPolicy", "maxMembers"],
   ["frequencyType", "target", "startDate", "durationDays"],
   ["skipDays", "stakeAmount", "charityName"],
   [],
@@ -94,6 +95,7 @@ export function NewChallengeForm() {
       description: "",
       mode: "solo",
       forfeitType: "charity",
+      joinPolicy: "open",
       maxMembers: "",
       frequencyType: "daily",
       target: "5",
@@ -137,6 +139,7 @@ export function NewChallengeForm() {
         description: data.description.trim(),
         mode: data.mode,
         forfeitType: effectiveForfeit,
+        joinPolicy: data.mode === "group" ? data.joinPolicy : "open",
         maxMembers:
           data.mode === "group" && data.maxMembers !== ""
             ? Number(data.maxMembers)
@@ -244,6 +247,32 @@ export function NewChallengeForm() {
                 : "Friends join with an invite link. Everyone stakes their own money and picks their own charity."}
             </p>
           </div>
+          {values.mode === "group" && (
+            <div className="flex flex-col gap-1.5">
+              <Label>Who can join</Label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={values.joinPolicy === "open" ? "secondary" : "outline"}
+                  onClick={() => form.setValue("joinPolicy", "open")}
+                >
+                  Open
+                </Button>
+                <Button
+                  type="button"
+                  variant={values.joinPolicy === "invite" ? "secondary" : "outline"}
+                  onClick={() => form.setValue("joinPolicy", "invite")}
+                >
+                  Invite only
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {values.joinPolicy === "open"
+                  ? "Anyone with the link joins immediately."
+                  : "Anyone with the link can request to join — you approve each one."}
+              </p>
+            </div>
+          )}
           {values.mode === "group" && (
             <div className="flex flex-col gap-1.5">
               <Label>If someone fails, their stake goes to…</Label>
@@ -445,6 +474,8 @@ export function NewChallengeForm() {
                 (values.maxMembers !== ""
                   ? ` · up to ${values.maxMembers} members`
                   : " · no member cap")}
+              {values.mode === "group" &&
+                (values.joinPolicy === "invite" ? " · invite only" : " · open")}
             </p>
             <p>
               {values.frequencyType === "daily"

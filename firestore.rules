@@ -76,6 +76,17 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // Invite-only groups only; the requester (to see their own pending
+      // status) and the creator (to review/approve) can read a request —
+      // no one else can even tell it exists. Written server-side only (join
+      // + approve/reject routes).
+      match /joinRequests/{uid} {
+        allow read: if request.auth != null
+                    && (request.auth.uid == uid
+                        || request.auth.uid == get(/databases/$(database)/documents/challenges/$(cid)).data.createdBy);
+        allow write: if false;
+      }
+
       // NOT {cid} — must not shadow the outer challenge-ID binding.
       match /checkins/{checkinId} {
         allow read: if request.auth != null

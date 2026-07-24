@@ -4,7 +4,12 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { collection, doc, onSnapshot } from "firebase/firestore";
 import { getClientDb } from "@/lib/firebase/client";
-import { cancelChallenge, deleteChallenge } from "@/lib/challenges";
+import {
+  cancelChallenge,
+  deleteChallenge,
+  removeMember,
+  respondToJoinRequest,
+} from "@/lib/challenges";
 import { useUserTimezone } from "@/hooks/use-user-timezone";
 import {
   challengeState,
@@ -17,7 +22,7 @@ import {
 import Link from "next/link";
 import { daysBetweenInclusive, formatYmd, todayYmd } from "@/lib/dates";
 import { formatAmount } from "@/lib/ledger";
-import type { Challenge, ChallengeMember } from "@/lib/types";
+import type { Challenge, ChallengeMember, JoinRequest } from "@/lib/types";
 import { CheckinDialog } from "@/components/checkin-dialog";
 import { ShareLink } from "@/components/share-link";
 import { Badge } from "@/components/ui/badge";
@@ -41,9 +46,14 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   const [members, setMembers] = useState<
     ({ uid: string } & ChallengeMember)[] | null
   >(null);
+  const [joinRequests, setJoinRequests] = useState<
+    ({ uid: string } & JoinRequest)[] | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [respondingUid, setRespondingUid] = useState<string | null>(null);
+  const [removingUid, setRemovingUid] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubscribe = onSnapshot(
@@ -98,6 +108,31 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
     );
     return unsubscribe;
   }, [id]);
+
+  // Creator-only: the joinRequests read rule can only prove list-level
+  // access for the creator (uniform across every doc in the collection) —
+  // a regular member's own-request check has to be a single-doc read
+  // instead, which happens server-side via getChallengePreview.
+  useEffect(() => {
+    if (challenge?.createdBy !== uid || challenge?.mode !== "group") {
+      setJoinRequests(null);
+      return;
+    }
+    const unsubscribe = onSnapshot(
+      collection(getClientDb(), "challenges", id, "joinRequests"),
+      (snap) =>
+        setJoinRequests(
+          snap.docs.map(
+            (d) => ({ uid: d.id, ...d.data() }) as { uid: string } & JoinRequest
+          )
+        ),
+      (err) => {
+        console.error("join requests query failed:", err);
+        setJoinRequests(null);
+      }
+    );
+    return unsubscribe;
+  }, [id, uid, challenge?.createdBy, challenge?.mode]);
 
   const checkinYmds = allCheckins
     .filter((c) => c.uid === uid)
@@ -156,6 +191,33 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
     }
   }
 
+  async function handleRespond(targetUid: string, action: "approve" | "reject") {
+    setRespondingUid(targetUid);
+    setError(null);
+    try {
+      await respondToJoinRequest(id, targetUid, action);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Couldn't respond to that request."
+      );
+    } finally {
+      setRespondingUid(null);
+    }
+  }
+
+  async function handleRemove(targetUid: string) {
+    if (!window.confirm("Remove this member from the challenge?")) return;
+    setRemovingUid(targetUid);
+    setError(null);
+    try {
+      await removeMember(id, targetUid);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't remove that member.");
+    } finally {
+      setRemovingUid(null);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-start justify-between gap-2">
@@ -200,6 +262,51 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
           </CardContent>
         </Card>
       )}
+
+      {isCreator &&
+        challenge.mode === "group" &&
+        (challenge.joinPolicy ?? "open") === "invite" &&
+        joinRequests &&
+        joinRequests.length > 0 && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle>Requests</CardTitle>
+              <CardDescription>
+                {joinRequests.length} pending request
+                {joinRequests.length === 1 ? "" : "s"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              {joinRequests.map((req) => (
+                <div key={req.uid} className="flex items-center gap-3">
+                  <span className="min-w-0 flex-1 truncate text-sm">
+                    {req.displayName}
+                    {req.username && (
+                      <span className="ml-1 text-xs text-muted-foreground">
+                        @{req.username}
+                      </span>
+                    )}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={respondingUid === req.uid}
+                    onClick={() => handleRespond(req.uid, "reject")}
+                  >
+                    Reject
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={respondingUid === req.uid}
+                    onClick={() => handleRespond(req.uid, "approve")}
+                  >
+                    Approve
+                  </Button>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
 
       {state === "adjudicated" && member?.outcome === "succeeded" && (
         <Card className="border-primary">
@@ -325,6 +432,9 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
           allCheckins={allCheckins}
           today={today}
           selfUid={uid}
+          isCreator={isCreator}
+          removingUid={removingUid}
+          onRemove={handleRemove}
         />
       )}
 
@@ -376,12 +486,18 @@ function MembersCard({
   allCheckins,
   today,
   selfUid,
+  isCreator,
+  removingUid,
+  onRemove,
 }: {
   challenge: Challenge;
   members: ({ uid: string } & ChallengeMember)[];
   allCheckins: { uid: string; localDate: string }[];
   today: string;
   selfUid: string;
+  isCreator: boolean;
+  removingUid: string | null;
+  onRemove: (uid: string) => void;
 }) {
   const total = totalRequired(challenge);
   const state = challengeState(challenge, today);
@@ -444,6 +560,17 @@ function MembersCard({
                   {row.completed}/{total}
                 </span>
               </>
+            )}
+            {isCreator && row.uid !== selfUid && state === "active" && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-destructive hover:text-destructive"
+                disabled={removingUid === row.uid}
+                onClick={() => onRemove(row.uid)}
+              >
+                {removingUid === row.uid ? "Removing…" : "Remove"}
+              </Button>
             )}
           </div>
         ))}

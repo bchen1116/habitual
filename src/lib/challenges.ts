@@ -20,6 +20,7 @@ export interface CreateChallengeInput {
   mode: "solo" | "group";
   forfeitType: "charity" | "pool";
   maxMembers: number | null;
+  joinPolicy: "open" | "invite"; // group only; ignored for solo
   frequencyType: FrequencyType;
   target: number;
   startDate: string; // yyyymmdd
@@ -72,11 +73,19 @@ export async function createChallenge(
   return body.id as string;
 }
 
-/** Joins a group challenge by code; resolves to the challenge id. */
+export type JoinChallengeResult =
+  | { status: "joined"; challengeId: string }
+  | { status: "pending" };
+
+/**
+ * Joins a group challenge by code. On an open group this grants membership
+ * immediately; on an invite-only group it files a request instead, and the
+ * result comes back as "pending" rather than a challenge id to redirect to.
+ */
 export async function joinChallenge(
   joinCode: string,
   charityName: string | null
-): Promise<string> {
+): Promise<JoinChallengeResult> {
   const response = await fetch("/api/challenges/join", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -86,7 +95,35 @@ export async function joinChallenge(
   if (!response.ok) {
     throw new Error(body?.error ?? "Couldn't join the challenge");
   }
-  return body.challengeId as string;
+  return body as JoinChallengeResult;
+}
+
+/** Creator-only: approve or reject a pending join request on an invite-only group. */
+export async function respondToJoinRequest(
+  challengeId: string,
+  uid: string,
+  action: "approve" | "reject"
+): Promise<void> {
+  const response = await fetch(`/api/challenges/${challengeId}/requests/${uid}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.error ?? "Couldn't respond to that request");
+  }
+}
+
+/** Creator-only: removes a member from an active group challenge. */
+export async function removeMember(challengeId: string, uid: string): Promise<void> {
+  const response = await fetch(`/api/challenges/${challengeId}/members/${uid}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.error ?? "Couldn't remove that member");
+  }
 }
 
 /** Creator-only, before startDate (enforced by Firestore rules). */
