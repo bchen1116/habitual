@@ -8,7 +8,7 @@ import { PastGroupCard } from "@/components/past-group-card";
 
 export function GroupsView({ uid }: { uid: string }) {
   const timezone = useUserTimezone(uid);
-  const { challenges, loading } = useActiveChallengeCheckins(uid);
+  const { challenges, loading, error: activeError } = useActiveChallengeCheckins(uid);
   const { entries: history, error: historyError } = useChallengeHistory(uid);
 
   const groupChallenges = (challenges ?? []).filter((c) => c.mode === "group");
@@ -23,7 +23,16 @@ export function GroupsView({ uid }: { uid: string }) {
 
         {loading && <div className="mt-4 h-32 animate-pulse rounded-2xl bg-muted" />}
 
-        {!loading && groupChallenges.length === 0 && (
+        {!loading && activeError && (
+          <div className="mt-4 rounded-2xl bg-card px-4 py-6 text-center">
+            <p className="font-bold">Couldn&apos;t load your groups</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Check your connection and try refreshing the page.
+            </p>
+          </div>
+        )}
+
+        {!loading && !activeError && groupChallenges.length === 0 && (
           <div className="mt-4 rounded-2xl bg-card px-4 py-6 text-center">
             <p className="font-bold">No active groups</p>
             <p className="mt-1 text-sm text-muted-foreground">

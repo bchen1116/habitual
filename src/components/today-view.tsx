@@ -36,7 +36,12 @@ export function TodayView({
   photoURL: string | null;
 }) {
   const timezone = useUserTimezone(uid);
-  const { challenges, checkinsByChallenge, loading } = useActiveChallengeCheckins(uid);
+  const {
+    challenges,
+    checkinsByChallenge,
+    loading,
+    error: loadError,
+  } = useActiveChallengeCheckins(uid);
   const [error, setError] = useState<string | null>(null);
 
   const today = todayYmd(timezone);
@@ -113,7 +118,15 @@ export function TodayView({
               [0, 1].map((i) => (
                 <div key={i} className="h-16 animate-pulse rounded-2xl bg-muted" />
               ))}
-            {!loading && activeChallenges.length === 0 && (
+            {!loading && loadError && (
+              <div className="rounded-2xl bg-card px-4 py-6 text-center">
+                <p className="font-bold">Couldn&apos;t load your habits</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Check your connection and try refreshing the page.
+                </p>
+              </div>
+            )}
+            {!loading && !loadError && activeChallenges.length === 0 && (
               <div className="rounded-2xl bg-card px-4 py-6 text-center">
                 <p className="font-bold">No habits yet</p>
                 <p className="mt-1 text-sm text-muted-foreground">
