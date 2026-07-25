@@ -18,6 +18,7 @@ interface Profile {
 
 export function ProfileEditor({ uid }: { uid: string }) {
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [savingName, setSavingName] = useState(false);
@@ -29,24 +30,34 @@ export function ProfileEditor({ uid }: { uid: string }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(doc(getClientDb(), "users", uid), (snap) => {
-      const data = snap.data();
-      if (!data) return;
-      setProfile({
-        displayName: data.displayName ?? "",
-        username: data.username ?? null,
-        email: data.email ?? "",
-        photoURL: data.photoURL ?? null,
-      });
-      if (!nameInitialized.current) {
-        setName(data.displayName ?? "");
-        nameInitialized.current = true;
+    const unsubscribe = onSnapshot(
+      doc(getClientDb(), "users", uid),
+      (snap) => {
+        const data = snap.data();
+        if (!data) return;
+        setProfile({
+          displayName: data.displayName ?? "",
+          username: data.username ?? null,
+          email: data.email ?? "",
+          photoURL: data.photoURL ?? null,
+        });
+        if (!nameInitialized.current) {
+          setName(data.displayName ?? "");
+          nameInitialized.current = true;
+        }
+        if (!usernameInitialized.current) {
+          setUsername(data.username ?? "");
+          usernameInitialized.current = true;
+        }
+      },
+      // Without this, a listener failure left profile stuck at null forever
+      // — the component renders only the loading skeleton below with no
+      // recovery path short of a full page reload.
+      (err) => {
+        console.error("profile listener failed:", err);
+        setLoadError(true);
       }
-      if (!usernameInitialized.current) {
-        setUsername(data.username ?? "");
-        usernameInitialized.current = true;
-      }
-    });
+    );
     return unsubscribe;
   }, [uid]);
 
@@ -118,6 +129,15 @@ export function ProfileEditor({ uid }: { uid: string }) {
     } finally {
       setUploading(false);
     }
+  }
+
+  if (loadError) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Couldn&apos;t load your profile. Check your connection and try
+        refreshing the page.
+      </p>
+    );
   }
 
   if (!profile) {

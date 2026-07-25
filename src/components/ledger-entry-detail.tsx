@@ -188,6 +188,9 @@ function SettleDialog({ entry }: { entry: LedgerEntry }) {
         </DialogHeader>
 
         <div
+          role="button"
+          tabIndex={0}
+          aria-label="Add a receipt"
           onDragOver={(e) => {
             e.preventDefault();
             setDragOver(true);
@@ -199,8 +202,14 @@ function SettleDialog({ entry }: { entry: LedgerEntry }) {
             pickFile(e.dataTransfer.files?.[0]);
           }}
           onClick={() => fileInputRef.current?.click()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              fileInputRef.current?.click();
+            }
+          }}
           className={
-            "flex cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-dashed p-6 text-center text-sm transition-colors " +
+            "flex cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-dashed p-6 text-center text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring " +
             (dragOver ? "border-primary bg-accent" : "border-input")
           }
         >

@@ -58,8 +58,19 @@ export function streakRun(
     return { streak, reachesFloor: cursor < floor };
   }
 
-  const windows = weeklyWindows(challenge, Array.from(checkins), asOf).filter(
-    (w) => w.start >= floor
+  // Floor the CHECKINS, not the windows: a reset can land mid-window (the
+  // 7-day windows are anchored to startDate, not to streakResetAt), and
+  // filtering whole windows by `start >= floor` threw away every checkin
+  // in a window that straddled the boundary — including ones that landed
+  // after the reset and should still count toward it. Flooring checkins
+  // first lets that window's count reflect only its post-reset checkins
+  // (correctly excluding pre-reset ones without discarding the window
+  // itself), while windows entirely before the floor naturally end up with
+  // a count of 0 and get excluded below via `end >= floor` (equivalent to
+  // "nothing here is reachable, so this is where the floor is").
+  const flooredCheckins = Array.from(checkins).filter((d) => d >= floor);
+  const windows = weeklyWindows(challenge, flooredCheckins, asOf).filter(
+    (w) => w.end >= floor
   );
   let i = windows.length - 1;
   while (i >= 0 && windows[i].state === "future") i--;

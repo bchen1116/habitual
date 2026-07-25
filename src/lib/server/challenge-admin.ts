@@ -495,8 +495,18 @@ export class DeleteChallengeError extends Error {
  * block). Ledger entries the challenge already produced are left alone
  * (same reasoning as account deletion: they're the debtor's standing
  * obligation, independent of whether the source challenge still exists).
- * recursiveDelete wipes the challenge doc plus its members/checkins
- * subcollections in one call.
+ * The "already-joined" guard is re-checked inside a transaction
+ * immediately before deleting the challenge doc, not just from a plain
+ * get() beforehand — otherwise a join committing in the window between an
+ * earlier read and an unconditional delete could have its brand-new
+ * member doc silently wiped out with no notification. recursiveDelete
+ * itself can't run inside a transaction (it's a batch/admin-only
+ * primitive, not a transactional write), so the transaction deletes just
+ * the challenge doc under the same guard; subcollection cleanup happens
+ * right after — once the parent doc is gone (and with it, read access —
+ * firestore.rules gates every subcollection read on the parent's
+ * memberIds), any straggler subcollection doc is inert cleanup, not a
+ * correctness concern.
  */
 export async function deleteChallengeAdmin(
   uid: string,
@@ -504,18 +514,27 @@ export async function deleteChallengeAdmin(
 ): Promise<void> {
   const db = getAdminDb();
   const ref = db.collection("challenges").doc(challengeId);
-  const snap = await ref.get();
-  if (!snap.exists) throw new DeleteChallengeError("not-found");
 
-  const data = snap.data()!;
-  if (data.createdBy !== uid) throw new DeleteChallengeError("not-owner");
+  await db.runTransaction(async (t) => {
+    const snap = await t.get(ref);
+    if (!snap.exists) throw new DeleteChallengeError("not-found");
 
-  const memberIds = (data.memberIds as string[]) ?? [];
-  if (data.mode === "group" && memberIds.length > 1) {
-    throw new DeleteChallengeError("already-joined");
-  }
+    const data = snap.data()!;
+    if (data.createdBy !== uid) throw new DeleteChallengeError("not-owner");
 
-  await db.recursiveDelete(ref);
+    const memberIds = (data.memberIds as string[]) ?? [];
+    if (data.mode === "group" && memberIds.length > 1) {
+      throw new DeleteChallengeError("already-joined");
+    }
+
+    t.delete(ref);
+  });
+
+  await Promise.all([
+    db.recursiveDelete(ref.collection("members")),
+    db.recursiveDelete(ref.collection("checkins")),
+    db.recursiveDelete(ref.collection("joinRequests")),
+  ]);
 }
 
 export interface RepeatChallengePayload {
