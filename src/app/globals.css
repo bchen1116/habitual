@@ -41,9 +41,14 @@
      tones (empty bars, inactive icons/labels) must not flip with it either. */
   --ink-panel: #1c1c1c;
   --ink-bar-empty: #333333;
-  --ink-icon-inactive: #555555;
-  --ink-label: #888888;
-  --ink-nav-inactive: #777777;
+  /* Lightened from the original #555/#777/#888 — those failed (icon-inactive)
+     or barely cleared (nav-inactive, label) WCAG contrast against --ink/
+     --ink-panel; these values were computed to clear their threshold with a
+     real margin: icon-inactive >=3:1 (non-text/icon), nav-inactive and label
+     >=4.5:1 (real text), both against the darker of --ink/--ink-panel. */
+  --ink-icon-inactive: #6e6e6e;
+  --ink-label: #8c8c8c;
+  --ink-nav-inactive: #828282;
 }
 
 .dark {

@@ -82,7 +82,9 @@ export function HabitRow({ challenge, uid, timezone, checkins, onError }: HabitR
           {challenge.name}
         </span>
         {time && (
-          <span className="type-overline shrink-0 text-xs text-[#bbbbbb]">{time}</span>
+          <span className="type-overline shrink-0 text-xs text-muted-foreground">
+            {time}
+          </span>
         )}
       </div>
     );

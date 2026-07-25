@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/session";
 import { DeleteAccount } from "@/components/delete-account";
 import { ProfileEditor } from "@/components/profile-editor";
 import { SignOutButton } from "@/components/sign-out-button";
+import { ThemeToggle } from "@/components/theme-toggle";
 import {
   Card,
   CardContent,
@@ -35,6 +36,15 @@ export default async function SettingsPage() {
           </CardHeader>
           <CardContent>
             <ProfileEditor uid={user.uid} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Appearance</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ThemeToggle />
           </CardContent>
         </Card>
 
