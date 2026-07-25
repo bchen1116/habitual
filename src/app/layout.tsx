@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Anton, Archivo, Barlow_Condensed, Geist_Mono } from "next/font/google";
+import { ThemeProvider } from "next-themes";
 import { NetworkBanner } from "@/components/network-banner";
 import "./globals.css";
 
@@ -48,21 +49,6 @@ export const metadata: Metadata = {
   },
 };
 
-// Applies the .dark class from the system preference before first paint and
-// keeps it in sync if the preference changes. Manual override comes later.
-const darkModeScript = `
-(function () {
-  try {
-    var mq = window.matchMedia("(prefers-color-scheme: dark)");
-    var apply = function () {
-      document.documentElement.classList.toggle("dark", mq.matches);
-    };
-    apply();
-    mq.addEventListener("change", apply);
-  } catch (e) {}
-})();
-`;
-
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -70,14 +56,20 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: darkModeScript }} />
-      </head>
       <body
         className={`${anton.variable} ${archivo.variable} ${barlowCondensed.variable} ${geistMono.variable} font-sans antialiased`}
       >
-        <NetworkBanner />
-        {children}
+        {/* attribute="class" matches globals.css's Tailwind v4 dark variant
+            (`@custom-variant dark (&:where(.dark, .dark *))`), which expects
+            a literal .dark class on an ancestor — same mechanism the old
+            hand-rolled pre-paint script used, this just adds a persisted
+            manual override (localStorage) on top of the system default,
+            still applied before first paint via next-themes' own blocking
+            script (no flash-of-wrong-theme, no hydration mismatch). */}
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <NetworkBanner />
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );
