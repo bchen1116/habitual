@@ -117,12 +117,23 @@ function ChallengeCard({ challenge, uid }: { challenge: Challenge; uid: string }
     summary.total > 0 ? Math.min(100, (summary.completed / summary.total) * 100) : 0;
 
   return (
-    <Card>
+    // "Stretched link" pattern: the title's Link is expanded via its ::after
+    // pseudo-element (relative container + after:absolute after:inset-0) to
+    // cover the whole card, so tapping anywhere navigates — not just the
+    // narrow title text. CheckinDialog's trigger sits at a higher z-index
+    // so it keeps intercepting its own taps instead of falling through to
+    // the card-covering link underneath it.
+    <Card className="relative">
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
-          <Link href={`/challenges/${challenge.id}`} className="hover:underline">
-            <CardTitle>{challenge.name}</CardTitle>
-          </Link>
+          <CardTitle>
+            <Link
+              href={`/challenges/${challenge.id}`}
+              className="static after:absolute after:inset-0 after:content-[''] hover:underline"
+            >
+              {challenge.name}
+            </Link>
+          </CardTitle>
           <Badge variant={challenge.mode === "group" ? "outline" : "ink"}>
             {challenge.mode === "group" ? "Group" : "Solo"}
           </Badge>
@@ -142,7 +153,7 @@ function ChallengeCard({ challenge, uid }: { challenge: Challenge; uid: string }
           />
         </div>
         {summary.canCheckInToday && (
-          <div>
+          <div className="relative z-10 w-fit">
             <CheckinDialog
               challenge={challenge}
               uid={uid}
