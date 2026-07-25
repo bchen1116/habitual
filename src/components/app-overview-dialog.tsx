@@ -78,6 +78,12 @@ export function AppOverviewDialog({ uid }: { uid: string }) {
               charity of choice — or, in a group pool, gets split among
               whoever succeeded.
             </p>
+            <p>
+              Habitual only tracks who owes what — it doesn&apos;t move any
+              money itself. Settling up (paying your charity, paying a
+              friend) happens outside the app, on the honor system; you mark
+              a debt settled here once you&apos;ve actually paid it.
+            </p>
             <p className="font-medium">
               Check-ins only count for today. There&apos;s no going back to
               log a missed day after the fact — if you don&apos;t check in
