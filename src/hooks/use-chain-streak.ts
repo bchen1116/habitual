@@ -64,7 +64,15 @@ export function useMaxChainStreak(
   const checkinsKey = challenges
     .map((c) => `${c.id}:${(checkinYmdsByChallenge[c.id] ?? []).join("|")}`)
     .join(",");
-  const chainKey = challenges.map((c) => `${c.id}:${c.repeatedFromId ?? ""}`).join(",");
+  // streakResetAt has to be in this key too: chainEligible below depends on
+  // it, and it changes live (an in-place edit on an already-mounted
+  // challenge doc, not a new/removed challenge), so leaving it out let the
+  // effect skip re-running after an edit — stranding chainMax on its
+  // stale, too-high pre-edit value until something else happened to touch
+  // chainKey/checkinsKey.
+  const chainKey = challenges
+    .map((c) => `${c.id}:${c.repeatedFromId ?? ""}:${c.streakResetAt ?? ""}`)
+    .join(",");
 
   useEffect(() => {
     if (challenges.length === 0) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { doc, onSnapshot, setDoc } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { getClientDb } from "@/lib/firebase/client";
 import {
   enablePush,
@@ -70,11 +70,17 @@ export function NotificationSettings({ uid }: { uid: string }) {
 
   async function toggle(key: CategoryKey) {
     const next = !(prefs[key] ?? true);
-    await setDoc(
-      doc(getClientDb(), "users", uid),
-      { notificationPrefs: { ...prefs, [key]: next } },
-      { merge: true }
-    );
+    // Dot-path update on just this one nested field — not a read-modify
+    // -write of the whole notificationPrefs map from the local `prefs`
+    // closure. That version raced: two toggles in quick succession, before
+    // the first write's onSnapshot round-trip updated `prefs`, meant the
+    // second write's `{...prefs, [key]: next}` silently dropped the first
+    // toggle's change (it was building from a stale `prefs`, not what had
+    // just been written). A per-field update can't race with itself this
+    // way — Firestore merges it into the map server-side.
+    await updateDoc(doc(getClientDb(), "users", uid), {
+      [`notificationPrefs.${key}`]: next,
+    });
   }
 
   const pushBlocked =
@@ -122,6 +128,9 @@ export function NotificationSettings({ uid }: { uid: string }) {
             return (
               <button
                 key={category.key}
+                role="switch"
+                aria-checked={enabled}
+                aria-label={category.label}
                 onClick={() => toggle(category.key)}
                 className="flex items-center justify-between gap-4 text-left"
               >
@@ -134,6 +143,7 @@ export function NotificationSettings({ uid }: { uid: string }) {
                   </span>
                 </span>
                 <span
+                  aria-hidden="true"
                   className={
                     "relative h-6 w-10 shrink-0 rounded-full transition-colors " +
                     (enabled ? "bg-foreground" : "bg-secondary")

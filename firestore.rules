@@ -33,17 +33,19 @@ service cloud.firestore {
                   && (request.auth.uid == resource.data.fromUid
                       || request.auth.uid == resource.data.toUid);
       allow create: if false;   // server only (adjudication function)
-      // Only the debtor updates, only settlement fields, settling is
-      // one-way, and settledAt can't be backdated (server time on the
-      // unsettled -> settled transition, immutable afterwards).
+      // Only the debtor updates, only on the unsettled -> settled
+      // transition itself (never again afterward — settledAt can't be
+      // backdated, and receiptURL/note can't be swapped in after the fact
+      // either; the whole settlement record is a one-time, immutable
+      // statement, matching what the UI's SettleDialog actually offers —
+      // it only ever renders while status is still "unsettled").
       allow update: if request.auth != null
                     && request.auth.uid == resource.data.fromUid
+                    && resource.data.status == "unsettled"
                     && request.resource.data.diff(resource.data).affectedKeys()
                          .hasOnly(["status", "settledAt", "receiptURL", "note"])
                     && request.resource.data.status == "settled"
-                    && (resource.data.status == "unsettled"
-                          ? request.resource.data.settledAt == request.time
-                          : request.resource.data.settledAt == resource.data.settledAt);
+                    && request.resource.data.settledAt == request.time;
       allow delete: if false;
     }
 
@@ -54,19 +56,24 @@ service cloud.firestore {
       allow create: if false;
       allow read: if request.auth != null
                   && request.auth.uid in resource.data.memberIds;
-      // Term edits (name, dates, stake…) only while the creator is the
-      // sole member. Once anyone else joins, the only permitted change is
-      // cancelling before the start date — members joined under specific
-      // terms, and those terms can't shift under them.
+      // Cancel-only, pre-start. Actual term edits (name, dates, stake,
+      // skipDays…) go through the server (editChallengeAdmin via
+      // /api/challenges/[id] PATCH, Admin SDK — bypasses these rules
+      // entirely), which validates bounds these rules can't express
+      // (stake $0-10000, skipDays 0-30, whole-week durations). This used to
+      // also allow the sole-member creator to write ANY field to ANY value
+      // pre-start — the only actual client-side write against this
+      // collection is cancelChallenge() writing {status:"cancelled"}
+      // (src/lib/challenges.ts) — which meant a creator could directly
+      // rig a still-unjoined pool challenge's skipDays/stakeAmount/mode/
+      // forfeitType/even createdBy before inviting others to stake real
+      // money into it. No legitimate path needs anything broader than this.
       allow update: if request.auth != null
                     && request.auth.uid == resource.data.createdBy
                     && resource.data.status == "active"
                     && dateInt(request.time) < int(resource.data.startDate)
-                    && (
-                         resource.data.memberIds.size() == 1
-                         || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status"])
-                             && request.resource.data.status == "cancelled")
-                       );
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status"])
+                    && request.resource.data.status == "cancelled";
       allow delete: if false;
 
       match /members/{uid} {

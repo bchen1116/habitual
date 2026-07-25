@@ -42,7 +42,18 @@ function localYmd(now: Date, timeZone: string): string | null {
  */
 export async function sendDailyLifecycleNotifications(now: Date): Promise<void> {
   const db = getFirestore();
-  const users = await db.collection("users").where("fcmToken", "!=", null).get();
+  let users: FirebaseFirestore.QuerySnapshot;
+  try {
+    users = await db.collection("users").where("fcmToken", "!=", null).get();
+  } catch (err) {
+    // Unguarded, this aborted the ENTIRE hourly run on a single transient
+    // failure — every timezone whose local hour is 9 right now gets no
+    // lifecycle nudge at all, with no retry (this trigger doesn't set
+    // retry: true) and no way to recover since next hour targets a
+    // different timezone cohort. Log and skip this run instead.
+    logger.error("lifecycle notifications: couldn't list users", err);
+    return;
+  }
 
   for (const userDoc of users.docs) {
     const user = userDoc.data();

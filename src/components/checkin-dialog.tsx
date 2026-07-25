@@ -18,7 +18,7 @@ interface CheckinDialogProps {
   challenge: Challenge;
   uid: string;
   today: string; // yyyymmdd in the user's timezone
-  onError: (message: string) => void;
+  onError: (message: string | null) => void;
 }
 
 /**
@@ -27,12 +27,18 @@ interface CheckinDialogProps {
  * Firestore cache updates listeners instantly (also the only behavior that
  * works offline, where the promise won't resolve until reconnect). A
  * rules rejection reverts the listener state and surfaces via onError.
+ *
+ * onError(null) at the top of every attempt clears a stale error from a
+ * prior failed try — without it, a failed check-in's message stuck around
+ * forever, even after a later successful retry (nothing ever called
+ * onError(null) or otherwise reset the caller's error state).
  */
 export function CheckinDialog({ challenge, uid, today, onError }: CheckinDialogProps) {
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
 
   function submit() {
+    onError(null);
     checkIn(challenge, uid, today, note).catch(() => {
       onError("Check-in failed — it may be past the allowed window. Please try again.");
     });

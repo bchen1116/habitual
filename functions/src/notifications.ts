@@ -22,11 +22,23 @@ function formatAmount(amount: number): string {
  * Sends one push to one user, honoring their notificationPrefs. Missing
  * prefs mean enabled (defaults-on). Skips silently when there's no token;
  * clears tokens FCM reports as dead.
+ *
+ * The user-doc read is guarded the same as the send itself: none of these
+ * triggers configure `retry: true`, so an uncaught throw here doesn't just
+ * fail this one push — it aborts the whole invocation with no redelivery,
+ * silently losing the notification instead of just logging and moving on.
  */
 export async function sendPush(uid: string, content: PushContent): Promise<void> {
   const db = getFirestore();
-  const userSnap = await db.collection("users").doc(uid).get();
-  const user = userSnap.data();
+  let user: FirebaseFirestore.DocumentData | undefined;
+  let userSnap: FirebaseFirestore.DocumentSnapshot;
+  try {
+    userSnap = await db.collection("users").doc(uid).get();
+    user = userSnap.data();
+  } catch (err) {
+    logger.warn(`push to ${uid} failed: couldn't read user doc`, err);
+    return;
+  }
   if (!user) return;
 
   const token = user.fcmToken as string | undefined | null;

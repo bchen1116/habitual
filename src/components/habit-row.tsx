@@ -17,7 +17,7 @@ interface HabitRowProps {
   uid: string;
   timezone: string;
   checkins: CheckinRecord[]; // this user's checkins for this challenge
-  onError: (message: string) => void;
+  onError: (message: string | null) => void;
 }
 
 /**
