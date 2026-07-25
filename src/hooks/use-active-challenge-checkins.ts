@@ -15,6 +15,15 @@ export interface ActiveChallengeActivity {
   challenges: Challenge[] | null;
   checkinsByChallenge: Record<string, CheckinRecord[]>;
   loading: boolean;
+  /**
+   * True on a genuine query failure — permissions, network, a missing
+   * index. Checked separately from `challenges`: an empty `challenges`
+   * array on its own means "genuinely zero active challenges," and must
+   * stay that way regardless of whether the query ever failed, so
+   * consumers can tell "you have none" from "this couldn't load" instead
+   * of a failure quietly reading as an empty state.
+   */
+  error: boolean;
 }
 
 /**
@@ -28,6 +37,7 @@ export function useActiveChallengeCheckins(uid: string): ActiveChallengeActivity
   const [checkinsByChallenge, setCheckinsByChallenge] = useState<
     Record<string, CheckinRecord[]>
   >({});
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onSnapshot(
@@ -38,8 +48,15 @@ export function useActiveChallengeCheckins(uid: string): ActiveChallengeActivity
         );
         items.sort((a, b) => a.startDate.localeCompare(b.startDate));
         setChallenges(items);
+        setError(false);
       },
-      () => setChallenges([])
+      (err) => {
+        // Previously set challenges to [] here — indistinguishable from a
+        // real "you have zero active challenges" result, so a fetch
+        // failure silently read as an empty state instead of an error.
+        console.error("active challenges query failed:", err);
+        setError(true);
+      }
     );
     return unsubscribe;
   }, [uid]);
@@ -64,7 +81,8 @@ export function useActiveChallengeCheckins(uid: string): ActiveChallengeActivity
                 (c.completedAt?.toMillis?.() as number | undefined) ?? null,
             }));
           setCheckinsByChallenge((prev) => ({ ...prev, [id]: records }));
-        }
+        },
+        (err) => console.error(`checkins query failed for challenge ${id}:`, err)
       )
     );
     return () => unsubscribes.forEach((u) => u());
@@ -73,6 +91,7 @@ export function useActiveChallengeCheckins(uid: string): ActiveChallengeActivity
   return {
     challenges,
     checkinsByChallenge,
-    loading: challenges === null,
+    loading: challenges === null && !error,
+    error,
   };
 }

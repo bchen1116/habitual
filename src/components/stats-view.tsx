@@ -15,11 +15,17 @@ import { StatTile } from "@/components/stat-tile";
 
 export function StatsView({ uid }: { uid: string }) {
   const timezone = useUserTimezone(uid);
-  const { challenges, checkinsByChallenge, loading } = useActiveChallengeCheckins(uid);
+  const {
+    challenges,
+    checkinsByChallenge,
+    loading,
+    error: activeError,
+  } = useActiveChallengeCheckins(uid);
   const { entries: history, error: historyError } = useChallengeHistory(uid);
   const [ledger, setLedger] = useState<{ owed: LedgerEntry[]; credits: LedgerEntry[] } | null>(
     null
   );
+  const [ledgerError, setLedgerError] = useState(false);
   const today = todayYmd(timezone);
 
   // One-time reads, matching the challenge history above — this section is
@@ -27,16 +33,24 @@ export function StatsView({ uid }: { uid: string }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const db = getClientDb();
-      const [owedSnap, creditSnap] = await Promise.all([
-        getDocs(owedByMeQuery(db, uid)),
-        getDocs(owedToMeQuery(db, uid)),
-      ]);
-      if (cancelled) return;
-      setLedger({
-        owed: owedSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as LedgerEntry),
-        credits: creditSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as LedgerEntry),
-      });
+      try {
+        const db = getClientDb();
+        const [owedSnap, creditSnap] = await Promise.all([
+          getDocs(owedByMeQuery(db, uid)),
+          getDocs(owedToMeQuery(db, uid)),
+        ]);
+        if (cancelled) return;
+        setLedger({
+          owed: owedSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as LedgerEntry),
+          credits: creditSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as LedgerEntry),
+        });
+      } catch (err) {
+        // Unguarded, this left `ledger` (and lifetimeLoading below) stuck
+        // forever on a fetch failure — the lifetime section spun on its
+        // loading skeleton with no way out short of a full page reload.
+        console.error("stats ledger fetch failed:", err);
+        if (!cancelled) setLedgerError(true);
+      }
     })();
     return () => {
       cancelled = true;
@@ -62,7 +76,6 @@ export function StatsView({ uid }: { uid: string }) {
   // so it correctly contributes no entry here rather than being a gap.
   const avgWon = ledger ? averageAmount(ledger.credits) : null;
   const avgLost = ledger ? averageAmount(ledger.owed) : null;
-  const lifetimeLoading = !lifetime || !ledger;
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-5 lg:p-9">
@@ -70,6 +83,10 @@ export function StatsView({ uid }: { uid: string }) {
         <h1 className="type-display text-3xl">Progress</h1>
         {loading ? (
           <div className="mt-4 h-24 animate-pulse rounded-2xl bg-muted" />
+        ) : activeError ? (
+          <p className="mt-4 text-sm text-muted-foreground">
+            Couldn&apos;t load your active habits.
+          </p>
         ) : (
           <div className="mt-4 grid grid-cols-2 gap-3.5">
             <StatTile value={totalCheckIns} label="Total check-ins" />
@@ -81,11 +98,16 @@ export function StatsView({ uid }: { uid: string }) {
 
       <div>
         <h2 className="type-display text-xl">Lifetime</h2>
-        {historyError ? (
+        {historyError || ledgerError ? (
           <p className="mt-4 text-sm text-muted-foreground">
             Couldn&apos;t load your challenge history.
           </p>
-        ) : lifetimeLoading ? (
+        ) : !lifetime || !ledger ? (
+          // Was `!lifetime || !ledger` gated behind a separate
+          // `lifetimeLoading` alias — on a ledgerError, `ledger` never
+          // gets set, so that stayed true forever and this section spun
+          // on its loading skeleton indefinitely. Checked directly here
+          // (ledgerError already handled above) instead.
           <div className="mt-4 h-48 animate-pulse rounded-2xl bg-muted" />
         ) : lifetime.totalCompleted === 0 ? (
           <div className="mt-4 rounded-2xl bg-card px-4 py-6 text-center">

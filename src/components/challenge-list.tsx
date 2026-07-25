@@ -105,7 +105,8 @@ function ChallengeCard({ challenge, uid }: { challenge: Challenge; uid: string }
             .filter((c) => c.uid === uid)
             .map((c) => c.localDate as string)
         );
-      }
+      },
+      (err) => console.error(`checkins query failed for challenge ${challenge.id}:`, err)
     );
     return unsubscribe;
   }, [challenge.id, uid]);
