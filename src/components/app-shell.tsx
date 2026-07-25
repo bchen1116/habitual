@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { AppOverviewDialog } from "@/components/app-overview-dialog";
 import { BottomNav } from "@/components/bottom-nav";
 import { Sidebar } from "@/components/sidebar";
 
@@ -10,6 +11,7 @@ export function AppShell({ uid, children }: { uid: string; children: ReactNode }
         <main className="flex-1 pb-24 md:pb-0">{children}</main>
       </div>
       <BottomNav />
+      <AppOverviewDialog uid={uid} />
     </div>
   );
 }
