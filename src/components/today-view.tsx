@@ -51,12 +51,7 @@ export function TodayView({
       records.map((r) => r.localDate),
     ])
   );
-  const { streak: heroStreak } = useMaxChainStreak(
-    activeChallenges,
-    uid,
-    checkinYmdsByChallenge,
-    today
-  );
+  const heroStreak = useMaxChainStreak(activeChallenges, uid, checkinYmdsByChallenge, today);
 
   const activityYmds = new Set(Object.values(checkinYmdsByChallenge).flat());
   const days = weekStripDays(activityYmds, today);
