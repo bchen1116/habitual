@@ -4,7 +4,7 @@ import Link from "next/link";
 import { getCurrentUser } from "@/lib/session";
 import { getChallengePreview } from "@/lib/server/challenge-admin";
 import { daysBetweenInclusive, formatYmd } from "@/lib/dates";
-import { formatAmount } from "@/lib/ledger";
+import { formatAmount } from "@/lib/currency";
 import { JoinPanel } from "@/components/join-panel";
 import { Button } from "@/components/ui/button";
 import {

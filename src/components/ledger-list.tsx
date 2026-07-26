@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { onSnapshot } from "firebase/firestore";
 import { getClientDb } from "@/lib/firebase/client";
-import { formatAmount, owedByMeQuery, owedToMeQuery } from "@/lib/ledger";
+import { formatAmount } from "@/lib/currency";
+import { owedByMeQuery, owedToMeQuery } from "@/lib/ledger";
 import type { LedgerEntry } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
