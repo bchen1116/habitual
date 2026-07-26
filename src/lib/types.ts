@@ -77,6 +77,14 @@ export interface LedgerEntry {
   toUid: string | null;
   toName: string | null;
   toUsername: string | null;
+  /**
+   * Only ever set on pool-mode (toType "user") entries — a charity has no
+   * Venmo handle. Copied from the winner's users/{uid}.venmoUsername at
+   * adjudication time (functions/src/adjudicate.ts), so it reflects
+   * whatever handle they had when the debt was created; server-written
+   * only and frozen afterward (ledgerEntries' update rule allow-list).
+   */
+  toVenmoUsername?: string | null;
   toCharityName: string | null;
   amount: number;
   status: LedgerStatus;
