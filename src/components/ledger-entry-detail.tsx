@@ -6,6 +6,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { getClientDb } from "@/lib/firebase/client";
 import { formatAmount } from "@/lib/currency";
 import { settleEntry, uploadReceipt } from "@/lib/ledger";
+import { venmoPayUrl } from "@/lib/venmo";
 import type { LedgerEntry } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -114,12 +115,32 @@ export function LedgerEntryDetail({ id, uid }: { id: string; uid: string }) {
             />
           )}
 
-          {iOwe && entry.status === "unsettled" && <SettleDialog entry={entry} />}
+          {iOwe && entry.status === "unsettled" && (
+            <div className="flex flex-wrap gap-2">
+              {entry.toType === "user" && entry.toVenmoUsername && (
+                <Button asChild variant="outline">
+                  <a
+                    href={venmoPayUrl(
+                      entry.toVenmoUsername,
+                      entry.amount,
+                      `Habitual: ${entry.challengeName}`
+                    )}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Pay with Venmo
+                  </a>
+                </Button>
+              )}
+              <SettleDialog entry={entry} />
+            </div>
+          )}
         </CardContent>
       </Card>
       <p className="text-center text-xs text-muted-foreground">
-        Habitual doesn&apos;t move money — settle up however you normally pay,
-        then mark it settled here.
+        Habitual doesn&apos;t move money — settle up however you normally pay
+        (the Venmo link above just prefills a payment for you to review and
+        send), then mark it settled here.
       </p>
     </div>
   );

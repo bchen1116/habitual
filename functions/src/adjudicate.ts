@@ -23,6 +23,10 @@ interface MemberData {
   // in src/lib/server/challenge-admin.ts (mirrored here since this Cloud
   // Function has no shared package with the Next app).
   joinedDate?: string;
+  // Snapshotted from users/{uid} at join/create time. Only meaningful in
+  // pool mode — it rides onto a winner's ledgerEntries as toVenmoUsername so
+  // the loser gets a prefilled Pay-with-Venmo link.
+  venmoUsername?: string | null;
 }
 
 interface MemberOutcome {
@@ -30,6 +34,7 @@ interface MemberOutcome {
   displayName: string;
   username: string | null;
   charityName: string | null;
+  venmoUsername: string | null;
   succeeded: boolean;
 }
 
@@ -149,6 +154,7 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
             displayName: member.displayName,
             username: member.username ?? null,
             charityName: member.charityName ?? null,
+            venmoUsername: member.venmoUsername ?? null,
             succeeded,
           });
 
@@ -190,6 +196,7 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
                   toUid: winner.uid,
                   toName: winner.displayName,
                   toUsername: winner.username,
+                  toVenmoUsername: winner.venmoUsername,
                   toCharityName: null,
                   amount: perWinnerShare,
                 });

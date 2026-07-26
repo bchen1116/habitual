@@ -80,6 +80,7 @@ function grantMembershipInTransaction(
     username: string | null;
     charityName: string | null;
     joinedDate: string;
+    venmoUsername: string | null;
   }
 ): void {
   t.update(challengeRef, { memberIds: FieldValue.arrayUnion(uid) });
@@ -89,6 +90,7 @@ function grantMembershipInTransaction(
     joinedAt: FieldValue.serverTimestamp(),
     joinedDate: member.joinedDate,
     charityName: member.charityName,
+    venmoUsername: member.venmoUsername,
     outcome: null,
     completedCount: 0,
     skipsUsed: 0,
@@ -106,6 +108,7 @@ export async function createChallengeAdmin(
   const displayName =
     (userSnap.data()?.displayName as string | undefined) ?? fallbackName;
   const username = (userSnap.data()?.username as string | undefined) ?? null;
+  const venmoUsername = (userSnap.data()?.venmoUsername as string | undefined) ?? null;
 
   const joinCode =
     payload.mode === "group" ? await generateUniqueJoinCode() : null;
@@ -144,6 +147,7 @@ export async function createChallengeAdmin(
     // start (see effectiveStart in lib/progress.ts).
     joinedDate: payload.startDate,
     charityName: payload.charityName,
+    venmoUsername,
     outcome: null,
     completedCount: 0,
     skipsUsed: 0,
@@ -286,6 +290,7 @@ export async function joinChallengeAdmin(
   const displayName =
     (userSnap.data()?.displayName as string | undefined) ?? fallbackName;
   const username = (userSnap.data()?.username as string | undefined) ?? null;
+  const venmoUsername = (userSnap.data()?.venmoUsername as string | undefined) ?? null;
 
   const snap = await db
     .collection("challenges")
@@ -332,6 +337,7 @@ export async function joinChallengeAdmin(
         displayName,
         username,
         charityName: memberCharityName,
+        venmoUsername,
         requestedAt: FieldValue.serverTimestamp(),
       });
       return { status: "pending" };
@@ -342,6 +348,7 @@ export async function joinChallengeAdmin(
       username,
       charityName: memberCharityName,
       joinedDate,
+      venmoUsername,
     });
     return { status: "joined", challengeId: challengeRef.id };
   });
@@ -402,6 +409,7 @@ export async function respondToJoinRequestAdmin(
       // The date they're actually granted membership, not when they
       // requested — they couldn't check in during the gap while pending.
       joinedDate: today > data.startDate ? today : data.startDate,
+      venmoUsername: request.venmoUsername ?? null,
     });
     t.delete(requestRef);
   });
@@ -719,6 +727,7 @@ export async function repeatChallengeAdmin(
       // when they joined the previous one.
       joinedDate: newStartDate,
       charityName: member.charityName ?? null,
+      venmoUsername: member.venmoUsername ?? null,
       outcome: null,
       completedCount: 0,
       skipsUsed: 0,

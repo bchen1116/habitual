@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
 import { getClientDb } from "@/lib/firebase/client";
+import { normalizeVenmoUsername } from "@/lib/venmo";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +15,7 @@ interface Profile {
   username: string | null;
   email: string;
   photoURL: string | null;
+  venmoUsername: string | null;
 }
 
 export function ProfileEditor({ uid }: { uid: string }) {
@@ -21,12 +23,15 @@ export function ProfileEditor({ uid }: { uid: string }) {
   const [loadError, setLoadError] = useState(false);
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
+  const [venmoUsername, setVenmoUsername] = useState("");
   const [savingName, setSavingName] = useState(false);
   const [savingUsername, setSavingUsername] = useState(false);
+  const [savingVenmo, setSavingVenmo] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const nameInitialized = useRef(false);
   const usernameInitialized = useRef(false);
+  const venmoInitialized = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -40,6 +45,7 @@ export function ProfileEditor({ uid }: { uid: string }) {
           username: data.username ?? null,
           email: data.email ?? "",
           photoURL: data.photoURL ?? null,
+          venmoUsername: data.venmoUsername ?? null,
         });
         if (!nameInitialized.current) {
           setName(data.displayName ?? "");
@@ -48,6 +54,10 @@ export function ProfileEditor({ uid }: { uid: string }) {
         if (!usernameInitialized.current) {
           setUsername(data.username ?? "");
           usernameInitialized.current = true;
+        }
+        if (!venmoInitialized.current) {
+          setVenmoUsername(data.venmoUsername ?? "");
+          venmoInitialized.current = true;
         }
       },
       // Without this, a listener failure left profile stuck at null forever
@@ -104,6 +114,37 @@ export function ProfileEditor({ uid }: { uid: string }) {
       );
     } finally {
       setSavingUsername(false);
+    }
+  }
+
+  /**
+   * Unlike name/username, this is meant to be clearable — saving an empty
+   * value writes `null` to turn off the "Pay with Venmo" link on any debts
+   * owed to this person, rather than being blocked like an empty name would
+   * be. No uniqueness check needed (it's just contact info, not an
+   * in-app identity), so this writes directly rather than through an API
+   * route the way saveUsername does.
+   */
+  async function saveVenmoUsername() {
+    const normalized = normalizeVenmoUsername(venmoUsername);
+    if (normalized === (profile?.venmoUsername ?? "")) return;
+    setSavingVenmo(true);
+    setMessage(null);
+    try {
+      await setDoc(
+        doc(getClientDb(), "users", uid),
+        { venmoUsername: normalized || null },
+        { merge: true }
+      );
+      setMessage(
+        normalized
+          ? "Saved. Anyone who owes you from a winner-pool habit will see a Pay with Venmo link."
+          : "Removed — the Pay with Venmo link will no longer show up for people who owe you."
+      );
+    } catch {
+      setMessage("Couldn't save your Venmo username. Try again.");
+    } finally {
+      setSavingVenmo(false);
     }
   }
 
@@ -215,6 +256,34 @@ export function ProfileEditor({ uid }: { uid: string }) {
         <p className="text-xs text-muted-foreground">
           Shown alongside your name in groups — helps tell apart people with
           the same name. 3-20 characters: letters, numbers, underscores.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="venmoUsername">Venmo username</Label>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">@</span>
+          <Input
+            id="venmoUsername"
+            value={venmoUsername}
+            maxLength={30}
+            placeholder="Optional"
+            onChange={(e) => setVenmoUsername(e.target.value)}
+          />
+          <Button
+            onClick={saveVenmoUsername}
+            disabled={
+              savingVenmo ||
+              normalizeVenmoUsername(venmoUsername) === (profile.venmoUsername ?? "")
+            }
+          >
+            {savingVenmo ? "Saving…" : "Save"}
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Lets anyone who owes you money in a winner-pool habit pay you with a
+          prefilled Venmo link. Leave blank to skip this — settling up still
+          works without it.
         </p>
       </div>
 
