@@ -55,13 +55,6 @@ export interface ChallengeMember {
    * members created before this field existed; treat as == startDate.
    */
   joinedDate?: string;
-  /**
-   * Snapshotted from users/{uid} at join/create time (same pattern as
-   * displayName/username) — carried onto a pool-mode ledger entry's
-   * toVenmoUsername if this member ends up owed money, so the debtor gets a
-   * prefilled "Pay with Venmo" link. Absent if the member never set one.
-   */
-  venmoUsername?: string | null;
 }
 
 /** challenges/{cid}/joinRequests/{uid} — pending approval on an invite-only group. */
@@ -69,7 +62,6 @@ export interface JoinRequest {
   displayName: string;
   username: string | null;
   charityName: string | null;
-  venmoUsername?: string | null;
 }
 
 export type LedgerStatus = "unsettled" | "settled";
@@ -85,7 +77,13 @@ export interface LedgerEntry {
   toUid: string | null;
   toName: string | null;
   toUsername: string | null;
-  /** Only ever set on pool-mode (toType "user") entries; a charity has no Venmo handle. */
+  /**
+   * Only ever set on pool-mode (toType "user") entries — a charity has no
+   * Venmo handle. Copied from the winner's users/{uid}.venmoUsername at
+   * adjudication time (functions/src/adjudicate.ts), so it reflects
+   * whatever handle they had when the debt was created; server-written
+   * only and frozen afterward (ledgerEntries' update rule allow-list).
+   */
   toVenmoUsername?: string | null;
   toCharityName: string | null;
   amount: number;

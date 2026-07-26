@@ -23,10 +23,6 @@ interface MemberData {
   // in src/lib/server/challenge-admin.ts (mirrored here since this Cloud
   // Function has no shared package with the Next app).
   joinedDate?: string;
-  // Snapshotted from users/{uid} at join/create time. Only meaningful in
-  // pool mode — it rides onto a winner's ledgerEntries as toVenmoUsername so
-  // the loser gets a prefilled Pay-with-Venmo link.
-  venmoUsername?: string | null;
 }
 
 interface MemberOutcome {
@@ -34,7 +30,6 @@ interface MemberOutcome {
   displayName: string;
   username: string | null;
   charityName: string | null;
-  venmoUsername: string | null;
   succeeded: boolean;
 }
 
@@ -140,6 +135,12 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
 
         const adjudicatedAt = Timestamp.fromDate(now);
         const outcomes: MemberOutcome[] = [];
+        const memberUpdates: {
+          ref: FirebaseFirestore.DocumentReference;
+          missed: number;
+          completed: number;
+          succeeded: boolean;
+        }[] = [];
         for (const memberDoc of membersSnap.docs) {
           const member = memberDoc.data() as MemberData;
           const uid = memberDoc.id;
@@ -154,14 +155,44 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
             displayName: member.displayName,
             username: member.username ?? null,
             charityName: member.charityName ?? null,
-            venmoUsername: member.venmoUsername ?? null,
             succeeded,
           });
+          // Deferred to after the venmo reads below — transactions require
+          // every read to happen before the first write.
+          memberUpdates.push({ ref: memberDoc.ref, missed, completed, succeeded });
+        }
 
-          t.update(memberDoc.ref, {
-            outcome: succeeded ? "succeeded" : "failed",
-            completedCount: completed,
-            skipsUsed: Math.min(missed, challenge.skipDays),
+        // Pool mode: each winner's Venmo handle rides onto the loser's
+        // ledger entry as toVenmoUsername, giving the debtor a prefilled
+        // Pay-with-Venmo link. Read fresh from users/{uid} NOW — at the
+        // moment the debt is created — rather than from a join-time member
+        // snapshot: a handle added to the profile any time before results
+        // (the common order of events) still gets picked up, including for
+        // challenges that started long before the profile field existed.
+        // The debtor couldn't read the winner's user doc themselves
+        // (users/{uid} rules are owner-only); this server-side copy onto
+        // the one ledger entry the debtor can read is the entire exposure.
+        const venmoByUid = new Map<string, string | null>();
+        if (challenge.forfeitType === "pool") {
+          const winnerUids = outcomes.filter((o) => o.succeeded).map((o) => o.uid);
+          if (winnerUids.length > 0) {
+            const userSnaps = await t.getAll(
+              ...winnerUids.map((uid) => db.collection("users").doc(uid))
+            );
+            for (const snap of userSnaps) {
+              venmoByUid.set(
+                snap.id,
+                (snap.data()?.venmoUsername as string | undefined) ?? null
+              );
+            }
+          }
+        }
+
+        for (const update of memberUpdates) {
+          t.update(update.ref, {
+            outcome: update.succeeded ? "succeeded" : "failed",
+            completedCount: update.completed,
+            skipsUsed: Math.min(update.missed, challenge.skipDays),
             adjudicatedAt,
           });
         }
@@ -196,7 +227,7 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
                   toUid: winner.uid,
                   toName: winner.displayName,
                   toUsername: winner.username,
-                  toVenmoUsername: winner.venmoUsername,
+                  toVenmoUsername: venmoByUid.get(winner.uid) ?? null,
                   toCharityName: null,
                   amount: perWinnerShare,
                 });

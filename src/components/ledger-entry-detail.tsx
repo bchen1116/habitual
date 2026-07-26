@@ -123,7 +123,7 @@ export function LedgerEntryDetail({ id, uid }: { id: string; uid: string }) {
                     href={venmoPayUrl(
                       entry.toVenmoUsername,
                       entry.amount,
-                      `Habitual: ${entry.challengeName}`
+                      entry.challengeName
                     )}
                     target="_blank"
                     rel="noopener noreferrer"
