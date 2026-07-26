@@ -13,6 +13,7 @@ export interface Challenge {
   charityName: string | null; // creator's charity (null in pool mode); group members pick their own on join
   joinCode?: string | null; // group only
   joinPolicy?: "open" | "invite" | null; // group only; missing/null means "open"
+  joinClosed?: boolean | null; // group only; creator-toggled, not date-driven — see docs on joinChallengeAdmin
   maxMembers?: number | null; // group only, optional cap
   streakResetAt?: string | null; // yyyymmdd; set when an edit increases skipDays
   repeatedFromId?: string | null; // id of the previous cycle (repeatChallengeAdmin); unset for a chain's first cycle
@@ -45,6 +46,15 @@ export interface ChallengeMember {
   outcome: MemberOutcome;
   completedCount: number;
   skipsUsed: number;
+  /**
+   * yyyymmdd; the creator's is always the challenge's own startDate, but a
+   * member who joins after start gets today's date instead — their personal
+   * "days required" window starts here, not at the challenge's official
+   * start, so joining late doesn't retroactively count days they weren't a
+   * member yet as missed (see effectiveStart in lib/progress.ts). Absent on
+   * members created before this field existed; treat as == startDate.
+   */
+  joinedDate?: string;
 }
 
 /** challenges/{cid}/joinRequests/{uid} — pending approval on an invite-only group. */

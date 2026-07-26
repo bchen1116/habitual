@@ -9,6 +9,7 @@ import {
   deleteChallenge,
   removeMember,
   respondToJoinRequest,
+  setJoinClosed,
 } from "@/lib/challenges";
 import { useUserTimezone } from "@/hooks/use-user-timezone";
 import {
@@ -57,6 +58,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   const [deleting, setDeleting] = useState(false);
   const [respondingUid, setRespondingUid] = useState<string | null>(null);
   const [removingUid, setRemovingUid] = useState<string | null>(null);
+  const [togglingJoin, setTogglingJoin] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onSnapshot(
@@ -162,7 +164,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   }
 
   const state = challengeState(challenge, today);
-  const summary = progressSummary(challenge, checkinYmds, timezone);
+  const summary = progressSummary(challenge, checkinYmds, timezone, member?.joinedDate);
   const isCreator = challenge.createdBy === uid;
   // Cancel (soft: keeps a "Cancelled" record) only makes sense for group
   // challenges, where other members might already be watching for one. A
@@ -244,6 +246,20 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
     }
   }
 
+  async function handleToggleJoinClosed(nextClosed: boolean) {
+    setTogglingJoin(true);
+    setError(null);
+    try {
+      await setJoinClosed(id, nextClosed);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Couldn't update joining for this challenge."
+      );
+    } finally {
+      setTogglingJoin(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-2">
@@ -282,23 +298,46 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
         </div>
       </div>
 
-      {challenge.mode === "group" && state === "upcoming" && challenge.joinCode && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle>Invite friends</CardTitle>
-            <CardDescription>
-              Share this link before the challenge starts — joining closes on{" "}
-              {formatYmd(challenge.startDate)}.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex items-center gap-3">
-            <code className="rounded-full bg-ink px-4 py-1.5 font-mono text-sm font-bold tracking-widest text-primary">
-              {challenge.joinCode}
-            </code>
-            <ShareLink joinCode={challenge.joinCode} name={challenge.name} />
-          </CardContent>
-        </Card>
-      )}
+      {challenge.mode === "group" &&
+        challenge.joinCode &&
+        (state === "upcoming" || state === "active") &&
+        (!challenge.joinClosed || isCreator) && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle>Invite friends</CardTitle>
+              <CardDescription>
+                {challenge.joinClosed
+                  ? "Joining is closed — reopen it to let more people in."
+                  : "Share this link — joining stays open until you close it."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              {!challenge.joinClosed && (
+                <div className="flex items-center gap-3">
+                  <code className="rounded-full bg-ink px-4 py-1.5 font-mono text-sm font-bold tracking-widest text-primary">
+                    {challenge.joinCode}
+                  </code>
+                  <ShareLink joinCode={challenge.joinCode} name={challenge.name} />
+                </div>
+              )}
+              {isCreator && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-fit"
+                  onClick={() => handleToggleJoinClosed(!challenge.joinClosed)}
+                  disabled={togglingJoin}
+                >
+                  {togglingJoin
+                    ? "Updating…"
+                    : challenge.joinClosed
+                      ? "Reopen joining"
+                      : "Close joining"}
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
       {isCreator &&
         challenge.mode === "group" &&
@@ -311,6 +350,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
               <CardDescription>
                 {joinRequests.length} pending request
                 {joinRequests.length === 1 ? "" : "s"}
+                {challenge.joinClosed && " — joining is closed, so these can only be rejected"}
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
@@ -334,7 +374,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
                   </Button>
                   <Button
                     size="sm"
-                    disabled={respondingUid === req.uid}
+                    disabled={respondingUid === req.uid || challenge.joinClosed === true}
                     onClick={() => handleRespond(req.uid, "approve")}
                   >
                     Approve
@@ -486,12 +526,14 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
                 challenge={challenge}
                 checkinYmds={checkinYmds}
                 today={today}
+                memberJoinedDate={member?.joinedDate}
               />
             ) : (
               <WeeklyWindowList
                 challenge={challenge}
                 checkinYmds={checkinYmds}
                 today={today}
+                memberJoinedDate={member?.joinedDate}
               />
             )}
           </CardContent>
@@ -536,18 +578,21 @@ function MembersCard({
   removingUid: string | null;
   onRemove: (uid: string) => void;
 }) {
-  const total = totalRequired(challenge);
   const state = challengeState(challenge, today);
 
+  // Per-member, not shared: a member who joined after the challenge started
+  // has a smaller total (and a later skips-used floor) than one who's been
+  // in since day one — see effectiveStart in lib/progress.ts.
   const rows = members.map((m) => {
     const ymds = allCheckins
       .filter((c) => c.uid === m.uid)
       .map((c) => c.localDate)
       .filter((d) => d >= challenge.startDate && d <= challenge.endDate);
-    const used = skipsUsed(challenge, ymds, today);
+    const used = skipsUsed(challenge, ymds, today, m.joinedDate);
     return {
       ...m,
       completed: m.outcome !== null ? m.completedCount : ymds.length,
+      total: totalRequired(challenge, m.joinedDate),
       onTrack: used <= challenge.skipDays,
     };
   });
@@ -589,12 +634,12 @@ function MembersCard({
                   <div
                     className="h-full rounded-full bg-foreground"
                     style={{
-                      width: `${total > 0 ? Math.min(100, (row.completed / total) * 100) : 0}%`,
+                      width: `${row.total > 0 ? Math.min(100, (row.completed / row.total) * 100) : 0}%`,
                     }}
                   />
                 </div>
                 <span className="w-10 text-right text-xs text-muted-foreground">
-                  {row.completed}/{total}
+                  {row.completed}/{row.total}
                 </span>
               </>
             )}
@@ -620,12 +665,14 @@ function DailyHistoryGrid({
   challenge,
   checkinYmds,
   today,
+  memberJoinedDate,
 }: {
   challenge: Challenge;
   checkinYmds: string[];
   today: string;
+  memberJoinedDate?: string;
 }) {
-  const entries = dailyHistory(challenge, new Set(checkinYmds), today);
+  const entries = dailyHistory(challenge, new Set(checkinYmds), today, memberJoinedDate);
   return (
     <div className="grid grid-cols-7 gap-2">
       {entries.map((entry) => (
@@ -654,12 +701,14 @@ function WeeklyWindowList({
   challenge,
   checkinYmds,
   today,
+  memberJoinedDate,
 }: {
   challenge: Challenge;
   checkinYmds: string[];
   today: string;
+  memberJoinedDate?: string;
 }) {
-  const windows = weeklyWindows(challenge, checkinYmds, today);
+  const windows = weeklyWindows(challenge, checkinYmds, today, memberJoinedDate);
   return (
     <div className="flex flex-col gap-2">
       {windows.map((w) => (

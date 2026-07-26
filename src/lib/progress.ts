@@ -20,11 +20,42 @@ export function challengeState(challenge: Challenge, today: string): ChallengeSt
   return "active";
 }
 
-/** Total check-ins needed to fully complete the challenge. */
-export function totalRequired(challenge: Challenge): number {
+/**
+ * A member's own starting point for "days/weeks required" purposes: the
+ * challenge's startDate, unless they joined after it started (joining
+ * mid-challenge is allowed — see joinChallengeAdmin), in which case it's
+ * their own joinedDate instead. Without this, anyone who joins late would
+ * immediately show as having missed every day between the challenge's start
+ * and the day they joined — days they weren't even a member yet.
+ */
+export function effectiveStart(challenge: Challenge, memberJoinedDate?: string): string {
+  return memberJoinedDate && memberJoinedDate > challenge.startDate
+    ? memberJoinedDate
+    : challenge.startDate;
+}
+
+/** The full sequential 7-day window grid, anchored to the challenge's own startDate for everyone. */
+function weekWindowBounds(challenge: Challenge): { start: string; end: string }[] {
   const days = daysBetweenInclusive(challenge.startDate, challenge.endDate);
-  if (challenge.frequency.type === "daily") return days;
-  return challenge.frequency.target * Math.floor(days / 7);
+  const weeks = Math.floor(days / 7);
+  return Array.from({ length: weeks }, (_, w) => {
+    const start = addDaysYmd(challenge.startDate, w * 7);
+    return { start, end: addDaysYmd(start, 6) };
+  });
+}
+
+/** Total check-ins needed to fully complete the challenge, from a member's own effective start onward. */
+export function totalRequired(challenge: Challenge, memberJoinedDate?: string): number {
+  const start = effectiveStart(challenge, memberJoinedDate);
+  if (start > challenge.endDate) return 0;
+  if (challenge.frequency.type === "daily") {
+    return daysBetweenInclusive(start, challenge.endDate);
+  }
+  // A late joiner still owes a full week's target for the window they joined
+  // mid-way through (no proration) — only windows that fully concluded
+  // before they joined are waived entirely.
+  const relevantWeeks = weekWindowBounds(challenge).filter((w) => w.end >= start).length;
+  return challenge.frequency.target * relevantWeeks;
 }
 
 export interface DayEntry {
@@ -32,16 +63,19 @@ export interface DayEntry {
   state: "done" | "missed" | "today" | "future";
 }
 
-/** Per-day history for daily challenges. */
+/** Per-day history for daily challenges, from a member's own effective start onward. */
 export function dailyHistory(
   challenge: Challenge,
   checkinYmds: ReadonlySet<string>,
-  today: string
+  today: string,
+  memberJoinedDate?: string
 ): DayEntry[] {
-  const days = daysBetweenInclusive(challenge.startDate, challenge.endDate);
+  const start = effectiveStart(challenge, memberJoinedDate);
+  if (start > challenge.endDate) return [];
+  const days = daysBetweenInclusive(start, challenge.endDate);
   const entries: DayEntry[] = [];
   for (let i = 0; i < days; i++) {
-    const ymd = addDaysYmd(challenge.startDate, i);
+    const ymd = addDaysYmd(start, i);
     if (checkinYmds.has(ymd)) {
       entries.push({ ymd, state: "done" });
     } else if (ymd === today) {
@@ -56,7 +90,7 @@ export function dailyHistory(
 }
 
 export interface WindowEntry {
-  index: number; // 1-based week number
+  index: number; // 1-based week number, relative to the challenge's own grid
   start: string;
   end: string;
   count: number;
@@ -64,27 +98,32 @@ export interface WindowEntry {
   state: "complete" | "current" | "past-incomplete" | "future";
 }
 
-/** Sequential 7-day windows for weekly_count challenges (docs/02 semantics). */
+/**
+ * Sequential 7-day windows for weekly_count challenges (docs/02 semantics).
+ * The grid itself always stays anchored to the challenge's startDate, even
+ * for a member who joined late — only windows that fully concluded before
+ * `memberJoinedDate` are dropped, so `index` still reflects each window's
+ * true week number rather than being renumbered from 1.
+ */
 export function weeklyWindows(
   challenge: Challenge,
   checkinYmds: readonly string[],
-  today: string
+  today: string,
+  memberJoinedDate?: string
 ): WindowEntry[] {
-  const days = daysBetweenInclusive(challenge.startDate, challenge.endDate);
-  const weeks = Math.floor(days / 7);
+  const start = effectiveStart(challenge, memberJoinedDate);
   const target = challenge.frequency.target;
   const windows: WindowEntry[] = [];
-  for (let w = 0; w < weeks; w++) {
-    const start = addDaysYmd(challenge.startDate, w * 7);
-    const end = addDaysYmd(start, 6);
-    const count = checkinYmds.filter((d) => d >= start && d <= end).length;
+  weekWindowBounds(challenge).forEach((bounds, w) => {
+    if (bounds.end < start) return;
+    const count = checkinYmds.filter((d) => d >= bounds.start && d <= bounds.end).length;
     let state: WindowEntry["state"];
     if (count >= target) state = "complete";
-    else if (today > end) state = "past-incomplete";
-    else if (today >= start) state = "current";
+    else if (today > bounds.end) state = "past-incomplete";
+    else if (today >= bounds.start) state = "current";
     else state = "future";
-    windows.push({ index: w + 1, start, end, count, target, state });
-  }
+    windows.push({ index: w + 1, start: bounds.start, end: bounds.end, count, target, state });
+  });
   return windows;
 }
 
@@ -96,15 +135,17 @@ export function weeklyWindows(
 export function skipsUsed(
   challenge: Challenge,
   checkinYmds: readonly string[],
-  today: string
+  today: string,
+  memberJoinedDate?: string
 ): number {
+  const start = effectiveStart(challenge, memberJoinedDate);
   if (challenge.frequency.type === "daily") {
     const lastCountable =
       today > challenge.endDate ? challenge.endDate : addDaysYmd(today, -1);
-    if (lastCountable < challenge.startDate) return 0;
-    const elapsed = daysBetweenInclusive(challenge.startDate, lastCountable);
+    if (lastCountable < start) return 0;
+    const elapsed = daysBetweenInclusive(start, lastCountable);
     const done = checkinYmds.filter(
-      (d) => d >= challenge.startDate && d <= lastCountable
+      (d) => d >= start && d <= lastCountable
     ).length;
     return Math.max(0, elapsed - done);
   }
@@ -112,7 +153,7 @@ export function skipsUsed(
   // so once today > endDate every non-"complete" window is already forced to
   // "past-incomplete" by weeklyWindows' own state logic — a plain
   // "past-incomplete" filter already covers the ended-challenge case.
-  return weeklyWindows(challenge, checkinYmds, today)
+  return weeklyWindows(challenge, checkinYmds, today, memberJoinedDate)
     .filter((w) => w.state === "past-incomplete")
     .reduce((sum, w) => sum + Math.max(0, w.target - w.count), 0);
 }
@@ -129,7 +170,8 @@ export interface ProgressSummary {
 export function progressSummary(
   challenge: Challenge,
   checkinYmds: readonly string[],
-  timezone: string
+  timezone: string,
+  memberJoinedDate?: string
 ): ProgressSummary {
   const today = todayYmd(timezone);
   const state = challengeState(challenge, today);
@@ -139,8 +181,8 @@ export function progressSummary(
   const checkedInToday = inRange.includes(today);
   return {
     completed: inRange.length,
-    total: totalRequired(challenge),
-    skipsUsed: skipsUsed(challenge, inRange, today),
+    total: totalRequired(challenge, memberJoinedDate),
+    skipsUsed: skipsUsed(challenge, inRange, today, memberJoinedDate),
     daysRemaining:
       state === "active" ? daysBetweenInclusive(today, challenge.endDate) : 0,
     checkedInToday,

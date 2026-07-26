@@ -104,6 +104,12 @@ export default async function JoinPage({
                   {preview.memberCount === 1 ? "" : "s"}
                   {preview.maxMembers ? ` of ${preview.maxMembers}` : ""} so far
                 </p>
+                {preview.started && !preview.joinClosed && !preview.ended && (
+                  <p className="text-muted-foreground">
+                    Already in progress — join now and your count starts today,
+                    not from the original start date.
+                  </p>
+                )}
               </CardContent>
             </Card>
 
@@ -117,9 +123,13 @@ export default async function JoinPage({
               <p className="text-sm text-muted-foreground">
                 Your request is pending — the creator needs to approve you.
               </p>
-            ) : preview.started ? (
+            ) : preview.joinClosed ? (
               <p className="text-sm text-muted-foreground">
-                This challenge has already started — joining is closed.
+                The creator has closed joining for this challenge.
+              </p>
+            ) : preview.ended ? (
+              <p className="text-sm text-muted-foreground">
+                This challenge has already ended — joining is closed.
               </p>
             ) : user ? (
               <JoinPanel
