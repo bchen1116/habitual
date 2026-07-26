@@ -75,13 +75,19 @@ function grantMembershipInTransaction(
   t: Transaction,
   challengeRef: DocumentReference,
   uid: string,
-  member: { displayName: string; username: string | null; charityName: string | null }
+  member: {
+    displayName: string;
+    username: string | null;
+    charityName: string | null;
+    joinedDate: string;
+  }
 ): void {
   t.update(challengeRef, { memberIds: FieldValue.arrayUnion(uid) });
   t.set(challengeRef.collection("members").doc(uid), {
     displayName: member.displayName,
     username: member.username,
     joinedAt: FieldValue.serverTimestamp(),
+    joinedDate: member.joinedDate,
     charityName: member.charityName,
     outcome: null,
     completedCount: 0,
@@ -115,6 +121,7 @@ export async function createChallengeAdmin(
     charityName: payload.charityName,
     joinCode,
     joinPolicy: payload.mode === "group" ? payload.joinPolicy : null,
+    joinClosed: payload.mode === "group" ? false : null,
     maxMembers: payload.maxMembers,
     frequency: {
       type: payload.frequencyType,
@@ -132,6 +139,10 @@ export async function createChallengeAdmin(
     displayName,
     username,
     joinedAt: FieldValue.serverTimestamp(),
+    // The creator's own requirement window always runs the challenge's full
+    // length, never shortened — only later joiners get a later effective
+    // start (see effectiveStart in lib/progress.ts).
+    joinedDate: payload.startDate,
     charityName: payload.charityName,
     outcome: null,
     completedCount: 0,
@@ -144,7 +155,8 @@ export async function createChallengeAdmin(
 
 export type JoinErrorCode =
   | "not-found"
-  | "started"
+  | "closed"
+  | "ended"
   | "full"
   | "already-member"
   | "already-requested"
@@ -171,7 +183,12 @@ export interface ChallengePreview {
   target: number;
   memberCount: number;
   maxMembers: number | null;
+  /** Informational only — no longer gates joining, see joinClosed/ended below. */
   started: boolean;
+  /** Past its endDate — a hard stop on joining regardless of joinClosed. */
+  ended: boolean;
+  /** Creator has explicitly closed joining — the only other thing that blocks it. */
+  joinClosed: boolean;
   joinPolicy: "open" | "invite";
   hasPendingRequest: boolean;
   isMember: (uid: string) => boolean;
@@ -224,6 +241,8 @@ export async function getChallengePreview(
     memberCount: memberIds.length,
     maxMembers: data.maxMembers ?? null,
     started: yyyymmddUTC(new Date()) >= data.startDate,
+    ended: yyyymmddUTC(new Date()) > data.endDate,
+    joinClosed: data.joinClosed === true,
     joinPolicy,
     hasPendingRequest,
     isMember: (uid: string) => memberIds.includes(uid),
@@ -238,6 +257,22 @@ export type JoinResult =
  * On an "open" group, grants membership immediately. On an "invite" group,
  * creates a joinRequests/{uid} doc instead and returns "pending" — the
  * creator approves or rejects it later via respondToJoinRequestAdmin.
+ *
+ * Joining is allowed any time the challenge is running, not just before it
+ * starts — the creator closes it explicitly (joinClosed) when they're ready
+ * to stop taking new members, rather than it locking itself automatically
+ * the moment the start date arrives. That used to be date-driven, which
+ * broke the moment a challenge's start date fell on "today" in the
+ * creator's timezone but was already "yesterday" in UTC (any timezone ahead
+ * of UTC hits this on literally every challenge) — everyone saw "already
+ * started" immediately, including for a challenge starting tomorrow.
+ * Joining mid-challenge is still bounded by `endDate` below: there's no
+ * useful reason to join something that's already fully over. A member who
+ * joins after the challenge has started gets `joinedDate = today` instead
+ * of the challenge's own startDate — effectiveStart() in lib/progress.ts
+ * (and its mirror in functions/src/adjudicate.ts) uses that as their own
+ * requirement window's floor, so joining late never counts days they
+ * weren't a member yet as missed.
  */
 export async function joinChallengeAdmin(
   uid: string,
@@ -269,7 +304,9 @@ export async function joinChallengeAdmin(
 
     const memberIds = (data.memberIds as string[]) ?? [];
     if (memberIds.includes(uid)) throw new JoinError("already-member");
-    if (yyyymmddUTC(new Date()) >= data.startDate) throw new JoinError("started");
+    const today = yyyymmddUTC(new Date());
+    if (data.joinClosed) throw new JoinError("closed");
+    if (today > data.endDate) throw new JoinError("ended");
     if (data.maxMembers != null && memberIds.length >= data.maxMembers) {
       throw new JoinError("full");
     }
@@ -282,6 +319,9 @@ export async function joinChallengeAdmin(
       throw new JoinError("charity-required");
     }
     const memberCharityName = forfeitType === "charity" ? charityName!.trim() : null;
+    // Whichever is later: joining before the challenge starts still means
+    // the challenge's own startDate is their real floor.
+    const joinedDate = today > data.startDate ? today : data.startDate;
 
     const joinPolicy = (data.joinPolicy as "open" | "invite" | undefined) ?? "open";
     if (joinPolicy === "invite") {
@@ -301,12 +341,13 @@ export async function joinChallengeAdmin(
       displayName,
       username,
       charityName: memberCharityName,
+      joinedDate,
     });
     return { status: "joined", challengeId: challengeRef.id };
   });
 }
 
-export type JoinRequestErrorCode = "not-owner" | "not-found" | "full" | "started";
+export type JoinRequestErrorCode = "not-owner" | "not-found" | "full" | "closed" | "ended";
 
 export class JoinRequestError extends Error {
   constructor(public code: JoinRequestErrorCode) {
@@ -314,7 +355,7 @@ export class JoinRequestError extends Error {
   }
 }
 
-/** Creator-only. Approving re-runs the same started/full checks a live join would. */
+/** Creator-only. Approving re-runs the same closed/ended/full checks a live join would. */
 export async function respondToJoinRequestAdmin(
   callerUid: string,
   challengeId: string,
@@ -346,7 +387,9 @@ export async function respondToJoinRequestAdmin(
       t.delete(requestRef);
       return;
     }
-    if (yyyymmddUTC(new Date()) >= data.startDate) throw new JoinRequestError("started");
+    const today = yyyymmddUTC(new Date());
+    if (data.joinClosed) throw new JoinRequestError("closed");
+    if (today > data.endDate) throw new JoinRequestError("ended");
     if (data.maxMembers != null && memberIds.length >= data.maxMembers) {
       throw new JoinRequestError("full");
     }
@@ -356,9 +399,44 @@ export async function respondToJoinRequestAdmin(
       displayName: request.displayName,
       username: request.username ?? null,
       charityName: request.charityName ?? null,
+      // The date they're actually granted membership, not when they
+      // requested — they couldn't check in during the gap while pending.
+      joinedDate: today > data.startDate ? today : data.startDate,
     });
     t.delete(requestRef);
   });
+}
+
+export type SetJoinClosedErrorCode = "not-found" | "not-owner" | "not-group" | "not-active";
+
+export class SetJoinClosedError extends Error {
+  constructor(public code: SetJoinClosedErrorCode) {
+    super(code);
+  }
+}
+
+/**
+ * Creator-only toggle, group challenges only. Unlike editChallengeAdmin,
+ * this is meant to be used precisely when the group already has more than
+ * its creator in it — closing signups once enough friends are in, whether
+ * that's before or after the challenge has actually started.
+ */
+export async function setJoinClosedAdmin(
+  uid: string,
+  challengeId: string,
+  closed: boolean
+): Promise<void> {
+  const db = getAdminDb();
+  const ref = db.collection("challenges").doc(challengeId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new SetJoinClosedError("not-found");
+
+  const data = snap.data()!;
+  if (data.createdBy !== uid) throw new SetJoinClosedError("not-owner");
+  if (data.mode !== "group") throw new SetJoinClosedError("not-group");
+  if (data.status !== "active") throw new SetJoinClosedError("not-active");
+
+  await ref.update({ joinClosed: closed });
 }
 
 export type RemoveMemberErrorCode =
@@ -619,6 +697,7 @@ export async function repeatChallengeAdmin(
     charityName: data.charityName,
     joinCode,
     joinPolicy: data.joinPolicy ?? null,
+    joinClosed: data.mode === "group" ? false : null,
     maxMembers: data.maxMembers ?? null,
     frequency: data.frequency,
     skipDays: payload.skipDays,
@@ -636,6 +715,9 @@ export async function repeatChallengeAdmin(
       displayName: member.displayName,
       username: member.username ?? null,
       joinedAt: FieldValue.serverTimestamp(),
+      // Everyone carried over starts the new cycle together, regardless of
+      // when they joined the previous one.
+      joinedDate: newStartDate,
       charityName: member.charityName ?? null,
       outcome: null,
       completedCount: 0,

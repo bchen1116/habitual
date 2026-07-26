@@ -15,7 +15,8 @@ const payloadSchema = z.object({
 
 const JOIN_ERROR_RESPONSES: Record<string, { status: number; message: string }> = {
   "not-found": { status: 404, message: "No open challenge has that code." },
-  started: { status: 409, message: "This challenge has already started." },
+  closed: { status: 409, message: "The creator has closed joining for this challenge." },
+  ended: { status: 409, message: "This challenge has already ended." },
   full: { status: 409, message: "This challenge is full." },
   "already-member": { status: 409, message: "You're already in this challenge." },
   "already-requested": {

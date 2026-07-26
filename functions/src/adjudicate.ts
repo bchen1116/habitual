@@ -18,6 +18,11 @@ interface MemberData {
   displayName: string;
   username: string | null;
   charityName: string | null; // null in pool mode
+  // yyyymmdd; absent on members created before this field existed, and for
+  // the creator it's always the challenge's own startDate — see joinedDate
+  // in src/lib/server/challenge-admin.ts (mirrored here since this Cloud
+  // Function has no shared package with the Next app).
+  joinedDate?: string;
 }
 
 interface MemberOutcome {
@@ -29,31 +34,54 @@ interface MemberOutcome {
 }
 
 /**
- * Missed check-ins per docs/03. Daily: required = day count. weekly_count:
- * sequential 7-day windows from startDate (whole-week durations enforced at
- * creation); per-window shortfalls summed, so front-loading week one doesn't
- * satisfy later windows.
+ * A member's own starting point for "days/weeks required" — the challenge's
+ * startDate, unless they joined after it started (joining mid-challenge is
+ * allowed, see joinChallengeAdmin), in which case it's their own
+ * joinedDate. Mirrors effectiveStart() in src/lib/progress.ts — this is the
+ * money-determining half of that fairness fix, without which a late joiner
+ * would be charged for every day before they were even a member.
+ */
+function effectiveStart(challenge: ChallengeData, memberJoinedDate?: string): string {
+  return memberJoinedDate && memberJoinedDate > challenge.startDate
+    ? memberJoinedDate
+    : challenge.startDate;
+}
+
+/**
+ * Missed check-ins per docs/03. Daily: required = day count from the
+ * member's own effective start. weekly_count: sequential 7-day windows from
+ * the challenge's startDate (whole-week durations enforced at creation) —
+ * the grid itself never shifts, but windows that fully concluded before the
+ * member's effective start are waived entirely; a window they joined
+ * mid-way through still owes the full target, no proration. Per-window
+ * shortfalls summed, so front-loading week one doesn't satisfy later ones.
  */
 export function computeMissed(
   challenge: ChallengeData,
-  checkinYmds: readonly string[]
+  checkinYmds: readonly string[],
+  memberJoinedDate?: string
 ): { missed: number; completed: number } {
+  const start = effectiveStart(challenge, memberJoinedDate);
   const inRange = checkinYmds.filter(
     (d) => d >= challenge.startDate && d <= challenge.endDate
   );
-  const days = daysBetweenInclusive(challenge.startDate, challenge.endDate);
+  if (start > challenge.endDate) return { missed: 0, completed: inRange.length };
 
   if (challenge.frequency.type === "daily") {
-    return { missed: days - inRange.length, completed: inRange.length };
+    const days = daysBetweenInclusive(start, challenge.endDate);
+    const completedSinceStart = inRange.filter((d) => d >= start).length;
+    return { missed: days - completedSinceStart, completed: inRange.length };
   }
 
+  const days = daysBetweenInclusive(challenge.startDate, challenge.endDate);
   const weeks = Math.floor(days / 7);
   const target = challenge.frequency.target;
   let missed = 0;
   for (let w = 0; w < weeks; w++) {
-    const start = addDaysYmd(challenge.startDate, w * 7);
-    const end = addDaysYmd(start, 6);
-    const count = inRange.filter((d) => d >= start && d <= end).length;
+    const windowStart = addDaysYmd(challenge.startDate, w * 7);
+    const windowEnd = addDaysYmd(windowStart, 6);
+    if (windowEnd < start) continue;
+    const count = inRange.filter((d) => d >= windowStart && d <= windowEnd).length;
     missed += Math.max(0, target - count);
   }
   return { missed, completed: inRange.length };
@@ -112,7 +140,8 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
           const uid = memberDoc.id;
           const { missed, completed } = computeMissed(
             challenge,
-            checkinsByUid.get(uid) ?? []
+            checkinsByUid.get(uid) ?? [],
+            member.joinedDate
           );
           const succeeded = missed <= challenge.skipDays;
           outcomes.push({

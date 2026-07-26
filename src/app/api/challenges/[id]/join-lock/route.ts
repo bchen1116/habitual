@@ -1,26 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/session";
-import {
-  JoinRequestError,
-  respondToJoinRequestAdmin,
-} from "@/lib/server/challenge-admin";
+import { SetJoinClosedError, setJoinClosedAdmin } from "@/lib/server/challenge-admin";
 
-const payloadSchema = z.object({
-  action: z.enum(["approve", "reject"]),
-});
+const payloadSchema = z.object({ closed: z.boolean() });
 
 const ERROR_RESPONSES: Record<string, { status: number; message: string }> = {
-  "not-found": { status: 404, message: "That request no longer exists." },
-  "not-owner": { status: 403, message: "Only the creator can respond to requests." },
-  closed: { status: 409, message: "Joining is closed for this challenge." },
-  ended: { status: 409, message: "This challenge has already ended." },
-  full: { status: 409, message: "This challenge is full." },
+  "not-found": { status: 404, message: "Challenge not found." },
+  "not-owner": { status: 403, message: "Only the creator can change this." },
+  "not-group": { status: 400, message: "Solo habits don't have joining to close." },
+  "not-active": { status: 400, message: "This challenge has already ended." },
 };
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string; uid: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const user = await getCurrentUser();
   if (!user) {
@@ -39,22 +33,22 @@ export async function POST(
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
-  const { id, uid } = await params;
+  const { id } = await params;
 
   try {
-    await respondToJoinRequestAdmin(user.uid, id, uid, parsed.data.action);
+    await setJoinClosedAdmin(user.uid, id, parsed.data.closed);
     return NextResponse.json({ ok: true });
   } catch (err) {
-    if (err instanceof JoinRequestError) {
+    if (err instanceof SetJoinClosedError) {
       const mapped = ERROR_RESPONSES[err.code] ?? {
         status: 500,
-        message: "Couldn't respond to that request.",
+        message: "Couldn't update joining for this challenge.",
       };
       return NextResponse.json({ error: mapped.message }, { status: mapped.status });
     }
-    console.error("respondToJoinRequest failed:", err);
+    console.error("setJoinClosed failed:", err);
     return NextResponse.json(
-      { error: "Couldn't respond to that request." },
+      { error: "Couldn't update joining for this challenge." },
       { status: 500 }
     );
   }

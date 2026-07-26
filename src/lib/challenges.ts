@@ -115,6 +115,23 @@ export async function respondToJoinRequest(
   }
 }
 
+/**
+ * Creator-only: opens or closes new joins on a group challenge. Not tied to
+ * the start date — joining stays open through the whole run until the
+ * creator explicitly closes it here.
+ */
+export async function setJoinClosed(challengeId: string, closed: boolean): Promise<void> {
+  const response = await fetch(`/api/challenges/${challengeId}/join-lock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ closed }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.error ?? "Couldn't update joining for this challenge");
+  }
+}
+
 /** Creator-only: removes a member from an active group challenge. */
 export async function removeMember(challengeId: string, uid: string): Promise<void> {
   const response = await fetch(`/api/challenges/${challengeId}/members/${uid}`, {
