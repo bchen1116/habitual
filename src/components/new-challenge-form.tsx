@@ -51,11 +51,22 @@ const formSchema = z
     charityName: z.string().trim().max(80),
   })
   .superRefine((data, ctx) => {
-    if (dateInputToYmd(data.startDate) < todayYmd(browserTimezone())) {
+    // Group challenges lock joining once they start (see joinChallengeAdmin),
+    // so a same-day start leaves zero window to ever share the invite link —
+    // the "Invite friends" card itself only renders while the challenge is
+    // still upcoming. Solo has no one to invite, so today is fine there.
+    const minStart =
+      data.mode === "group"
+        ? addDaysYmd(todayYmd(browserTimezone()), 1)
+        : todayYmd(browserTimezone());
+    if (dateInputToYmd(data.startDate) < minStart) {
       ctx.addIssue({
         code: "custom",
         path: ["startDate"],
-        message: "Start today or later",
+        message:
+          data.mode === "group"
+            ? "Start tomorrow or later — friends need time to join"
+            : "Start today or later",
       });
     }
     // Pool mode has no charity; every other combination requires one.
@@ -113,6 +124,21 @@ export function NewChallengeForm() {
   async function next() {
     const valid = await form.trigger(STEP_FIELDS[step]);
     if (valid) setStep((s) => s + 1);
+  }
+
+  /** Group challenges lock joining once they start, so switching to Group
+   * pushes a same-day (or already-past-tomorrow) start date forward to
+   * tomorrow — otherwise the invite link would never have a real window to
+   * be shared before it's already too late to use it. */
+  function selectMode(mode: "solo" | "group") {
+    form.setValue("mode", mode);
+    if (mode === "group") {
+      const tomorrow = addDaysYmd(todayYmd(browserTimezone()), 1);
+      const current = form.getValues("startDate");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(current) || dateInputToYmd(current) < tomorrow) {
+        form.setValue("startDate", ymdToDateInput(tomorrow));
+      }
+    }
   }
 
   /** Submit-time validation can fail for fields on earlier steps (e.g. the
@@ -229,14 +255,14 @@ export function NewChallengeForm() {
               <Button
                 type="button"
                 variant={values.mode === "solo" ? "secondary" : "outline"}
-                onClick={() => form.setValue("mode", "solo")}
+                onClick={() => selectMode("solo")}
               >
                 Solo
               </Button>
               <Button
                 type="button"
                 variant={values.mode === "group" ? "secondary" : "outline"}
-                onClick={() => form.setValue("mode", "group")}
+                onClick={() => selectMode("group")}
               >
                 Group
               </Button>
@@ -366,9 +392,19 @@ export function NewChallengeForm() {
               id="startDate"
               type="date"
               className="w-44"
-              min={ymdToDateInput(todayYmd(browserTimezone()))}
+              min={ymdToDateInput(
+                values.mode === "group"
+                  ? addDaysYmd(todayYmd(browserTimezone()), 1)
+                  : todayYmd(browserTimezone())
+              )}
               {...form.register("startDate")}
             />
+            {values.mode === "group" && (
+              <p className="text-xs text-muted-foreground">
+                Set at least a day out so friends have time to join before it
+                locks.
+              </p>
+            )}
             {errors.startDate && (
               <p className="text-sm text-destructive">{errors.startDate.message}</p>
             )}
@@ -511,11 +547,11 @@ export function NewChallengeForm() {
           <span />
         )}
         {step < STEPS.length - 1 ? (
-          <Button type="button" onClick={next}>
+          <Button key="next" type="button" onClick={next}>
             Next
           </Button>
         ) : (
-          <Button type="submit" disabled={submitting}>
+          <Button key="submit" type="submit" disabled={submitting}>
             {submitting ? "Creating…" : "Create challenge"}
           </Button>
         )}
