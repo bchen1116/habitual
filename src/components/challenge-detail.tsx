@@ -21,7 +21,7 @@ import {
 } from "@/lib/progress";
 import Link from "next/link";
 import { daysBetweenInclusive, formatYmd, todayYmd } from "@/lib/dates";
-import { formatAmount } from "@/lib/ledger";
+import { formatAmount } from "@/lib/currency";
 import { useChainStreak } from "@/hooks/use-chain-streak";
 import type { Challenge, ChallengeMember, JoinRequest } from "@/lib/types";
 import { CheckinDialog } from "@/components/checkin-dialog";

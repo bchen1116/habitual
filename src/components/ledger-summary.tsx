@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { onSnapshot } from "firebase/firestore";
 import { getClientDb } from "@/lib/firebase/client";
-import { formatAmount, owedByMeQuery, owedToMeQuery } from "@/lib/ledger";
+import { formatAmount } from "@/lib/currency";
+import { owedByMeQuery, owedToMeQuery } from "@/lib/ledger";
 import type { LedgerEntry } from "@/lib/types";
 import { Card, CardContent } from "@/components/ui/card";
 
