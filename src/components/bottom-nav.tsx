@@ -20,7 +20,12 @@ export function BottomNav() {
     pathname === href || pathname?.startsWith(`${href}/`);
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 flex items-end justify-between bg-ink px-[30px] pb-[26px] pt-3.5 md:hidden">
+    // pb: 26px in a regular browser tab, but installed to a home screen
+    // (standalone + viewport-fit=cover in layout.tsx) the safe-area inset
+    // takes over where it's larger, so the bar's ink background runs to the
+    // true screen edge while its icons stay pinned above the iPhone home
+    // indicator instead of underneath it.
+    <nav className="fixed inset-x-0 bottom-0 z-40 flex items-end justify-between bg-ink px-[30px] pb-[max(26px,env(safe-area-inset-bottom))] pt-3.5 md:hidden">
       {LEFT_ITEMS.map((item) => (
         <NavSlot key={item.href} {...item} active={isActive(item.href)} />
       ))}

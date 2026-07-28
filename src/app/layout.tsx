@@ -1,8 +1,16 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Anton, Archivo, Barlow_Condensed, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import { NetworkBanner } from "@/components/network-banner";
 import "./globals.css";
+
+// viewport-fit=cover makes env(safe-area-inset-*) real when the app is
+// installed to a home screen (display: standalone): without it those insets
+// are 0 and the bottom nav can't pin itself above the iPhone home
+// indicator. Next keeps its width/initial-scale defaults alongside this.
+export const viewport: Viewport = {
+  viewportFit: "cover",
+};
 
 const anton = Anton({
   weight: "400",
