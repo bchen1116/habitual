@@ -21,16 +21,21 @@ interface StreakRun {
 }
 
 /**
- * Consecutive-completion streak run, as of `asOf` (usually today for a
- * still-running challenge; a fixed date for an already-ended one — see
- * chain-streak.ts, which passes `addDaysYmd(endDate, 1)` to get the
- * *settled* trailing streak of a cycle that's fully in the past). Daily
- * challenges count backward day by day; weekly_count challenges count
- * backward window by window (skipping an in-progress "current" window
- * rather than treating it as a break, since it hasn't been decided yet —
- * comparing `asOf` against each window's end is what `weeklyWindows`
- * already uses to tell "current" from "past-incomplete", so passing a
- * fixed past `asOf` naturally settles every window instead).
+ * The live streak run, in DAYS for both frequency types (the hero labels
+ * this number "days"), as of `asOf` (usually today for a still-running
+ * challenge; a fixed date for an already-ended one — see chain-streak.ts,
+ * which passes `addDaysYmd(endDate, 1)` to get the *settled* trailing
+ * streak of a cycle that's fully in the past).
+ *
+ * Daily challenges count backward day by day — a rest day breaks the run.
+ * weekly_count challenges also count check-in DAYS — one per day done, so
+ * the very first check-in reads as a streak of 1 immediately — but their
+ * break condition is window-based rather than day-based: an N-times-a-week
+ * habit has planned rest days by design, so the streak only resets when a
+ * week actually fails (a window ends short of its target). This used to
+ * count completed windows as the streak unit instead, which meant a brand
+ * new weekly habit showed 0 for its entire first week no matter how many
+ * days were checked in.
  *
  * `challenge.streakResetAt` (set when an edit increases skipDays — see
  * editChallengeAdmin) acts as a floor: checkins before it are invisible to
@@ -72,15 +77,17 @@ export function streakRun(
   const windows = weeklyWindows(challenge, flooredCheckins, asOf).filter(
     (w) => w.end >= floor
   );
-  let i = windows.length - 1;
-  while (i >= 0 && windows[i].state === "future") i--;
-  if (i >= 0 && windows[i].state === "current") i--; // undecided, skip without breaking
-  let streak = 0;
-  while (i >= 0 && windows[i].state === "complete") {
-    streak++;
-    i--;
+  // The streak breaks at the most recent window that actually failed;
+  // check-in days after it (complete windows and the still-undecided
+  // current one alike) all count, one day each.
+  let lastFailedEnd: string | null = null;
+  for (const w of windows) {
+    if (w.state === "past-incomplete") lastFailedEnd = w.end;
   }
-  return { streak, reachesFloor: i < 0 };
+  const streak = flooredCheckins.filter(
+    (d) => lastFailedEnd === null || d > lastFailedEnd
+  ).length;
+  return { streak, reachesFloor: lastFailedEnd === null };
 }
 
 /** currentStreak(...) === streakRun(..., today).streak — kept for the (many) callers that just want the number. */
@@ -92,7 +99,10 @@ export function currentStreak(
   return streakRun(challenge, checkinYmds, today).streak;
 }
 
-/** Longest run ever completed (not required to be ongoing), for a "best" stat. */
+/**
+ * Longest run ever completed (not required to be ongoing), for a "best"
+ * stat — in DAYS for both frequency types, same units as streakRun above.
+ */
 function longestStreak(
   challenge: Challenge,
   checkinYmds: ReadonlySet<string> | readonly string[],
@@ -115,11 +125,15 @@ function longestStreak(
     return best;
   }
 
+  // Chronological walk over the window grid, accumulating each window's
+  // check-in DAYS; a failed window zeroes the run (its own days don't
+  // count — that week broke the habit), mirroring streakRun's semantics.
+  const sorted = Array.from(checkins);
   let best = 0;
   let run = 0;
-  for (const w of weeklyWindows(challenge, Array.from(checkins), today)) {
-    if (w.state === "complete") {
-      run++;
+  for (const w of weeklyWindows(challenge, sorted, today)) {
+    if (w.state === "complete" || w.state === "current") {
+      run += sorted.filter((d) => d >= w.start && d <= w.end).length;
       best = Math.max(best, run);
     } else if (w.state === "past-incomplete") {
       run = 0;
