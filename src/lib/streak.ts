@@ -102,8 +102,12 @@ export function currentStreak(
 /**
  * Longest run ever completed (not required to be ongoing), for a "best"
  * stat — in DAYS for both frequency types, same units as streakRun above.
+ *
+ * Exported for the leaderboard's all-time column, which runs it over a
+ * synthetic challenge spanning a whole repeat-chain (see lib/server/
+ * leaderboard.ts) so a run straddling a cycle boundary isn't truncated.
  */
-function longestStreak(
+export function longestStreak(
   challenge: Challenge,
   checkinYmds: ReadonlySet<string> | readonly string[],
   today: string

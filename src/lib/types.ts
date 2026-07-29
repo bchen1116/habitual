@@ -14,6 +14,15 @@ export interface Challenge {
   joinCode?: string | null; // group only
   joinPolicy?: "open" | "invite" | null; // group only; missing/null means "open"
   joinClosed?: boolean | null; // group only; creator-toggled, not date-driven — see docs on joinChallengeAdmin
+  /**
+   * Whether this habit counts toward its members' public leaderboard streak.
+   * Missing/null means "public" — so every habit created before this field
+   * existed keeps counting, which is the intended default. A "private" habit
+   * still contributes to the streak shown to anyone who is *also* a member of
+   * it (see getLeaderboard in lib/server/leaderboard.ts); it's hidden only
+   * from people outside it.
+   */
+  visibility?: "public" | "private" | null;
   maxMembers?: number | null; // group only, optional cap
   streakResetAt?: string | null; // yyyymmdd; set when an edit increases skipDays
   repeatedFromId?: string | null; // id of the previous cycle (repeatChallengeAdmin); unset for a chain's first cycle

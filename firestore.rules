@@ -28,6 +28,17 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Cached per-user streak figures over that user's PUBLIC habits, keyed by
+    // the date they were computed for (lib/server/leaderboard.ts). Server-only
+    // like usernames above: the leaderboard is assembled by a route handler
+    // and delivered as JSON, so no client ever reads these docs directly.
+    // Keeping it closed means the leaderboard adds no client-readable
+    // cross-user surface at all — a user still cannot read anything about
+    // another user straight from Firestore.
+    match /userStreakStats/{uid} {
+      allow read, write: if false;
+    }
+
     match /ledgerEntries/{entryId} {
       allow read: if request.auth != null
                   && (request.auth.uid == resource.data.fromUid

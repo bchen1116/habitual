@@ -64,6 +64,7 @@ export interface CreateChallengePayload {
   skipDays: number;
   stakeAmount: number;
   charityName: string | null; // null in pool mode
+  visibility: "public" | "private";
 }
 
 /**
@@ -122,6 +123,7 @@ export async function createChallengeAdmin(
     joinCode,
     joinPolicy: payload.mode === "group" ? payload.joinPolicy : null,
     joinClosed: payload.mode === "group" ? false : null,
+    visibility: payload.visibility,
     maxMembers: payload.maxMembers,
     frequency: {
       type: payload.frequencyType,
@@ -439,6 +441,43 @@ export async function setJoinClosedAdmin(
   await ref.update({ joinClosed: closed });
 }
 
+export type SetVisibilityErrorCode = "not-found" | "not-owner" | "not-active";
+
+export class SetVisibilityError extends Error {
+  constructor(public code: SetVisibilityErrorCode) {
+    super(code);
+  }
+}
+
+/**
+ * Creator-only leaderboard visibility toggle. Deliberately NOT routed through
+ * editChallengeAdmin: that one refuses once anyone else has joined, because
+ * it edits money terms people signed up under. Visibility isn't a money term
+ * — and "my friends joined and now I'd rather this habit not be public" is
+ * exactly when you need it — so this follows setJoinClosedAdmin's shape
+ * instead and stays available for the whole active life of the habit.
+ *
+ * Applies to solo habits too: a private solo habit still counts toward the
+ * streak *you* see for yourself (you're its only member) but not toward the
+ * number anyone else sees.
+ */
+export async function setChallengeVisibilityAdmin(
+  uid: string,
+  challengeId: string,
+  visibility: "public" | "private"
+): Promise<void> {
+  const db = getAdminDb();
+  const ref = db.collection("challenges").doc(challengeId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new SetVisibilityError("not-found");
+
+  const data = snap.data()!;
+  if (data.createdBy !== uid) throw new SetVisibilityError("not-owner");
+  if (data.status !== "active") throw new SetVisibilityError("not-active");
+
+  await ref.update({ visibility });
+}
+
 export type RemoveMemberErrorCode =
   | "not-found"
   | "not-owner"
@@ -698,6 +737,9 @@ export async function repeatChallengeAdmin(
     joinCode,
     joinPolicy: data.joinPolicy ?? null,
     joinClosed: data.mode === "group" ? false : null,
+    // Carried forward: a habit kept off the leaderboard stays off it when
+    // its next cycle starts, without the creator having to re-set that.
+    visibility: data.visibility ?? "public",
     maxMembers: data.maxMembers ?? null,
     frequency: data.frequency,
     skipDays: payload.skipDays,

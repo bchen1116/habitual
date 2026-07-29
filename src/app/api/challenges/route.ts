@@ -24,6 +24,9 @@ const payloadSchema = z
     skipDays: z.number().int().min(0).max(30),
     stakeAmount: z.number().positive().max(10000),
     charityName: z.string().trim().max(80).nullable(),
+    // Absent from an older client's payload ⇒ public, matching the "missing
+    // means public" rule the Challenge type documents.
+    visibility: z.enum(["public", "private"]).default("public"),
   })
   .superRefine((data, ctx) => {
     if (data.forfeitType === "pool" && data.mode !== "group") {
@@ -93,6 +96,7 @@ export async function POST(request: NextRequest) {
         stakeAmount: data.stakeAmount,
         charityName:
           data.forfeitType === "charity" ? data.charityName!.trim() : null,
+        visibility: data.visibility,
       }
     );
     return NextResponse.json(result);
