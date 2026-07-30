@@ -32,7 +32,7 @@ export function HabitRow({ challenge, uid, timezone, checkins, onError }: HabitR
   const checkinYmds = checkins.map((c) => c.localDate);
   const state = challengeState(challenge, today);
   const summary = progressSummary(challenge, checkinYmds, timezone);
-  const streak = useChainStreak(challenge, uid, checkinYmds, today);
+  const { streak } = useChainStreak(challenge, uid, checkinYmds, today);
 
   // Pops the ring only on a genuine active -> done transition, not on a
   // page load where the habit was already checked in earlier.

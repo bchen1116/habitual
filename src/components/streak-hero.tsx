@@ -8,7 +8,16 @@ import { cn } from "@/lib/utils";
  * plain ink gradient instead of the spec's photo-background treatment — the
  * overline/number/label styling and layout otherwise match the spec exactly.
  */
-export function StreakHero({ streak, className }: { streak: number; className?: string }) {
+export function StreakHero({
+  streak,
+  weeks,
+  className,
+}: {
+  streak: number;
+  /** Calendar span of the same run — the "how long has this been going?" the check-in count alone can't answer. */
+  weeks: number;
+  className?: string;
+}) {
   return (
     <div
       className={cn(
@@ -33,6 +42,16 @@ export function StreakHero({ streak, className }: { streak: number; className?: 
             days
           </span>
         </div>
+        {/* Subheader, deliberately butted up against the number rather than
+            in the paragraph below: for an N×/week habit the two say different
+            things (50 check-ins across 10 weeks) and only read as one fact if
+            they sit together. Hidden under a week so a new streak doesn't
+            announce "0 weeks unbroken". */}
+        {weeks > 0 && (
+          <span className="type-overline text-xs text-primary lg:text-sm">
+            {weeks} week{weeks === 1 ? "" : "s"} unbroken
+          </span>
+        )}
         <p className="hidden max-w-md text-base text-white/80 lg:block">
           {streak > 0
             ? "Keep today's check-ins coming to keep it alive."

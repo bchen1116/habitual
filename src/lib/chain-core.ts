@@ -28,12 +28,20 @@ export interface ChainReader {
  * `streakResetAt` (an explicit "restart," same as `streakRun`'s own floor —
  * it shouldn't be chained through either).
  */
+export interface ChainCarry {
+  /** Check-ins carried in from earlier cycles. */
+  streak: number;
+  /** Calendar days those cycles cover — cycles are contiguous, so spans add. */
+  spanDays: number;
+}
+
 export async function walkChainWith(
   reader: ChainReader,
   challenge: Challenge,
   uid: string
-): Promise<number> {
-  let total = 0;
+): Promise<ChainCarry> {
+  let streak = 0;
+  let spanDays = 0;
   let childStartDate = challenge.startDate;
   let nextId = challenge.repeatedFromId;
   let depth = 0;
@@ -47,7 +55,8 @@ export async function walkChainWith(
 
     const ymds = await reader.getCheckinYmds(ancestor.id, uid);
     const run = streakRun(ancestor, ymds, addDaysYmd(ancestor.endDate, 1));
-    total += run.streak;
+    streak += run.streak;
+    spanDays += run.spanDays;
 
     if (!run.reachesFloor || ancestor.streakResetAt) break;
 
@@ -55,7 +64,7 @@ export async function walkChainWith(
     nextId = ancestor.repeatedFromId;
   }
 
-  return total;
+  return { streak, spanDays };
 }
 
 /**

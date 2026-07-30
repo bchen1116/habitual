@@ -100,7 +100,7 @@ export function TodayView({
 
       <div className="flex flex-col gap-5 lg:flex-row lg:gap-6">
         <div className="flex flex-1 flex-col gap-[18px] lg:gap-[22px]">
-          <StreakHero streak={heroStreak} />
+          <StreakHero streak={heroStreak.streak} weeks={heroStreak.weeks} />
 
           <div className="flex items-center justify-between">
             <h2 className="type-display text-xl lg:text-2xl">Today</h2>

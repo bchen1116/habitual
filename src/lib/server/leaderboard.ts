@@ -35,12 +35,15 @@ export interface LeaderboardEntry {
   username: string | null;
   photoURL: string | null;
   currentStreak: number;
+  currentStreakWeeks: number;
   longestStreak: number;
   isSelf: boolean;
 }
 
 interface StreakPair {
   currentStreak: number;
+  /** Calendar span of the current streak, in whole weeks. */
+  currentStreakWeeks: number;
   longestStreak: number;
 }
 
@@ -139,24 +142,36 @@ async function computeStreaks(
 ): Promise<StreakPair> {
   const reader = adminChainReader(db);
   let currentBest = 0;
+  // Belongs to whichever habit produced currentBest, not the longest-running
+  // habit overall — the board's header and subheader must describe the same
+  // run, or "50 days / 10 weeks" would be two unrelated facts.
+  let currentBestWeeks = 0;
   let longestBest = 0;
 
   for (const challenge of challenges) {
     const ymds = await reader.getCheckinYmds(challenge.id, uid);
     const run = streakRun(challenge, ymds, today);
     // Chain-aware, so this matches the number the user's own hero shows.
-    const chained =
+    const carry =
       run.reachesFloor && !challenge.streakResetAt && challenge.repeatedFromId
-        ? run.streak + (await walkChainWith(reader, challenge, uid))
-        : run.streak;
-    currentBest = Math.max(currentBest, chained);
+        ? await walkChainWith(reader, challenge, uid)
+        : { streak: 0, spanDays: 0 };
+    const chained = run.streak + carry.streak;
+    if (chained > currentBest) {
+      currentBest = chained;
+      currentBestWeeks = Math.floor((run.spanDays + carry.spanDays) / 7);
+    }
     longestBest = Math.max(
       longestBest,
       await chainLongestStreak(reader, challenge, uid, today)
     );
   }
 
-  return { currentStreak: currentBest, longestStreak: longestBest };
+  return {
+    currentStreak: currentBest,
+    currentStreakWeeks: currentBestWeeks,
+    longestStreak: longestBest,
+  };
 }
 
 /**
@@ -180,6 +195,7 @@ async function getPublicStats(
   if (cached && cached.computedFor === today) {
     return {
       currentStreak: (cached.currentStreak as number) ?? 0,
+      currentStreakWeeks: (cached.currentStreakWeeks as number) ?? 0,
       longestStreak: (cached.longestStreak as number) ?? 0,
     };
   }
@@ -190,10 +206,11 @@ async function getPublicStats(
     if (cached) {
       return {
         currentStreak: (cached.currentStreak as number) ?? 0,
+        currentStreakWeeks: (cached.currentStreakWeeks as number) ?? 0,
         longestStreak: (cached.longestStreak as number) ?? 0,
       };
     }
-    return { currentStreak: 0, longestStreak: 0 };
+    return { currentStreak: 0, currentStreakWeeks: 0, longestStreak: 0 };
   }
   budget.remaining--;
 
@@ -274,8 +291,15 @@ export async function getLeaderboard(viewerUid: string): Promise<LeaderboardResu
       );
       if (theirSharedPrivate.length > 0) {
         const privateStats = await computeStreaks(db, uid, theirSharedPrivate, today);
+        // Weeks follow whichever run actually wins, so the subheader keeps
+        // describing the same streak the header shows.
+        const winner =
+          privateStats.currentStreak > publicStats.currentStreak
+            ? privateStats
+            : publicStats;
         stats = {
-          currentStreak: Math.max(publicStats.currentStreak, privateStats.currentStreak),
+          currentStreak: winner.currentStreak,
+          currentStreakWeeks: winner.currentStreakWeeks,
           longestStreak: Math.max(publicStats.longestStreak, privateStats.longestStreak),
         };
       }
@@ -286,6 +310,7 @@ export async function getLeaderboard(viewerUid: string): Promise<LeaderboardResu
         username: (user.username as string | undefined) ?? null,
         photoURL: (user.photoURL as string | undefined) ?? null,
         currentStreak: stats.currentStreak,
+        currentStreakWeeks: stats.currentStreakWeeks,
         longestStreak: stats.longestStreak,
         isSelf,
       };

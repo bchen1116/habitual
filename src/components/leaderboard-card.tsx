@@ -10,6 +10,7 @@ interface LeaderboardEntry {
   username: string | null;
   photoURL: string | null;
   currentStreak: number;
+  currentStreakWeeks: number;
   longestStreak: number;
   isSelf: boolean;
 }
@@ -120,7 +121,13 @@ export function LeaderboardCard() {
 
       <ol className="mt-4 flex flex-col gap-2.5">
         {visible.map((entry, i) => (
-          <Row key={entry.uid} entry={entry} rank={i + 1} value={entry[sortKey]} />
+          <Row
+            key={entry.uid}
+            entry={entry}
+            rank={i + 1}
+            value={entry[sortKey]}
+            weeks={sortKey === "currentStreak" ? entry.currentStreakWeeks : null}
+          />
         ))}
       </ol>
 
@@ -130,6 +137,7 @@ export function LeaderboardCard() {
             entry={selfBelowFold}
             rank={selfIndex + 1}
             value={selfBelowFold[sortKey]}
+            weeks={sortKey === "currentStreak" ? selfBelowFold.currentStreakWeeks : null}
           />
         </div>
       )}
@@ -196,10 +204,14 @@ function Row({
   entry,
   rank,
   value,
+  weeks,
 }: {
   entry: LeaderboardEntry;
   rank: number;
   value: number;
+  /** Null in all-time mode: the span we track belongs to the CURRENT run, so
+   *  pairing it with an all-time figure would caption the wrong streak. */
+  weeks: number | null;
 }) {
   return (
     <li className="flex items-center gap-3">
@@ -230,18 +242,25 @@ function Row({
           <span className="ml-1 text-xs text-ink-label">@{entry.username}</span>
         )}
       </span>
-      <span className="shrink-0 text-sm">
-        <span
-          className={cn(
-            "type-display text-lg",
-            entry.isSelf ? "text-primary" : "text-white"
-          )}
-        >
-          {value}
+      <span className="flex shrink-0 flex-col items-end leading-tight">
+        <span className="text-sm">
+          <span
+            className={cn(
+              "type-display text-lg",
+              entry.isSelf ? "text-primary" : "text-white"
+            )}
+          >
+            {value}
+          </span>
+          <span className="type-overline ml-1 text-[11px] text-ink-label">
+            {value === 1 ? "day" : "days"}
+          </span>
         </span>
-        <span className="type-overline ml-1 text-[11px] text-ink-label">
-          {value === 1 ? "day" : "days"}
-        </span>
+        {weeks !== null && weeks > 0 && (
+          <span className="type-overline text-[10px] text-ink-label">
+            {weeks}w unbroken
+          </span>
+        )}
       </span>
     </li>
   );

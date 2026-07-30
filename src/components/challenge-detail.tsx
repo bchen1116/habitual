@@ -147,7 +147,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   const today = todayYmd(timezone);
   // Hook, so it has to run unconditionally — ahead of the loading/not-found
   // early returns below, which is why it takes a possibly-null challenge.
-  const creatorStreak = useChainStreak(challenge, uid, checkinYmds, today);
+  const { streak: creatorStreak, weeks: creatorWeeks } = useChainStreak(challenge, uid, checkinYmds, today);
 
   if (challenge === undefined) {
     return <div className="h-64 animate-pulse rounded-xl bg-muted" />;
@@ -295,7 +295,12 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
               {challenge.forfeitType === "pool" ? "Winner pool" : "Group"}
             </Badge>
           )}
-          {creatorStreak > 0 && <Badge variant="volt">Streak {creatorStreak}</Badge>}
+          {creatorStreak > 0 && (
+            <Badge variant="volt">
+              Streak {creatorStreak}
+              {creatorWeeks > 0 && ` · ${creatorWeeks}w`}
+            </Badge>
+          )}
           <Badge variant="secondary">
             {state === "upcoming" && "Not started"}
             {state === "active" && "Active"}
