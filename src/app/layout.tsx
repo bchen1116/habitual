@@ -10,6 +10,13 @@ import "./globals.css";
 // indicator. Next keeps its width/initial-scale defaults alongside this.
 export const viewport: Viewport = {
   viewportFit: "cover",
+  // Shrink the layout viewport when the software keyboard opens, so
+  // bottom-anchored fixed elements (the dialog sheets) sit above it instead
+  // of behind it. Chrome-only; iOS Safari ignores it, which is why
+  // useKeyboardInset measures the overlap and lifts the sheet manually
+  // there. The two don't double-shift: where this works, the measured
+  // overlap is ~0.
+  interactiveWidget: "resizes-content",
 };
 
 const anton = Anton({
