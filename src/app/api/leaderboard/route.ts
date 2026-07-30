@@ -16,8 +16,7 @@ export async function GET() {
   }
 
   try {
-    const entries = await getLeaderboard(user.uid);
-    return NextResponse.json({ entries });
+    return NextResponse.json(await getLeaderboard(user.uid));
   } catch (err) {
     console.error("getLeaderboard failed:", err);
     return NextResponse.json(

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { DeleteAccount } from "@/components/delete-account";
+import { LeaderboardPrivacy } from "@/components/leaderboard-privacy";
 import { ProfileEditor } from "@/components/profile-editor";
 import { SignOutButton } from "@/components/sign-out-button";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -36,6 +37,16 @@ export default async function SettingsPage() {
           </CardHeader>
           <CardContent>
             <ProfileEditor uid={user.uid} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Leaderboard</CardTitle>
+            <CardDescription>Who can see you ranked by streak.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <LeaderboardPrivacy uid={user.uid} />
           </CardContent>
         </Card>
 

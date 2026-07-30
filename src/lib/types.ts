@@ -3,6 +3,14 @@ import type { Timestamp } from "firebase/firestore";
 export type FrequencyType = "daily" | "weekly_count";
 export type ChallengeStatus = "active" | "cancelled" | "adjudicated";
 
+/**
+ * users/{uid}.leaderboardVisibility — who may see you ranked.
+ * "friends": people you've shared a habit with (the default; absent means
+ * this). "hidden": nobody but you. Deliberately a string rather than a
+ * boolean so a wider "public" tier can be added without a data migration.
+ */
+export type LeaderboardVisibility = "friends" | "hidden";
+
 export interface Challenge {
   id: string;
   name: string;
