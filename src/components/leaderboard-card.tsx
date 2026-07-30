@@ -28,6 +28,7 @@ const PODIUM_SIZE = 3;
  */
 export function LeaderboardCard() {
   const [entries, setEntries] = useState<LeaderboardEntry[] | null>(null);
+  const [viewerHidden, setViewerHidden] = useState(false);
   const [error, setError] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("currentStreak");
   const [expanded, setExpanded] = useState(false);
@@ -42,6 +43,7 @@ export function LeaderboardCard() {
       .then((body) => {
         if (cancelled) return;
         setEntries(body.entries as LeaderboardEntry[]);
+        setViewerHidden(Boolean(body.viewerHidden));
         setError(false);
       })
       .catch((err) => {
@@ -79,6 +81,7 @@ export function LeaderboardCard() {
         <p className="mt-1 text-sm text-ink-label">
           Start a group habit with a friend and you&apos;ll both show up here.
         </p>
+        <HiddenNote hidden={viewerHidden} />
       </Panel>
     );
   }
@@ -140,7 +143,24 @@ export function LeaderboardCard() {
           {expanded ? "Show less" : `See all ${ranked.length}`}
         </button>
       )}
+
+      <HiddenNote hidden={viewerHidden} />
     </Panel>
+  );
+}
+
+/**
+ * Without this, opting out is invisible from the one screen where it matters:
+ * you'd still see yourself ranked here and have no way to tell that nobody
+ * else does.
+ */
+function HiddenNote({ hidden }: { hidden: boolean }) {
+  if (!hidden) return null;
+  return (
+    <p className="mt-3.5 border-t border-ink-bar-empty pt-3 text-xs text-ink-label">
+      You&apos;re hidden from other people&apos;s leaderboards. You can still
+      see yours. Change this in Settings.
+    </p>
   );
 }
 

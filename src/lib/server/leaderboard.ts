@@ -5,7 +5,7 @@ import { getAdminDb } from "@/lib/firebase/admin";
 import { collectChainCycles, walkChainWith, type ChainReader } from "@/lib/chain-core";
 import { longestStreak, streakRun } from "@/lib/streak";
 import { yyyymmddUTC } from "@/lib/server/challenge-admin";
-import type { Challenge } from "@/lib/types";
+import type { Challenge, LeaderboardVisibility } from "@/lib/types";
 
 /**
  * Leaderboard ranking of everyone the viewer shares (or has shared) a habit
@@ -212,7 +212,13 @@ async function getPublicStats(
   return stats;
 }
 
-export async function getLeaderboard(viewerUid: string): Promise<LeaderboardEntry[]> {
+export interface LeaderboardResult {
+  entries: LeaderboardEntry[];
+  /** True when the viewer has opted out — they see their own board regardless. */
+  viewerHidden: boolean;
+}
+
+export async function getLeaderboard(viewerUid: string): Promise<LeaderboardResult> {
   const db = getAdminDb();
   const today = yyyymmddUTC(new Date());
 
@@ -233,8 +239,33 @@ export async function getLeaderboard(viewerUid: string): Promise<LeaderboardEntr
   const budget = { remaining: MAX_RECOMPUTES_PER_REQUEST };
   const uids = [...peerUids];
 
+  let viewerHidden = false;
+
   const entries = await Promise.all(
     uids.map(async (uid): Promise<LeaderboardEntry | null> => {
+      // Admin SDK read: the viewer cannot read this doc themselves
+      // (users/{uid} is owner-only), so the route returning just these display
+      // fields for actual peers is the entire exposure — the same deliberate
+      // server-mediated copy as toVenmoUsername on ledger entries.
+      //
+      // Read first, before any streak work: someone who opted out shouldn't
+      // cost anything to skip.
+      const userSnap = await db.collection("users").doc(uid).get();
+      const user = userSnap.data();
+      if (!user) return null; // deleted account still listed in an old memberIds
+
+      const isSelf = uid === viewerUid;
+      const hidden =
+        (user.leaderboardVisibility as LeaderboardVisibility | undefined) === "hidden";
+      if (isSelf) {
+        viewerHidden = hidden;
+      } else if (hidden) {
+        // Account-level opt-out (users/{uid}.leaderboardVisibility). Strictly
+        // outward-facing: they still see their own board, and they still see
+        // everyone else — they just don't appear on anyone else's.
+        return null;
+      }
+
       const publicStats = await getPublicStats(db, uid, today, budget);
 
       let stats = publicStats;
@@ -249,14 +280,6 @@ export async function getLeaderboard(viewerUid: string): Promise<LeaderboardEntr
         };
       }
 
-      // Admin SDK read: the viewer cannot read this doc themselves
-      // (users/{uid} is owner-only), so the route returning just these display
-      // fields for actual peers is the entire exposure — the same deliberate
-      // server-mediated copy as toVenmoUsername on ledger entries.
-      const userSnap = await db.collection("users").doc(uid).get();
-      const user = userSnap.data();
-      if (!user) return null; // deleted account still listed in an old memberIds
-
       return {
         uid,
         displayName: (user.displayName as string | undefined) ?? "Someone",
@@ -264,7 +287,7 @@ export async function getLeaderboard(viewerUid: string): Promise<LeaderboardEntr
         photoURL: (user.photoURL as string | undefined) ?? null,
         currentStreak: stats.currentStreak,
         longestStreak: stats.longestStreak,
-        isSelf: uid === viewerUid,
+        isSelf,
       };
     })
   );
@@ -275,12 +298,17 @@ export async function getLeaderboard(viewerUid: string): Promise<LeaderboardEntr
     );
   }
 
-  return entries
-    .filter((e): e is LeaderboardEntry => e !== null)
-    .sort(
-      (a, b) =>
-        b.currentStreak - a.currentStreak ||
-        b.longestStreak - a.longestStreak ||
-        a.displayName.localeCompare(b.displayName)
-    );
+  return {
+    entries: entries
+      .filter((e): e is LeaderboardEntry => e !== null)
+      .sort(
+        (a, b) =>
+          b.currentStreak - a.currentStreak ||
+          b.longestStreak - a.longestStreak ||
+          a.displayName.localeCompare(b.displayName)
+      ),
+    // So the board can tell you *you're* the reason friends don't see you,
+    // rather than leaving you to wonder.
+    viewerHidden,
+  };
 }
