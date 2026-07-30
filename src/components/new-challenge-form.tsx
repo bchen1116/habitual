@@ -29,6 +29,7 @@ const formSchema = z
     mode: z.enum(["solo", "group"]),
     forfeitType: z.enum(["charity", "pool"]),
     joinPolicy: z.enum(["open", "invite"]),
+    visibility: z.enum(["public", "private"]),
     maxMembers: z
       .string()
       .refine(
@@ -86,7 +87,7 @@ const STEPS = ["Basics", "Mode", "Schedule", "Stakes", "Review"] as const;
 
 const STEP_FIELDS: (keyof FormValues)[][] = [
   ["name", "description"],
-  ["mode", "forfeitType", "joinPolicy", "maxMembers"],
+  ["mode", "forfeitType", "joinPolicy", "maxMembers", "visibility"],
   ["frequencyType", "target", "startDate", "durationDays"],
   ["skipDays", "stakeAmount", "charityName"],
   [],
@@ -107,6 +108,7 @@ export function NewChallengeForm() {
       mode: "solo",
       forfeitType: "charity",
       joinPolicy: "open",
+      visibility: "public",
       maxMembers: "",
       frequencyType: "daily",
       target: "5",
@@ -178,6 +180,7 @@ export function NewChallengeForm() {
         stakeAmount: Number(data.stakeAmount),
         charityName:
           effectiveForfeit === "charity" ? data.charityName.trim() : null,
+        visibility: data.visibility,
       });
       router.replace(`/challenges/${id}`);
     } catch (err) {
@@ -344,6 +347,32 @@ export function NewChallengeForm() {
               )}
             </div>
           )}
+          <div className="flex flex-col gap-1.5">
+            <Label>Leaderboard</Label>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={values.visibility === "public" ? "secondary" : "outline"}
+                onClick={() => form.setValue("visibility", "public")}
+              >
+                Counts
+              </Button>
+              <Button
+                type="button"
+                variant={values.visibility === "private" ? "secondary" : "outline"}
+                onClick={() => form.setValue("visibility", "private")}
+              >
+                Private
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {values.visibility === "public"
+                ? "This habit's streak counts toward your rank on other people's leaderboards."
+                : values.mode === "group"
+                  ? "Hidden from leaderboards — its streak only shows to people in this habit."
+                  : "Hidden from leaderboards — its streak only shows to you."}
+            </p>
+          </div>
         </div>
       )}
 
@@ -526,6 +555,11 @@ export function NewChallengeForm() {
               {values.mode === "group" && values.forfeitType === "pool"
                 ? `$${values.stakeAmount} to the winners if you fail`
                 : `$${values.stakeAmount} to ${values.charityName} if you fail`}
+            </p>
+            <p className="text-muted-foreground">
+              {values.visibility === "public"
+                ? "Counts toward leaderboards"
+                : "Private — hidden from leaderboards"}
             </p>
           </CardContent>
         </Card>

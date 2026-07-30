@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { ChallengeList } from "@/components/challenge-list";
+import { LeaderboardCard } from "@/components/leaderboard-card";
 import { Button } from "@/components/ui/button";
 
 export default async function ChallengesPage() {
@@ -16,6 +17,7 @@ export default async function ChallengesPage() {
           <Link href="/challenges/new">+ New habit</Link>
         </Button>
       </div>
+      <LeaderboardCard />
       <ChallengeList uid={user.uid} />
     </div>
   );

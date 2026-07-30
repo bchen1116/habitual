@@ -10,6 +10,7 @@ import {
   removeMember,
   respondToJoinRequest,
   setJoinClosed,
+  setChallengeVisibility,
 } from "@/lib/challenges";
 import { useUserTimezone } from "@/hooks/use-user-timezone";
 import {
@@ -59,6 +60,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   const [respondingUid, setRespondingUid] = useState<string | null>(null);
   const [removingUid, setRemovingUid] = useState<string | null>(null);
   const [togglingJoin, setTogglingJoin] = useState(false);
+  const [togglingVisibility, setTogglingVisibility] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onSnapshot(
@@ -257,6 +259,22 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
       );
     } finally {
       setTogglingJoin(false);
+    }
+  }
+
+  async function handleToggleVisibility(next: "public" | "private") {
+    setTogglingVisibility(true);
+    setError(null);
+    try {
+      await setChallengeVisibility(id, next);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Couldn't update this habit's visibility."
+      );
+    } finally {
+      setTogglingVisibility(false);
     }
   }
 
@@ -546,6 +564,42 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
             ? `If you fail, your ${formatAmount(challenge.stakeAmount)} is split among the members who succeed.`
             : `If you fail, you owe ${formatAmount(challenge.stakeAmount)} to ${member?.charityName ?? challenge.charityName ?? "your charity"}.`}
         </p>
+      )}
+
+      {/* Creator-only, and available even after friends have joined —
+          "they joined and now I'd rather this wasn't public" is the whole
+          point (see setChallengeVisibilityAdmin). */}
+      {isCreator && challenge.status === "active" && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle>Leaderboard</CardTitle>
+            <CardDescription>
+              {challenge.visibility === "private"
+                ? challenge.mode === "group"
+                  ? "Private — this habit's streak only counts for people in it."
+                  : "Private — this habit's streak only counts for you."
+                : "This habit's streak counts toward your rank on other people's leaderboards."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={togglingVisibility}
+              onClick={() =>
+                handleToggleVisibility(
+                  challenge.visibility === "private" ? "public" : "private"
+                )
+              }
+            >
+              {togglingVisibility
+                ? "Updating…"
+                : challenge.visibility === "private"
+                  ? "Count on leaderboards"
+                  : "Make private"}
+            </Button>
+          </CardContent>
+        </Card>
       )}
 
       {canDelete && (

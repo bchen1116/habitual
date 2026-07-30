@@ -28,6 +28,7 @@ export interface CreateChallengeInput {
   skipDays: number;
   stakeAmount: number;
   charityName: string | null; // null in pool mode
+  visibility: "public" | "private";
 }
 
 /** Active challenges the user belongs to (dashboard query). */
@@ -129,6 +130,26 @@ export async function setJoinClosed(challengeId: string, closed: boolean): Promi
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     throw new Error(body?.error ?? "Couldn't update joining for this challenge");
+  }
+}
+
+/**
+ * Creator-only: whether this habit counts toward the public leaderboard.
+ * Available for the whole active life of the habit, including after friends
+ * have joined — unlike the money-term edits in `editChallenge`.
+ */
+export async function setChallengeVisibility(
+  challengeId: string,
+  visibility: "public" | "private"
+): Promise<void> {
+  const response = await fetch(`/api/challenges/${challengeId}/visibility`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ visibility }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.error ?? "Couldn't update this habit's visibility");
   }
 }
 
