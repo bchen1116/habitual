@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getDocs } from "firebase/firestore";
 import { getClientDb } from "@/lib/firebase/client";
 import { useActiveChallengeCheckins } from "@/hooks/use-active-challenge-checkins";
 import { useChallengeHistory } from "@/hooks/use-challenge-history";
+import { useReflectionHistory } from "@/hooks/use-reflection-history";
 import { useUserTimezone } from "@/hooks/use-user-timezone";
 import { averageAmount, computeLifetimeStats } from "@/lib/challenge-stats";
 import { todayYmd } from "@/lib/dates";
@@ -12,6 +13,7 @@ import { formatAmount } from "@/lib/currency";
 import { owedByMeQuery, owedToMeQuery } from "@/lib/ledger";
 import { maxLongestStreak } from "@/lib/streak";
 import type { LedgerEntry } from "@/lib/types";
+import { LifetimeRatings } from "@/components/lifetime-ratings-card";
 import { StatTile } from "@/components/stat-tile";
 
 export function StatsView({ uid }: { uid: string }) {
@@ -71,6 +73,22 @@ export function StatsView({ uid }: { uid: string }) {
   );
   const longestActiveStreak = maxLongestStreak(activeChallenges, checkinYmdsByChallenge, today);
 
+  // Ratings span everything the user has ever run, not just what's live — the
+  // whole point of the section is the long view. Held until both sources have
+  // landed so the fetch below runs once against the full set rather than
+  // firing again the moment history arrives.
+  const ratedHabits = useMemo(() => {
+    if (challenges === null || history === null) return null;
+    return [
+      ...challenges.map((c) => ({ id: c.id, name: c.name })),
+      ...history.map((h) => ({ id: h.challenge.id, name: h.challenge.name })),
+    ];
+  }, [challenges, history]);
+  const { habits: reflectionHabits, error: reflectionError } = useReflectionHistory(
+    uid,
+    ratedHabits
+  );
+
   const lifetime = history ? computeLifetimeStats(history) : null;
   // "Avg. won" only ever reflects pool-mode wins — a charity-mode win pays
   // out nothing to you (the loser's money goes to their charity instead),
@@ -96,6 +114,11 @@ export function StatsView({ uid }: { uid: string }) {
           </div>
         )}
       </div>
+
+      <LifetimeRatings
+        habits={reflectionHabits}
+        error={reflectionError || activeError || historyError}
+      />
 
       <div>
         <h2 className="type-display text-xl">Lifetime</h2>

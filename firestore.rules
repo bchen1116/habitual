@@ -121,6 +121,46 @@ service cloud.firestore {
                       && int(request.resource.data.localDate) <= dateInt(request.time + duration.value(1, 'd'));
         allow update, delete: if false;
       }
+
+      // Private per-day reflections: a 1-10 rating of how the session went,
+      // and — for a day that was missed — what got in the way.
+      //
+      // Owner-only, in both directions, which is the whole reason this isn't
+      // just two more fields on the check-in doc above: check-ins are readable
+      // by every member of the challenge, and a rating other people can see is
+      // a rating that gets performed rather than told honestly. Rules can't
+      // hide one field of a document, so the honest data needs its own.
+      //
+      // Unlike check-ins these are mutable and have no anti-backfill window.
+      // Backfilling one is harmless by construction: nothing in adjudication,
+      // streak math, or the leaderboard reads this collection, so the only
+      // thing a late or revised entry changes is what the author sees.
+      match /reflections/{reflectionId} {
+        function validReflection(data) {
+          return data.uid == request.auth.uid
+                 && data.localDate is string
+                 && reflectionId == data.localDate + '_' + request.auth.uid
+                 // Absent is allowed throughout — writes merge, so a rating
+                 // write carries no miss fields and vice versa.
+                 && (!('rating' in data) || data.rating == null
+                     || (data.rating is int && data.rating >= 1 && data.rating <= 10))
+                 && (!('missReason' in data) || data.missReason == null
+                     || data.missReason in ['no_time', 'too_ambitious', 'wrong_time',
+                                            'travel', 'unwell', 'forgot',
+                                            'lost_motivation', 'other'])
+                 && (!('missNote' in data) || data.missNote == null
+                     || (data.missNote is string && data.missNote.size() <= 300))
+                 && data.updatedAt == request.time;
+        }
+        allow read: if request.auth != null && request.auth.uid == resource.data.uid;
+        allow create: if request.auth != null
+                      && request.auth.uid in get(/databases/$(database)/documents/challenges/$(cid)).data.memberIds
+                      && validReflection(request.resource.data);
+        allow update: if request.auth != null
+                      && request.auth.uid == resource.data.uid
+                      && validReflection(request.resource.data);
+        allow delete: if request.auth != null && request.auth.uid == resource.data.uid;
+      }
     }
   }
 }

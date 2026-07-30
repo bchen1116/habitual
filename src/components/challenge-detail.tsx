@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { collection, doc, onSnapshot } from "firebase/firestore";
 import { getClientDb } from "@/lib/firebase/client";
+import { myReflectionsQuery } from "@/lib/reflections";
 import {
   cancelChallenge,
   deleteChallenge,
@@ -22,13 +23,16 @@ import {
   weeklyWindows,
 } from "@/lib/progress";
 import Link from "next/link";
-import { daysBetweenInclusive, formatYmd, todayYmd } from "@/lib/dates";
+import { addDaysYmd, daysBetweenInclusive, formatYmd, todayYmd } from "@/lib/dates";
 import { formatAmount } from "@/lib/currency";
 import { useChainStreak } from "@/hooks/use-chain-streak";
-import type { Challenge, ChallengeMember, JoinRequest } from "@/lib/types";
+import type { Challenge, ChallengeMember, JoinRequest, Reflection } from "@/lib/types";
 import { CheckinDialog } from "@/components/checkin-dialog";
 import { EditChallengeDialog } from "@/components/edit-challenge-dialog";
+import { MissReasonDialog } from "@/components/miss-reason-dialog";
+import { RateSessionDialog } from "@/components/rate-session-dialog";
 import { RepeatChallengeDialog } from "@/components/repeat-challenge-dialog";
+import { SessionRatingsCard } from "@/components/session-ratings-card";
 import { ShareLink } from "@/components/share-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -61,6 +65,9 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   const [removingUid, setRemovingUid] = useState<string | null>(null);
   const [togglingJoin, setTogglingJoin] = useState(false);
   const [togglingVisibility, setTogglingVisibility] = useState(false);
+  const [reflections, setReflections] = useState<Reflection[]>([]);
+  /** yyyymmdd of the missed day/window currently being explained, if any. */
+  const [missDate, setMissDate] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubscribe = onSnapshot(
@@ -89,6 +96,17 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
     );
     return unsubscribe;
   }, [id]);
+
+  // Own reflections only — the read rule is uid-scoped, so an unfiltered
+  // listen here would be rejected outright rather than quietly returning less.
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      myReflectionsQuery(getClientDb(), id, uid),
+      (snap) => setReflections(snap.docs.map((d) => d.data() as Reflection)),
+      (err) => console.error("reflections query failed:", err)
+    );
+    return unsubscribe;
+  }, [id, uid]);
 
   useEffect(() => {
     const unsubscribe = onSnapshot(
@@ -148,6 +166,10 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   // Hook, so it has to run unconditionally — ahead of the loading/not-found
   // early returns below, which is why it takes a possibly-null challenge.
   const { streak: creatorStreak, weeks: creatorWeeks } = useChainStreak(challenge, uid, checkinYmds, today);
+  const reflectionsByDate = useMemo(
+    () => new Map(reflections.map((r) => [r.localDate, r])),
+    [reflections]
+  );
 
   if (challenge === undefined) {
     return <div className="h-64 animate-pulse rounded-xl bg-muted" />;
@@ -518,7 +540,20 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
               </div>
             )}
             {summary.checkedInToday && (
-              <p className="text-sm text-muted-foreground">Checked in today ✓</p>
+              <div className="flex flex-wrap items-center gap-3">
+                <p className="text-sm text-muted-foreground">Checked in today ✓</p>
+                {/* The check-in sheet is gone by now and can't be reopened for
+                    today, so this is the only way to rate a session you didn't
+                    rate in the moment — or to fix one you mistyped. */}
+                <RateSessionDialog
+                  challengeId={id}
+                  uid={uid}
+                  date={today}
+                  dateLabel={formatYmd(today, "EEE, MMM d")}
+                  current={reflectionsByDate.get(today)?.rating ?? null}
+                  onError={setError}
+                />
+              </div>
             )}
             {error && <p className="text-sm text-destructive">{error}</p>}
           </CardContent>
@@ -542,6 +577,10 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle>History</CardTitle>
+            <CardDescription>
+              Tap anything you missed to note what got in the way — just for
+              you, and it won&apos;t change the result.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {challenge.frequency.type === "daily" ? (
@@ -550,6 +589,8 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
                 checkinYmds={checkinYmds}
                 today={today}
                 memberJoinedDate={member?.joinedDate}
+                reflectionsByDate={reflectionsByDate}
+                onSelectMiss={setMissDate}
               />
             ) : (
               <WeeklyWindowList
@@ -557,11 +598,28 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
                 checkinYmds={checkinYmds}
                 today={today}
                 memberJoinedDate={member?.joinedDate}
+                reflectionsByDate={reflectionsByDate}
+                onSelectMiss={setMissDate}
               />
             )}
           </CardContent>
         </Card>
       )}
+
+      {(state === "active" || state === "ended" || state === "adjudicated") && (
+        <SessionRatingsCard reflections={reflections} />
+      )}
+
+      <MissReasonDialog
+        challengeId={id}
+        uid={uid}
+        date={missDate}
+        dateLabel={missDateLabel(challenge, missDate)}
+        existing={missDate ? reflectionsByDate.get(missDate) : undefined}
+        onClose={() => setMissDate(null)}
+        onError={setError}
+      />
+
 
       {state !== "cancelled" && state !== "adjudicated" && (
         <p className="text-center text-xs text-muted-foreground">
@@ -720,38 +778,88 @@ function MembersCard({
   );
 }
 
+/**
+ * What the miss dialog calls the thing being explained. Weekly habits miss a
+ * *window*, not a day — the reflection is keyed on the window's start date,
+ * so the label has to name the week rather than that one date, or it would
+ * look like the app blamed you for a Monday.
+ */
+function missDateLabel(challenge: Challenge, ymd: string | null): string {
+  if (!ymd) return "";
+  if (challenge.frequency.type === "daily") return formatYmd(ymd, "EEE, MMM d");
+  return `${formatYmd(ymd)} – ${formatYmd(addDaysYmd(ymd, 6))}`;
+}
+
+interface HistoryReflectionProps {
+  reflectionsByDate: Map<string, Reflection>;
+  onSelectMiss: (ymd: string) => void;
+}
+
 function DailyHistoryGrid({
   challenge,
   checkinYmds,
   today,
   memberJoinedDate,
+  reflectionsByDate,
+  onSelectMiss,
 }: {
   challenge: Challenge;
   checkinYmds: string[];
   today: string;
   memberJoinedDate?: string;
-}) {
+} & HistoryReflectionProps) {
   const entries = dailyHistory(challenge, new Set(checkinYmds), today, memberJoinedDate);
   return (
     <div className="grid grid-cols-7 gap-2">
-      {entries.map((entry) => (
-        <div
-          key={entry.ymd}
-          title={`${formatYmd(entry.ymd)}: ${entry.state}`}
-          className={
-            "flex h-9 items-center justify-center rounded-md text-xs " +
-            (entry.state === "done"
-              ? "bg-foreground text-background"
-              : entry.state === "missed"
-                ? "bg-destructive/15 text-destructive"
-                : entry.state === "today"
-                  ? "border-2 border-primary text-foreground"
-                  : "bg-secondary text-muted-foreground")
-          }
-        >
-          {formatYmd(entry.ymd, "d")}
-        </div>
-      ))}
+      {entries.map((entry) => {
+        const explained = Boolean(reflectionsByDate.get(entry.ymd)?.missReason);
+        const cellClass =
+          "flex h-9 items-center justify-center rounded-md text-xs " +
+          (entry.state === "done"
+            ? "bg-foreground text-background"
+            : entry.state === "missed"
+              ? "bg-destructive/15 text-destructive"
+              : entry.state === "today"
+                ? "border-2 border-primary text-foreground"
+                : "bg-secondary text-muted-foreground");
+
+        if (entry.state !== "missed") {
+          return (
+            <div
+              key={entry.ymd}
+              title={`${formatYmd(entry.ymd)}: ${entry.state}`}
+              className={cellClass}
+            >
+              {formatYmd(entry.ymd, "d")}
+            </div>
+          );
+        }
+
+        return (
+          <button
+            key={entry.ymd}
+            type="button"
+            onClick={() => onSelectMiss(entry.ymd)}
+            title={`${formatYmd(entry.ymd)}: missed${explained ? " — reason noted" : ""}`}
+            aria-label={`${formatYmd(entry.ymd)}: missed. ${
+              explained ? "Reason noted — edit it." : "Note what got in the way."
+            }`}
+            className={
+              cellClass +
+              " relative transition-colors hover:bg-destructive/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" +
+              (explained ? " ring-1 ring-destructive/40" : "")
+            }
+          >
+            {formatYmd(entry.ymd, "d")}
+            {explained && (
+              <span
+                aria-hidden
+                className="absolute bottom-1 h-1 w-1 rounded-full bg-destructive"
+              />
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -761,36 +869,68 @@ function WeeklyWindowList({
   checkinYmds,
   today,
   memberJoinedDate,
+  reflectionsByDate,
+  onSelectMiss,
 }: {
   challenge: Challenge;
   checkinYmds: string[];
   today: string;
   memberJoinedDate?: string;
-}) {
+} & HistoryReflectionProps) {
   const windows = weeklyWindows(challenge, checkinYmds, today, memberJoinedDate);
   return (
     <div className="flex flex-col gap-2">
-      {windows.map((w) => (
-        <div
-          key={w.index}
-          className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
-        >
-          <span>
-            Week {w.index} · {formatYmd(w.start)} – {formatYmd(w.end)}
-          </span>
-          <span
+      {windows.map((w) => {
+        // A weekly habit misses a window, not a day, so the reflection for one
+        // is keyed on the window's start date.
+        const explained = Boolean(reflectionsByDate.get(w.start)?.missReason);
+        const label = (
+          <>
+            <span>
+              Week {w.index} · {formatYmd(w.start)} – {formatYmd(w.end)}
+            </span>
+            <span
+              className={
+                w.state === "complete"
+                  ? "font-bold text-foreground"
+                  : w.state === "past-incomplete"
+                    ? "font-medium text-destructive"
+                    : "text-muted-foreground"
+              }
+            >
+              {w.count}/{w.target}
+            </span>
+          </>
+        );
+
+        if (w.state !== "past-incomplete") {
+          return (
+            <div
+              key={w.index}
+              className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
+            >
+              {label}
+            </div>
+          );
+        }
+
+        return (
+          <button
+            key={w.index}
+            type="button"
+            onClick={() => onSelectMiss(w.start)}
+            aria-label={`Week ${w.index}, ${w.count} of ${w.target}. ${
+              explained ? "Reason noted — edit it." : "Note what got in the way."
+            }`}
             className={
-              w.state === "complete"
-                ? "font-bold text-foreground"
-                : w.state === "past-incomplete"
-                  ? "font-medium text-destructive"
-                  : "text-muted-foreground"
+              "flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" +
+              (explained ? " border-destructive/40" : "")
             }
           >
-            {w.count}/{w.target}
-          </span>
-        </div>
-      ))}
+            {label}
+          </button>
+        );
+      })}
     </div>
   );
 }
