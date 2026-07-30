@@ -14,6 +14,13 @@ import {
   todayYmd,
   ymdToDateInput,
 } from "@/lib/dates";
+import {
+  DURATION_PRESETS,
+  MAX_DURATION_WEEKS,
+  MIN_DURATION_WEEKS,
+  isValidDurationWeeks,
+  weeksLabel,
+} from "@/lib/duration";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,7 +46,13 @@ const formSchema = z
     frequencyType: z.enum(["daily", "weekly_count"]),
     target: z.string().regex(/^[1-7]$/, "Between 1 and 7 per week"),
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a start date"),
-    durationDays: z.enum(["7", "14", "21", "28"]),
+    durationWeeks: z
+      .string()
+      .regex(/^\d{1,2}$/, `A number of weeks (${MIN_DURATION_WEEKS}–${MAX_DURATION_WEEKS})`)
+      .refine(
+        (v) => Number(v) >= MIN_DURATION_WEEKS && Number(v) <= MAX_DURATION_WEEKS,
+        `Between ${MIN_DURATION_WEEKS} and ${MAX_DURATION_WEEKS} weeks`
+      ),
     skipDays: z
       .string()
       .regex(/^\d{1,2}$/, "A number of skips (0–30)")
@@ -88,7 +101,7 @@ const STEPS = ["Basics", "Mode", "Schedule", "Stakes", "Review"] as const;
 const STEP_FIELDS: (keyof FormValues)[][] = [
   ["name", "description"],
   ["mode", "forfeitType", "joinPolicy", "maxMembers", "visibility"],
-  ["frequencyType", "target", "startDate", "durationDays"],
+  ["frequencyType", "target", "startDate", "durationWeeks"],
   ["skipDays", "stakeAmount", "charityName"],
   [],
 ];
@@ -113,7 +126,7 @@ export function NewChallengeForm() {
       frequencyType: "daily",
       target: "5",
       startDate: ymdToDateInput(todayYmd(browserTimezone())),
-      durationDays: "7",
+      durationWeeks: "1",
       skipDays: "1",
       stakeAmount: "10",
       charityName: "",
@@ -175,7 +188,7 @@ export function NewChallengeForm() {
         frequencyType: data.frequencyType,
         target: Number(data.target),
         startDate: dateInputToYmd(data.startDate),
-        durationDays: Number(data.durationDays),
+        durationDays: Number(data.durationWeeks) * 7,
         skipDays: Number(data.skipDays),
         stakeAmount: Number(data.stakeAmount),
         charityName:
@@ -196,7 +209,13 @@ export function NewChallengeForm() {
   const startYmd = /^\d{4}-\d{2}-\d{2}$/.test(values.startDate)
     ? dateInputToYmd(values.startDate)
     : todayYmd(browserTimezone());
-  const endYmd = addDaysYmd(startYmd, Number(values.durationDays) - 1);
+  // Null while the weeks field is mid-edit (empty, or out of range) — without
+  // this, an empty box would render an end date one day *before* the start.
+  const durationWeeks = isValidDurationWeeks(Number(values.durationWeeks))
+    ? Number(values.durationWeeks)
+    : null;
+  const endYmd =
+    durationWeeks === null ? null : addDaysYmd(startYmd, durationWeeks * 7 - 1);
 
   return (
     <form
@@ -441,19 +460,59 @@ export function NewChallengeForm() {
           <div className="flex flex-col gap-1.5">
             <Label>Duration</Label>
             <div className="flex flex-wrap gap-2">
-              {(["7", "14", "21", "28"] as const).map((d) => (
+              {DURATION_PRESETS.map((preset) => (
                 <Button
-                  key={d}
+                  key={preset.weeks}
                   type="button"
-                  variant={values.durationDays === d ? "secondary" : "outline"}
-                  onClick={() => form.setValue("durationDays", d)}
+                  variant={durationWeeks === preset.weeks ? "secondary" : "outline"}
+                  onClick={() =>
+                    form.setValue("durationWeeks", String(preset.weeks), {
+                      shouldValidate: true,
+                    })
+                  }
                 >
-                  {Number(d) / 7} week{d === "7" ? "" : "s"}
+                  {preset.label}
                 </Button>
               ))}
             </div>
+            <div className="mt-1 flex items-center gap-2">
+              <Label
+                htmlFor="durationWeeks"
+                className="font-normal text-xs text-muted-foreground"
+              >
+                Or set your own
+              </Label>
+              <Input
+                id="durationWeeks"
+                type="number"
+                min={MIN_DURATION_WEEKS}
+                max={MAX_DURATION_WEEKS}
+                className="w-20"
+                {...form.register("durationWeeks")}
+              />
+              <span className="text-xs text-muted-foreground">weeks</span>
+            </div>
+            {errors.durationWeeks ? (
+              <p className="text-sm text-destructive">
+                {errors.durationWeeks.message}
+              </p>
+            ) : (
+              endYmd && (
+                <p className="text-xs text-muted-foreground">
+                  {formatYmd(startYmd)} – {formatYmd(endYmd)} ·{" "}
+                  {weeksLabel(durationWeeks!)}
+                </p>
+              )
+            )}
+            {/* "Can it just never end?" is the obvious question, and the honest
+                answer is a product one: the stake is settled at the end date,
+                so there has to be one. Repeat is the answer for a habit that
+                shouldn't stop — said here rather than leaving people to
+                discover it a year later. */}
             <p className="text-xs text-muted-foreground">
-              {formatYmd(startYmd)} – {formatYmd(endYmd)}
+              Whole weeks, up to a year — your stake settles on the end date.
+              When it finishes you can start the next cycle straight away and
+              your streak carries over.
             </p>
           </div>
         </div>
@@ -546,7 +605,12 @@ export function NewChallengeForm() {
               {values.frequencyType === "daily"
                 ? "Every day"
                 : `${values.target}× a week`}{" "}
-              · {formatYmd(startYmd)} – {formatYmd(endYmd)}
+              {endYmd && (
+                <>
+                  · {formatYmd(startYmd)} – {formatYmd(endYmd)} ·{" "}
+                  {weeksLabel(durationWeeks!)}
+                </>
+              )}
             </p>
             <p>
               {values.skipDays} skip{values.skipDays === "1" ? "" : "s"} allowed

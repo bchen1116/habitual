@@ -160,7 +160,7 @@ Plus: empty states, loading skeletons, error toasts, page transitions.
 1. **Basics** — name (required), description (optional)
 2. **Mode** — Solo / Group; if Group, optional max-members cap
 3. **Frequency** — Daily / N times per week (with target)
-4. **Duration** — start date, end date (or duration presets); weekly-count challenges must be a whole number of weeks
+4. **Duration** — start date plus a length in whole weeks, from 1 to 52 (presets, or typed in); there is no open-ended option, because the stake is only ever settled at the end date — a habit meant to continue is repeated into a new cycle instead
 5. **Skip days** — how many misses allowed
 6. **Stake** — dollar amount (USD)
 7. **Forfeit type** (Group only) — Charity forfeit / Winner pool

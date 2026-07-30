@@ -93,13 +93,27 @@ export function SessionRatingsCard({ reflections }: { reflections: Reflection[] 
   );
 }
 
+/**
+ * Most bars drawn. A year-long daily habit can rate 364 sessions, and past
+ * roughly this many the bars are thinner than the gap between them — the
+ * chart stops being readable rather than merely dense. Older sessions still
+ * count toward the average and the trend above; only the drawing is capped.
+ */
+const MAX_SESSIONS_CHARTED = 60;
+
 function RatingBars({
-  sessions,
+  sessions: all,
 }: {
   sessions: { localDate: string; rating: number }[];
 }) {
+  const sessions = all.slice(-MAX_SESSIONS_CHARTED);
   return (
     <div>
+      {all.length > sessions.length && (
+        <p className="type-overline mb-2 text-xs text-muted-foreground">
+          Last {sessions.length} rated sessions
+        </p>
+      )}
       {/* The bars are decorative duplication of what the summary above already
           states; the readable version is the list, hidden visually. */}
       {/* Deliberately a much tighter radius than the app's rounded-sm (10px):

@@ -59,7 +59,7 @@ note: string | null
 Clarifying because these matter for adjudication in step 3:
 
 - **`daily`:** one check-in required per day. `skipDays` = number of missed days allowed across the whole challenge.
-- **`weekly_count`:** the challenge is divided into **sequential 7-day windows** starting at `startDate`; each window requires `target` check-ins. `skipDays` = total missed check-ins allowed across the whole challenge (pooled across windows, not missed weeks). The create flow **enforces whole-week durations** (7, 14, 21, 28 days…) for `weekly_count` — a partial final window would demand `target` check-ins in fewer than 7 days, which can be arithmetically impossible.
+- **`weekly_count`:** the challenge is divided into **sequential 7-day windows** starting at `startDate`; each window requires `target` check-ins. `skipDays` = total missed check-ins allowed across the whole challenge (pooled across windows, not missed weeks). The create flow **enforces whole-week durations** (7, 14, … up to 364 days — see `src/lib/duration.ts`) for `weekly_count` — a partial final window would demand `target` check-ins in fewer than 7 days, which can be arithmetically impossible. The rule is applied to `daily` too, where it's harmless, rather than branching on frequency.
 
 Sequential windows anchored to `startDate` (not calendar weeks) avoid timezone-sensitive week boundaries (Sun–Sat vs Mon–Sun etc.). They're also more forgiving than a true rolling-window constraint while still preventing someone from front-loading all their check-ins into week one.
 

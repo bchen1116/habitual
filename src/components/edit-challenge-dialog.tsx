@@ -2,7 +2,18 @@
 
 import { useState } from "react";
 import { editChallenge } from "@/lib/challenges";
-import { dateInputToYmd, daysBetweenInclusive, ymdToDateInput } from "@/lib/dates";
+import {
+  addDaysYmd,
+  dateInputToYmd,
+  daysBetweenInclusive,
+  ymdToDateInput,
+} from "@/lib/dates";
+import {
+  MAX_DURATION_DAYS,
+  MAX_DURATION_WEEKS,
+  MIN_DURATION_DAYS,
+  isValidDurationDays,
+} from "@/lib/duration";
 import type { Challenge } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,8 +70,10 @@ export function EditChallengeDialog({ challenge, currentStreak }: EditChallengeD
     }
     const newEndYmd = dateInputToYmd(endDate);
     const days = daysBetweenInclusive(challenge.startDate, newEndYmd);
-    if (days % 7 !== 0 || days < 7) {
-      setFormError("Duration must be a whole number of weeks.");
+    if (!isValidDurationDays(days)) {
+      setFormError(
+        `Duration must be a whole number of weeks, up to ${MAX_DURATION_WEEKS}.`
+      );
       return;
     }
     if (!Number.isFinite(skipDaysNum) || skipDaysNum < 0 || skipDaysNum > 30) {
@@ -125,9 +138,18 @@ export function EditChallengeDialog({ challenge, currentStreak }: EditChallengeD
             id="edit-end-date"
             type="date"
             className="w-44"
+            min={ymdToDateInput(
+              addDaysYmd(challenge.startDate, MIN_DURATION_DAYS - 1)
+            )}
+            max={ymdToDateInput(
+              addDaysYmd(challenge.startDate, MAX_DURATION_DAYS - 1)
+            )}
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
           />
+          <p className="text-xs text-muted-foreground">
+            Whole weeks from the start date, up to {MAX_DURATION_WEEKS} weeks.
+          </p>
         </div>
 
         <div className="flex flex-col gap-1.5">
