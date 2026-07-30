@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
+import { GooeyLoader } from "@/components/ui/loader-10";
 import { cn } from "@/lib/utils";
 
 interface LeaderboardEntry {
@@ -70,8 +71,19 @@ export function LeaderboardCard() {
     );
   }
 
+  // Rendered inside the same ink panel the loaded board uses, so the card
+  // doesn't change shape or colour when the data lands — the leaderboard is
+  // server-computed (streaks for every peer), so this is on screen long
+  // enough to be worth looking at rather than a bare grey block.
   if (entries === null) {
-    return <div className="h-32 animate-pulse rounded-[20px] bg-muted" />;
+    return (
+      <Panel>
+        <span className="type-overline text-xs text-primary">Leaderboard</span>
+        <div className="flex items-center justify-center py-4">
+          <GooeyLoader label="Working out the leaderboard" />
+        </div>
+      </Panel>
+    );
   }
 
   // Everyone's alone on their own board until they do a habit with someone.

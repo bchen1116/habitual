@@ -26,6 +26,16 @@ export async function deleteAccountAdmin(uid: string): Promise<void> {
     // memberIds entry.
     const batch = db.batch();
 
+    // Private to their author and feeding nothing anyone else can see, so —
+    // unlike the member doc, which the other members still need — these are
+    // deleted outright whatever state the challenge is in, rather than
+    // scrubbed and left behind.
+    const reflections = await challengeDoc.ref
+      .collection("reflections")
+      .where("uid", "==", uid)
+      .get();
+    reflections.docs.forEach((d) => batch.delete(d.ref));
+
     if (data.status === "active") {
       const memberIds = (data.memberIds as string[]) ?? [];
       if (memberIds.length <= 1) {

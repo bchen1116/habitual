@@ -54,6 +54,53 @@ export interface CheckIn {
   note: string | null;
 }
 
+/**
+ * Why a session was missed. Stored as a stable key, never the label — the
+ * wording in MISS_REASONS (lib/reflections.ts) can be rewritten without
+ * invalidating everything already recorded.
+ */
+export type MissReason =
+  | "no_time"
+  | "too_ambitious"
+  | "wrong_time"
+  | "travel"
+  | "unwell"
+  | "forgot"
+  | "lost_motivation"
+  | "other";
+
+/**
+ * challenges/{cid}/reflections/{localDate}_{uid} — one per member per day:
+ * how the session went (1–10), or what got in the way when it was missed.
+ *
+ * Deliberately its own subcollection rather than extra fields on the check-in
+ * doc, for two reasons the check-in doc can't satisfy:
+ *
+ * - *Private.* Check-ins are readable by every member of the challenge
+ *   (firestore.rules). How a session felt, and why one was missed, is nobody
+ *   else's business — group-visible ratings would be performed rather than
+ *   honest, and "I was too depressed to run" is not a group broadcast.
+ * - *Revisable.* Check-ins are immutable (`allow update, delete: if false`) so
+ *   nobody can backfill a missed day. A rating carries no such risk, and a
+ *   mistyped one you could never correct would be a trap.
+ *
+ * Nothing here is read by adjudication, streaks, or the leaderboard, and that
+ * is a design rule rather than an accident: the moment a self-reported number
+ * moves money or rank, it stops being honest.
+ *
+ * Every field is optional on the wire — writes merge, so a day can hold a
+ * rating, a miss reason, or (across a repeat cycle where a date is reused)
+ * both.
+ */
+export interface Reflection {
+  uid: string;
+  localDate: string; // yyyymmdd — the day, or the start of a weekly window
+  rating?: number | null; // 1–10, how the session went
+  missReason?: MissReason | null;
+  missNote?: string | null;
+  updatedAt?: Timestamp | null;
+}
+
 export type MemberOutcome = "succeeded" | "failed" | null;
 
 export interface ChallengeMember {

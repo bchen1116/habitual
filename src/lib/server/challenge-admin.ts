@@ -651,6 +651,7 @@ export async function deleteChallengeAdmin(
     db.recursiveDelete(ref.collection("members")),
     db.recursiveDelete(ref.collection("checkins")),
     db.recursiveDelete(ref.collection("joinRequests")),
+    db.recursiveDelete(ref.collection("reflections")),
   ]);
 }
 
