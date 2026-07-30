@@ -1,7 +1,7 @@
 "use client";
 
 import { collection, doc, getDoc, getDocs, type Firestore } from "firebase/firestore";
-import { walkChainWith, type ChainReader } from "@/lib/chain-core";
+import { walkChainWith, type ChainCarry, type ChainReader } from "@/lib/chain-core";
 import type { Challenge } from "@/lib/types";
 
 /**
@@ -49,6 +49,6 @@ export async function walkChain(
   db: Firestore,
   challenge: Challenge,
   uid: string
-): Promise<number> {
+): Promise<ChainCarry> {
   return walkChainWith(clientChainReader(db), challenge, uid);
 }

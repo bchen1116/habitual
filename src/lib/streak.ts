@@ -8,7 +8,7 @@ function streakFloor(challenge: Challenge): string {
     : challenge.startDate;
 }
 
-interface StreakRun {
+export interface StreakRun {
   streak: number;
   /**
    * Whether the run is unbroken all the way back to the challenge's own
@@ -18,6 +18,14 @@ interface StreakRun {
    * cycle this challenge was repeated from.
    */
   reachesFloor: boolean;
+  /**
+   * Calendar days the run covers, as opposed to `streak`'s count of days
+   * actually checked in. Identical for a daily habit; for an N×/week habit
+   * they diverge — 50 check-ins at 5×/week span 70 days — which is exactly
+   * the "how long has this been going?" the streak number alone can't
+   * answer, and what the UI renders as "N weeks unbroken".
+   */
+  spanDays: number;
 }
 
 /**
@@ -60,7 +68,9 @@ export function streakRun(
       streak++;
       cursor = addDaysYmd(cursor, -1);
     }
-    return { streak, reachesFloor: cursor < floor };
+    // Every day in a daily run is a consecutive calendar day, so the run's
+    // span and its count are the same number.
+    return { streak, reachesFloor: cursor < floor, spanDays: streak };
   }
 
   // Floor the CHECKINS, not the windows: a reset can land mid-window (the
@@ -87,7 +97,19 @@ export function streakRun(
   const streak = flooredCheckins.filter(
     (d) => lastFailedEnd === null || d > lastFailedEnd
   ).length;
-  return { streak, reachesFloor: lastFailedEnd === null };
+  // One whole week of calendar time per week actually secured. A week that
+  // hit its target early counts immediately — it can no longer be failed —
+  // while the still-undecided current week doesn't, so the span never claims
+  // time that hasn't been earned yet.
+  const weeksSecured = windows.filter(
+    (w) =>
+      (lastFailedEnd === null || w.start > lastFailedEnd) && w.state === "complete"
+  ).length;
+  return {
+    streak,
+    reachesFloor: lastFailedEnd === null,
+    spanDays: weeksSecured * 7,
+  };
 }
 
 /** currentStreak(...) === streakRun(..., today).streak — kept for the (many) callers that just want the number. */

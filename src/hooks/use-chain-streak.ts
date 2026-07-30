@@ -3,8 +3,21 @@
 import { useEffect, useState } from "react";
 import { getClientDb } from "@/lib/firebase/client";
 import { walkChain } from "@/lib/chain-streak";
-import { streakRun, maxCurrentStreak } from "@/lib/streak";
+import { streakRun } from "@/lib/streak";
 import type { Challenge } from "@/lib/types";
+
+/**
+ * A streak plus how long it's actually been running. `streak` is the ranked
+ * number (days checked in); `weeks` is the calendar span of that same run, so
+ * a daily habit and a 5×/week habit that have both gone 10 weeks unbroken say
+ * so, even though their check-in counts differ.
+ */
+export interface ChainStreak {
+  streak: number;
+  weeks: number;
+}
+
+const ZERO: ChainStreak = { streak: 0, weeks: 0 };
 
 function chainEligible(challenge: Challenge, reachesFloor: boolean): boolean {
   return reachesFloor && !challenge.streakResetAt && !!challenge.repeatedFromId;
@@ -12,29 +25,29 @@ function chainEligible(challenge: Challenge, reachesFloor: boolean): boolean {
 
 /**
  * Single-challenge chain-aware streak. Returns the local (single-cycle)
- * number immediately — identical to `currentStreak(...)` — and upgrades to
- * the full cross-cycle total once the ancestor walk resolves. Never a
- * flash-of-zero: the total only ever grows from the local value.
+ * numbers immediately and upgrades to the full cross-cycle totals once the
+ * ancestor walk resolves. Never a flash-of-zero: the total only ever grows
+ * from the local value.
  */
 export function useChainStreak(
   challenge: Challenge | null | undefined,
   uid: string,
   checkinYmds: readonly string[],
   today: string
-): number {
+): ChainStreak {
   const local = challenge ? streakRun(challenge, checkinYmds, today) : null;
-  const [ancestorStreak, setAncestorStreak] = useState(0);
+  const [carry, setCarry] = useState({ streak: 0, spanDays: 0 });
 
   const eligible = !!challenge && !!local && chainEligible(challenge, local.reachesFloor);
 
   useEffect(() => {
     if (!challenge || !eligible) {
-      setAncestorStreak(0);
+      setCarry({ streak: 0, spanDays: 0 });
       return;
     }
     let cancelled = false;
     walkChain(getClientDb(), challenge, uid).then((total) => {
-      if (!cancelled) setAncestorStreak(total);
+      if (!cancelled) setCarry(total);
     });
     return () => {
       cancelled = true;
@@ -42,24 +55,38 @@ export function useChainStreak(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [challenge?.id, challenge?.repeatedFromId, eligible, uid]);
 
-  return (local?.streak ?? 0) + ancestorStreak;
+  if (!local) return ZERO;
+  return {
+    streak: local.streak + carry.streak,
+    weeks: Math.floor((local.spanDays + carry.spanDays) / 7),
+  };
 }
 
 /**
  * The largest chain-aware current streak across a set of active challenges
- * (the dashboard hero / sidebar number). One effect fans out a walk per
- * challenge rather than calling useChainStreak per item, since the list
- * length varies and the rules of hooks don't allow a variable number of
- * hook calls.
+ * (the dashboard hero / sidebar number), together with that same habit's
+ * span. One effect fans out a walk per challenge rather than calling
+ * useChainStreak per item, since the list length varies and the rules of
+ * hooks don't allow a variable number of hook calls.
+ *
+ * The weeks reported belong to whichever habit produced the winning streak,
+ * not the longest-running habit overall — otherwise the header and subheader
+ * would describe two different habits.
  */
 export function useMaxChainStreak(
   challenges: readonly Challenge[],
   uid: string,
   checkinYmdsByChallenge: Readonly<Record<string, readonly string[]>>,
   today: string
-): number {
-  const localMax = maxCurrentStreak(challenges, checkinYmdsByChallenge, today);
-  const [chainMax, setChainMax] = useState<number | null>(null);
+): ChainStreak {
+  const [chainMax, setChainMax] = useState<ChainStreak | null>(null);
+
+  const localMax = challenges.reduce<ChainStreak>((best, c) => {
+    const run = streakRun(c, checkinYmdsByChallenge[c.id] ?? [], today);
+    return run.streak > best.streak
+      ? { streak: run.streak, weeks: Math.floor(run.spanDays / 7) }
+      : best;
+  }, ZERO);
 
   const checkinsKey = challenges
     .map((c) => `${c.id}:${(checkinYmdsByChallenge[c.id] ?? []).join("|")}`)
@@ -82,16 +109,22 @@ export function useMaxChainStreak(
     let cancelled = false;
     const db = getClientDb();
     Promise.all(
-      challenges.map(async (c) => {
+      challenges.map(async (c): Promise<ChainStreak> => {
         const ymds = checkinYmdsByChallenge[c.id] ?? [];
         const local = streakRun(c, ymds, today);
-        const ancestorTotal = chainEligible(c, local.reachesFloor)
+        const carry = chainEligible(c, local.reachesFloor)
           ? await walkChain(db, c, uid)
-          : 0;
-        return local.streak + ancestorTotal;
+          : { streak: 0, spanDays: 0 };
+        return {
+          streak: local.streak + carry.streak,
+          weeks: Math.floor((local.spanDays + carry.spanDays) / 7),
+        };
       })
     ).then((totals) => {
-      if (!cancelled) setChainMax(totals.length > 0 ? Math.max(...totals) : 0);
+      if (cancelled) return;
+      setChainMax(
+        totals.reduce<ChainStreak>((best, t) => (t.streak > best.streak ? t : best), ZERO)
+      );
     });
     return () => {
       cancelled = true;
