@@ -10,6 +10,12 @@ import {
   formatYmd,
   ymdToDateInput,
 } from "@/lib/dates";
+import {
+  MAX_DURATION_DAYS,
+  MAX_DURATION_WEEKS,
+  MIN_DURATION_DAYS,
+  isValidDurationDays,
+} from "@/lib/duration";
 import type { Challenge } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -76,8 +82,10 @@ export function RepeatChallengeDialog({
     }
     const newEndYmd = dateInputToYmd(endDate);
     const days = daysBetweenInclusive(nextStartYmd, newEndYmd);
-    if (days % 7 !== 0 || days < 7) {
-      setFormError("Duration must be a whole number of weeks.");
+    if (!isValidDurationDays(days)) {
+      setFormError(
+        `Duration must be a whole number of weeks, up to ${MAX_DURATION_WEEKS}.`
+      );
       return;
     }
     const skipDaysNum = Number(skipDays);
@@ -141,9 +149,14 @@ export function RepeatChallengeDialog({
             id="repeat-end-date"
             type="date"
             className="w-44"
+            min={ymdToDateInput(addDaysYmd(nextStartYmd, MIN_DURATION_DAYS - 1))}
+            max={ymdToDateInput(addDaysYmd(nextStartYmd, MAX_DURATION_DAYS - 1))}
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
           />
+          <p className="text-xs text-muted-foreground">
+            Whole weeks, up to {MAX_DURATION_WEEKS}.
+          </p>
         </div>
 
         <div className="flex flex-col gap-1.5">

@@ -158,6 +158,33 @@ export function skipsUsed(
     .reduce((sum, w) => sum + Math.max(0, w.target - w.count), 0);
 }
 
+/**
+ * Which slice of a start-anchored history to render when showing all of it
+ * at once would be unusable — a year-long daily habit is 364 cells, and the
+ * card would be taller than several screens.
+ *
+ * The slice ends at the boundary of the group containing `currentIndex`
+ * (today's row, or the current week), not at the end of the list: for a habit
+ * on day 4 of 364 the last 8 rows are entirely in the future, which is the
+ * opposite of what a history is for. When `currentIndex` is outside the list —
+ * an upcoming or already-ended habit — it anchors to the final group instead.
+ *
+ * `groupSize` keeps grid rows intact: with 7, both ends land on a row
+ * boundary, so the 7-column layout stays aligned to the same weekday columns
+ * it had before collapsing.
+ */
+export function recentWindow(
+  total: number,
+  currentIndex: number,
+  maxItems: number,
+  groupSize = 1
+): { start: number; end: number } {
+  if (total <= maxItems) return { start: 0, end: total };
+  const anchor = currentIndex >= 0 && currentIndex < total ? currentIndex : total - 1;
+  const end = Math.min(total, (Math.floor(anchor / groupSize) + 1) * groupSize);
+  return { start: Math.max(0, end - maxItems), end };
+}
+
 export interface ProgressSummary {
   completed: number;
   total: number;

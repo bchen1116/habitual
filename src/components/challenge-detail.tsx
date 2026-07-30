@@ -18,6 +18,7 @@ import {
   challengeState,
   dailyHistory,
   progressSummary,
+  recentWindow,
   skipsUsed,
   totalRequired,
   weeklyWindows,
@@ -795,6 +796,13 @@ interface HistoryReflectionProps {
   onSelectMiss: (ymd: string) => void;
 }
 
+/**
+ * How much history stays on screen before it has to be asked for. Eight weeks
+ * is deliberately above the old 4-week maximum duration, so every habit that
+ * could exist before year-long ones were allowed still renders whole.
+ */
+const COLLAPSED_HISTORY_WEEKS = 8;
+
 function DailyHistoryGrid({
   challenge,
   checkinYmds,
@@ -808,8 +816,19 @@ function DailyHistoryGrid({
   today: string;
   memberJoinedDate?: string;
 } & HistoryReflectionProps) {
-  const entries = dailyHistory(challenge, new Set(checkinYmds), today, memberJoinedDate);
+  const [showAll, setShowAll] = useState(false);
+  const all = dailyHistory(challenge, new Set(checkinYmds), today, memberJoinedDate);
+  const { start, end } = recentWindow(
+    all.length,
+    all.findIndex((e) => e.ymd === today),
+    COLLAPSED_HISTORY_WEEKS * 7,
+    7
+  );
+  const collapsible = end - start < all.length;
+  const entries = showAll || !collapsible ? all : all.slice(start, end);
+
   return (
+    <>
     <div className="grid grid-cols-7 gap-2">
       {entries.map((entry) => {
         const explained = Boolean(reflectionsByDate.get(entry.ymd)?.missReason);
@@ -861,6 +880,19 @@ function DailyHistoryGrid({
         );
       })}
     </div>
+    {collapsible && (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="mt-3 w-full"
+        onClick={() => setShowAll((v) => !v)}
+      >
+        {showAll
+          ? `Show recent ${COLLAPSED_HISTORY_WEEKS} weeks`
+          : `Show all ${all.length} days`}
+      </Button>
+    )}
+    </>
   );
 }
 
@@ -877,8 +909,18 @@ function WeeklyWindowList({
   today: string;
   memberJoinedDate?: string;
 } & HistoryReflectionProps) {
-  const windows = weeklyWindows(challenge, checkinYmds, today, memberJoinedDate);
+  const [showAll, setShowAll] = useState(false);
+  const all = weeklyWindows(challenge, checkinYmds, today, memberJoinedDate);
+  const { start, end } = recentWindow(
+    all.length,
+    all.findIndex((w) => w.state === "current"),
+    COLLAPSED_HISTORY_WEEKS
+  );
+  const collapsible = end - start < all.length;
+  const windows = showAll || !collapsible ? all : all.slice(start, end);
+
   return (
+    <>
     <div className="flex flex-col gap-2">
       {windows.map((w) => {
         // A weekly habit misses a window, not a day, so the reflection for one
@@ -932,5 +974,18 @@ function WeeklyWindowList({
         );
       })}
     </div>
+    {collapsible && (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="mt-3 w-full"
+        onClick={() => setShowAll((v) => !v)}
+      >
+        {showAll
+          ? `Show recent ${COLLAPSED_HISTORY_WEEKS} weeks`
+          : `Show all ${all.length} weeks`}
+      </Button>
+    )}
+    </>
   );
 }

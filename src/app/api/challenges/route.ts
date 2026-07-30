@@ -6,6 +6,7 @@ import {
   yyyymmddUTC,
 } from "@/lib/server/challenge-admin";
 import { addDaysYmd } from "@/lib/dates";
+import { MAX_DURATION_WEEKS, isValidDurationDays } from "@/lib/duration";
 
 const payloadSchema = z
   .object({
@@ -18,8 +19,8 @@ const payloadSchema = z
     frequencyType: z.enum(["daily", "weekly_count"]),
     target: z.number().int().min(1).max(7),
     startDate: z.string().regex(/^\d{8}$/),
-    durationDays: z.number().refine((v) => [7, 14, 21, 28].includes(v), {
-      message: "Whole-week durations only",
+    durationDays: z.number().refine(isValidDurationDays, {
+      message: `Whole-week durations, up to ${MAX_DURATION_WEEKS} weeks`,
     }),
     skipDays: z.number().int().min(0).max(30),
     stakeAmount: z.number().positive().max(10000),
