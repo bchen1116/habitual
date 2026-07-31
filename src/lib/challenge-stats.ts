@@ -6,6 +6,15 @@ export interface CompletedChallengeEntry {
   challenge: Challenge;
   outcome: MemberOutcome;
   completedCount: number;
+  /**
+   * The member's own joinedDate. Load-bearing for completion percentages:
+   * without it a late joiner is measured against the creator's full
+   * requirement, so someone who joined a 4-week habit in week three and did
+   * every session shows ~50%. Absent on members created before the field
+   * existed — totalRequired treats that as "joined at the start", which is
+   * what those members were.
+   */
+  joinedDate?: string;
 }
 
 export interface LifetimeStats {
@@ -32,7 +41,7 @@ export function computeLifetimeStats(entries: CompletedChallengeEntry[]): Lifeti
   const wins = decided.filter((e) => e.outcome === "succeeded").length;
 
   const completionPercents = entries.map((e) => {
-    const total = totalRequired(e.challenge);
+    const total = totalRequired(e.challenge, e.joinedDate);
     return total > 0 ? Math.min(100, (e.completedCount / total) * 100) : 0;
   });
 

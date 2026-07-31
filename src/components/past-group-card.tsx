@@ -9,8 +9,10 @@ import type { CompletedChallengeEntry } from "@/lib/challenge-stats";
  * this shows the decided outcome and final completion instead.
  */
 export function PastGroupCard({ entry }: { entry: CompletedChallengeEntry }) {
-  const { challenge, outcome, completedCount } = entry;
-  const total = totalRequired(challenge);
+  const { challenge, outcome, completedCount, joinedDate } = entry;
+  // Their own requirement, not the creator's — see joinedDate on
+  // CompletedChallengeEntry.
+  const total = totalRequired(challenge, joinedDate);
   const percent = total > 0 ? Math.round(Math.min(100, (completedCount / total) * 100)) : 0;
 
   return (

@@ -51,11 +51,20 @@ export interface StreakRun {
  * though the challenge itself keeps running. Deliberately doesn't affect
  * `longestStreak` below — that's a historical best-ever record, not the
  * live one, and isn't part of what a skip-days edit resets.
+ *
+ * `memberJoinedDate` matters only for weekly_count, where it prorates the
+ * window the member joined into (windowRequirement, lib/progress.ts). Without
+ * it, someone who joined a 5×/week habit on a Saturday and checked in both
+ * remaining days had that window judged against the full 5, marked failed,
+ * and their two real check-ins wiped — a streak that counted up to 2 during
+ * the week and then went *backwards* when it closed, for a week adjudication
+ * itself considers passed.
  */
 export function streakRun(
   challenge: Challenge,
   checkinYmds: ReadonlySet<string> | readonly string[],
-  asOf: string
+  asOf: string,
+  memberJoinedDate?: string
 ): StreakRun {
   const checkins =
     checkinYmds instanceof Set ? checkinYmds : new Set(checkinYmds);
@@ -84,9 +93,12 @@ export function streakRun(
   // a count of 0 and get excluded below via `end >= floor` (equivalent to
   // "nothing here is reachable, so this is where the floor is").
   const flooredCheckins = Array.from(checkins).filter((d) => d >= floor);
-  const windows = weeklyWindows(challenge, flooredCheckins, asOf).filter(
-    (w) => w.end >= floor
-  );
+  const windows = weeklyWindows(
+    challenge,
+    flooredCheckins,
+    asOf,
+    memberJoinedDate
+  ).filter((w) => w.end >= floor);
   // The streak breaks at the most recent window that actually failed;
   // check-in days after it (complete windows and the still-undecided
   // current one alike) all count, one day each.
@@ -112,15 +124,6 @@ export function streakRun(
   };
 }
 
-/** currentStreak(...) === streakRun(..., today).streak — kept for the (many) callers that just want the number. */
-export function currentStreak(
-  challenge: Challenge,
-  checkinYmds: ReadonlySet<string> | readonly string[],
-  today: string
-): number {
-  return streakRun(challenge, checkinYmds, today).streak;
-}
-
 /**
  * Longest run ever completed (not required to be ongoing), for a "best"
  * stat — in DAYS for both frequency types, same units as streakRun above.
@@ -132,7 +135,8 @@ export function currentStreak(
 export function longestStreak(
   challenge: Challenge,
   checkinYmds: ReadonlySet<string> | readonly string[],
-  today: string
+  today: string,
+  memberJoinedDate?: string
 ): number {
   const checkins =
     checkinYmds instanceof Set ? checkinYmds : new Set(checkinYmds);
@@ -140,7 +144,7 @@ export function longestStreak(
   if (challenge.frequency.type === "daily") {
     let best = 0;
     let run = 0;
-    for (const day of dailyHistory(challenge, checkins, today)) {
+    for (const day of dailyHistory(challenge, checkins, today, memberJoinedDate)) {
       if (day.state === "done") {
         run++;
         best = Math.max(best, run);
@@ -157,7 +161,7 @@ export function longestStreak(
   const sorted = Array.from(checkins);
   let best = 0;
   let run = 0;
-  for (const w of weeklyWindows(challenge, sorted, today)) {
+  for (const w of weeklyWindows(challenge, sorted, today, memberJoinedDate)) {
     if (w.state === "complete" || w.state === "current") {
       run += sorted.filter((d) => d >= w.start && d <= w.end).length;
       best = Math.max(best, run);
@@ -168,28 +172,24 @@ export function longestStreak(
   return best;
 }
 
-/** The largest current streak across a set of challenges (the hero number). */
-export function maxCurrentStreak(
-  challenges: readonly Challenge[],
-  checkinsByChallenge: Readonly<Record<string, readonly string[]>>,
-  today: string
-): number {
-  return challenges.reduce(
-    (max, c) =>
-      Math.max(max, currentStreak(c, checkinsByChallenge[c.id] ?? [], today)),
-    0
-  );
-}
-
 /** The largest best-ever streak across a set of challenges. */
 export function maxLongestStreak(
   challenges: readonly Challenge[],
   checkinsByChallenge: Readonly<Record<string, readonly string[]>>,
-  today: string
+  today: string,
+  joinedDateByChallenge: Readonly<Record<string, string | undefined>> = {}
 ): number {
   return challenges.reduce(
     (max, c) =>
-      Math.max(max, longestStreak(c, checkinsByChallenge[c.id] ?? [], today)),
+      Math.max(
+        max,
+        longestStreak(
+          c,
+          checkinsByChallenge[c.id] ?? [],
+          today,
+          joinedDateByChallenge[c.id]
+        )
+      ),
     0
   );
 }

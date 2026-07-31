@@ -33,9 +33,13 @@ export function useChainStreak(
   challenge: Challenge | null | undefined,
   uid: string,
   checkinYmds: readonly string[],
-  today: string
+  today: string,
+  /** This member's own joinedDate — prorates a weekly window they joined into. */
+  joinedDate?: string
 ): ChainStreak {
-  const local = challenge ? streakRun(challenge, checkinYmds, today) : null;
+  const local = challenge
+    ? streakRun(challenge, checkinYmds, today, joinedDate)
+    : null;
   const [carry, setCarry] = useState({ streak: 0, spanDays: 0 });
 
   const eligible = !!challenge && !!local && chainEligible(challenge, local.reachesFloor);
@@ -77,12 +81,18 @@ export function useMaxChainStreak(
   challenges: readonly Challenge[],
   uid: string,
   checkinYmdsByChallenge: Readonly<Record<string, readonly string[]>>,
-  today: string
+  today: string,
+  joinedDateByChallenge: Readonly<Record<string, string | undefined>> = {}
 ): ChainStreak {
   const [chainMax, setChainMax] = useState<ChainStreak | null>(null);
 
   const localMax = challenges.reduce<ChainStreak>((best, c) => {
-    const run = streakRun(c, checkinYmdsByChallenge[c.id] ?? [], today);
+    const run = streakRun(
+      c,
+      checkinYmdsByChallenge[c.id] ?? [],
+      today,
+      joinedDateByChallenge[c.id]
+    );
     return run.streak > best.streak
       ? { streak: run.streak, weeks: Math.floor(run.spanDays / 7) }
       : best;
@@ -97,8 +107,17 @@ export function useMaxChainStreak(
   // effect skip re-running after an edit — stranding chainMax on its
   // stale, too-high pre-edit value until something else happened to touch
   // chainKey/checkinsKey.
+  // joinedDate belongs in the key for the same reason streakResetAt does: it
+  // feeds streakRun below and lands asynchronously (the member docs are read
+  // after the challenge list), so without it the effect would settle on
+  // numbers computed before any join date was known.
   const chainKey = challenges
-    .map((c) => `${c.id}:${c.repeatedFromId ?? ""}:${c.streakResetAt ?? ""}`)
+    .map(
+      (c) =>
+        `${c.id}:${c.repeatedFromId ?? ""}:${c.streakResetAt ?? ""}:${
+          joinedDateByChallenge[c.id] ?? ""
+        }`
+    )
     .join(",");
 
   useEffect(() => {
@@ -111,7 +130,7 @@ export function useMaxChainStreak(
     Promise.all(
       challenges.map(async (c): Promise<ChainStreak> => {
         const ymds = checkinYmdsByChallenge[c.id] ?? [];
-        const local = streakRun(c, ymds, today);
+        const local = streakRun(c, ymds, today, joinedDateByChallenge[c.id]);
         const carry = chainEligible(c, local.reachesFloor)
           ? await walkChain(db, c, uid)
           : { streak: 0, spanDays: 0 };

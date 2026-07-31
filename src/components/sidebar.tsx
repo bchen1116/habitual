@@ -21,7 +21,8 @@ const NAV_ITEMS = [
 export function Sidebar({ uid }: { uid: string }) {
   const pathname = usePathname();
   const timezone = useUserTimezone(uid);
-  const { challenges, checkinsByChallenge } = useActiveChallengeCheckins(uid);
+  const { challenges, checkinsByChallenge, joinedDateByChallenge } =
+    useActiveChallengeCheckins(uid);
 
   const today = todayYmd(timezone);
   const activeChallenges = challenges ?? [];
@@ -31,8 +32,19 @@ export function Sidebar({ uid }: { uid: string }) {
       records.map((r) => r.localDate),
     ])
   );
-  const { streak } = useMaxChainStreak(activeChallenges, uid, checkinYmdsByChallenge, today);
-  const best = maxLongestStreak(activeChallenges, checkinYmdsByChallenge, today);
+  const { streak } = useMaxChainStreak(
+    activeChallenges,
+    uid,
+    checkinYmdsByChallenge,
+    today,
+    joinedDateByChallenge
+  );
+  const best = maxLongestStreak(
+    activeChallenges,
+    checkinYmdsByChallenge,
+    today,
+    joinedDateByChallenge
+  );
 
   return (
     <aside className="sticky top-0 hidden h-screen w-[236px] shrink-0 flex-col bg-ink px-5 py-6 md:flex">

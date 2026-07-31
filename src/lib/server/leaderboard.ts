@@ -73,6 +73,15 @@ function adminChainReader(db: Firestore): ChainReader {
         .get();
       return snap.docs.map((d) => d.data().localDate as string);
     },
+    async getJoinedDate(challengeId, uid) {
+      const snap = await db
+        .collection("challenges")
+        .doc(challengeId)
+        .collection("members")
+        .doc(uid)
+        .get();
+      return snap.data()?.joinedDate as string | undefined;
+    },
   };
 }
 
@@ -112,12 +121,27 @@ async function chainLongestStreak(
   const cycles = await collectChainCycles(reader, challenge);
   if (cycles.length === 1) {
     const ymds = await reader.getCheckinYmds(challenge.id, uid);
-    return longestStreak(challenge, ymds, today);
+    return longestStreak(
+      challenge,
+      ymds,
+      today,
+      await reader.getJoinedDate(challenge.id, uid)
+    );
   }
 
   const allYmds: string[] = [];
+  // The earliest cycle they were actually in. A chain can reach back past
+  // someone's own membership (the Admin SDK reads cycles they were never part
+  // of), and the spanning challenge below starts at the oldest cycle either
+  // way — so their effective start is the earliest join date on record, not
+  // the chain's start.
+  let joinedDate: string | undefined;
   for (const cycle of cycles) {
     allYmds.push(...(await reader.getCheckinYmds(cycle.id, uid)));
+    const cycleJoined = await reader.getJoinedDate(cycle.id, uid);
+    if (cycleJoined && (!joinedDate || cycleJoined < joinedDate)) {
+      joinedDate = cycleJoined;
+    }
   }
   // cycles is newest-first (collectChainCycles walks backward), so the last
   // entry is the oldest cycle and holds the chain's true start.
@@ -130,7 +154,7 @@ async function chainLongestStreak(
     // streakResetAt floors the *live* streak only.
     streakResetAt: null,
   };
-  return longestStreak(spanning, allYmds, today);
+  return longestStreak(spanning, allYmds, today, joinedDate);
 }
 
 /** Best current + best all-time across a given set of habits. */
@@ -150,7 +174,10 @@ async function computeStreaks(
 
   for (const challenge of challenges) {
     const ymds = await reader.getCheckinYmds(challenge.id, uid);
-    const run = streakRun(challenge, ymds, today);
+    // Their own start, so a habit they joined mid-week ranks the same way it
+    // reads on their own dashboard.
+    const joinedDate = await reader.getJoinedDate(challenge.id, uid);
+    const run = streakRun(challenge, ymds, today, joinedDate);
     // Chain-aware, so this matches the number the user's own hero shows.
     const carry =
       run.reachesFloor && !challenge.streakResetAt && challenge.repeatedFromId
@@ -186,7 +213,7 @@ async function getPublicStats(
   db: Firestore,
   uid: string,
   today: string,
-  budget: { remaining: number }
+  budget: { remaining: number; skipped: number }
 ): Promise<StreakPair> {
   const ref = db.collection("userStreakStats").doc(uid);
   const snap = await ref.get();
@@ -203,6 +230,7 @@ async function getPublicStats(
   if (budget.remaining <= 0) {
     // Serve a stale figure rather than blowing the request budget. All-time is
     // still valid (it only ever grows); the current streak may be a day out.
+    budget.skipped++;
     if (cached) {
       return {
         currentStreak: (cached.currentStreak as number) ?? 0,
@@ -253,7 +281,7 @@ export async function getLeaderboard(viewerUid: string): Promise<LeaderboardResu
   // outside them is affected.
   const sharedPrivate = viewerChallenges.filter(isPrivate);
 
-  const budget = { remaining: MAX_RECOMPUTES_PER_REQUEST };
+  const budget = { remaining: MAX_RECOMPUTES_PER_REQUEST, skipped: 0 };
   const uids = [...peerUids];
 
   let viewerHidden = false;
@@ -317,9 +345,15 @@ export async function getLeaderboard(viewerUid: string): Promise<LeaderboardResu
     })
   );
 
-  if (budget.remaining <= 0) {
+  // Counts peers actually turned away, not merely a budget that landed on
+  // zero: warning whenever the last recompute happened to be the twelfth
+  // cried wolf on complete boards, which is how a real partial board stops
+  // being noticed.
+  if (budget.skipped > 0) {
     console.warn(
-      `leaderboard for ${viewerUid}: hit the recompute cap, some entries served stale`
+      `leaderboard for ${viewerUid}: hit the recompute cap, ${budget.skipped} ${
+        budget.skipped === 1 ? "entry" : "entries"
+      } served stale`
     );
   }
 

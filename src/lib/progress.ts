@@ -1,4 +1,4 @@
-import { addDaysYmd, daysBetweenInclusive, todayYmd } from "@/lib/dates";
+import { addDaysYmd, daysBetweenInclusive, formatYmd, todayYmd } from "@/lib/dates";
 import type { Challenge } from "@/lib/types";
 
 export type ChallengeState =
@@ -200,6 +200,87 @@ export function skipsUsed(
   return weeklyWindows(challenge, checkinYmds, today, memberJoinedDate)
     .filter((w) => w.state === "past-incomplete")
     .reduce((sum, w) => sum + Math.max(0, w.target - w.count), 0);
+}
+
+export interface HabitWeekDay {
+  ymd: string;
+  /** Narrow weekday initial for that actual date — F for a Friday, not a fixed grid. */
+  letter: string;
+  /** "inactive": inside the window but before this member joined — never a miss. */
+  state: "done" | "missed" | "today" | "future" | "inactive";
+}
+
+export interface HabitWeek {
+  index: number; // 1-based, within the habit's own window grid
+  totalWeeks: number;
+  start: string;
+  end: string;
+  days: HabitWeekDay[];
+  /** Check-ins landed so far this window. */
+  count: number;
+  /** What this window asks of this member (prorated if they joined into it). */
+  target: number;
+}
+
+/**
+ * The habit's *current* seven days — its own week, not the calendar's.
+ *
+ * The windows are anchored to `startDate` for every purpose that matters
+ * (adjudication, skips, the History list), so a habit that began on a Friday
+ * runs Friday-to-Thursday and its second week starts the following Friday.
+ * The dashboard's "This week" strip is Monday-anchored on purpose — it spans
+ * every habit at once, so it has no single start day to follow — which left
+ * nowhere in the app showing a habit's week the way the habit actually
+ * counts it.
+ *
+ * Before the habit starts this reports week 1, and after it ends the final
+ * week, so the strip always has something true to show rather than vanishing
+ * at exactly the moments people go looking at it.
+ */
+export function habitWeek(
+  challenge: Challenge,
+  checkinYmds: readonly string[],
+  today: string,
+  memberJoinedDate?: string
+): HabitWeek | null {
+  const bounds = weekWindowBounds(challenge);
+  if (bounds.length === 0) return null;
+
+  let index = bounds.findIndex((w) => today >= w.start && today <= w.end);
+  if (index === -1) index = today < challenge.startDate ? 0 : bounds.length - 1;
+  const { start, end } = bounds[index];
+
+  const memberStart = effectiveStart(challenge, memberJoinedDate);
+  const done = new Set(checkinYmds);
+  const days: HabitWeekDay[] = [];
+  for (let i = 0; i < 7; i++) {
+    const ymd = addDaysYmd(start, i);
+    const letter = formatYmd(ymd, "EEEEE");
+    let state: HabitWeekDay["state"];
+    if (done.has(ymd)) state = "done";
+    else if (ymd < memberStart) state = "inactive";
+    else if (ymd === today) state = "today";
+    else if (ymd < today) state = "missed";
+    else state = "future";
+    days.push({ ymd, letter, state });
+  }
+
+  // Daily habits store frequency.target as 1 (see createChallengeAdmin), so
+  // their real requirement is "every day you're a member", not that number.
+  const target =
+    challenge.frequency.type === "daily"
+      ? days.filter((d) => d.state !== "inactive").length
+      : windowRequirement(challenge.frequency.target, start, end, memberStart);
+
+  return {
+    index: index + 1,
+    totalWeeks: bounds.length,
+    start,
+    end,
+    days,
+    count: days.filter((d) => d.state === "done").length,
+    target,
+  };
 }
 
 /**

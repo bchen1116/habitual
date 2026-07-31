@@ -17,6 +17,8 @@ interface HabitRowProps {
   uid: string;
   timezone: string;
   checkins: CheckinRecord[]; // this user's checkins for this challenge
+  /** This user's joinedDate on this challenge, for the streak math. */
+  joinedDate?: string;
   onError: (message: string | null) => void;
 }
 
@@ -27,12 +29,19 @@ interface HabitRowProps {
  * they're no longer actionable but haven't left the active-challenges query
  * yet (that happens once the nightly cron adjudicates them).
  */
-export function HabitRow({ challenge, uid, timezone, checkins, onError }: HabitRowProps) {
+export function HabitRow({
+  challenge,
+  uid,
+  timezone,
+  checkins,
+  joinedDate,
+  onError,
+}: HabitRowProps) {
   const today = todayYmd(timezone);
   const checkinYmds = checkins.map((c) => c.localDate);
   const state = challengeState(challenge, today);
-  const summary = progressSummary(challenge, checkinYmds, timezone);
-  const { streak } = useChainStreak(challenge, uid, checkinYmds, today);
+  const summary = progressSummary(challenge, checkinYmds, timezone, joinedDate);
+  const { streak } = useChainStreak(challenge, uid, checkinYmds, today, joinedDate);
 
   // Pops the ring only on a genuine active -> done transition, not on a
   // page load where the habit was already checked in earlier.

@@ -45,6 +45,7 @@ export function useChallengeHistory(uid: string): ChallengeHistory {
               challenge,
               outcome: member?.outcome ?? null,
               completedCount: member?.completedCount ?? 0,
+              joinedDate: member?.joinedDate,
             };
           })
         );

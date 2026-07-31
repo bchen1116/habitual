@@ -41,6 +41,19 @@ function clientChainReader(db: Firestore): ChainReader {
         return [];
       }
     },
+    async getJoinedDate(challengeId, uid) {
+      try {
+        const snap = await getDoc(
+          doc(db, "challenges", challengeId, "members", uid)
+        );
+        return snap.data()?.joinedDate as string | undefined;
+      } catch {
+        // Same swallow as above: undefined means "treat them as having been
+        // here from the start", which is exactly what a member doc predating
+        // the field means anyway.
+        return undefined;
+      }
+    },
   };
 }
 
