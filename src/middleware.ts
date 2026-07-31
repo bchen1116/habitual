@@ -39,5 +39,6 @@ export const config = {
     "/ledger/:path*",
     "/settings/:path*",
     "/stats/:path*",
+    "/u/:path*",
   ],
 };

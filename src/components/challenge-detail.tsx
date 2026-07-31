@@ -747,7 +747,10 @@ function MembersCard({
       <CardContent className="flex flex-col gap-3">
         {rows.map((row) => (
           <div key={row.uid} className="flex items-center gap-3">
-            <span className="flex-1 truncate text-sm">
+            <Link
+              href={`/u/${row.uid}`}
+              className="flex-1 truncate text-sm hover:underline"
+            >
               <span className={row.uid === selfUid ? "font-semibold" : ""}>
                 {row.displayName}
                 {row.uid === selfUid ? " (you)" : ""}
@@ -757,7 +760,7 @@ function MembersCard({
                   @{row.username}
                 </span>
               )}
-            </span>
+            </Link>
             {row.outcome === "succeeded" && (
               <span className="text-xs font-bold text-foreground">Succeeded ✓</span>
             )}
