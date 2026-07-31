@@ -166,7 +166,13 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   const today = todayYmd(timezone);
   // Hook, so it has to run unconditionally — ahead of the loading/not-found
   // early returns below, which is why it takes a possibly-null challenge.
-  const { streak: creatorStreak, weeks: creatorWeeks } = useChainStreak(challenge, uid, checkinYmds, today);
+  const { streak: creatorStreak, weeks: creatorWeeks } = useChainStreak(
+    challenge,
+    uid,
+    checkinYmds,
+    today,
+    member?.joinedDate
+  );
   const reflectionsByDate = useMemo(
     () => new Map(reflections.map((r) => [r.localDate, r])),
     [reflections]

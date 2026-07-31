@@ -39,6 +39,7 @@ export function TodayView({
   const {
     challenges,
     checkinsByChallenge,
+    joinedDateByChallenge,
     loading,
     error: loadError,
   } = useActiveChallengeCheckins(uid);
@@ -56,7 +57,13 @@ export function TodayView({
       records.map((r) => r.localDate),
     ])
   );
-  const heroStreak = useMaxChainStreak(activeChallenges, uid, checkinYmdsByChallenge, today);
+  const heroStreak = useMaxChainStreak(
+    activeChallenges,
+    uid,
+    checkinYmdsByChallenge,
+    today,
+    joinedDateByChallenge
+  );
 
   const activityYmds = new Set(Object.values(checkinYmdsByChallenge).flat());
   const days = weekStripDays(activityYmds, today);
@@ -141,6 +148,7 @@ export function TodayView({
                 uid={uid}
                 timezone={timezone}
                 checkins={checkinsByChallenge[challenge.id] ?? []}
+                joinedDate={joinedDateByChallenge[challenge.id]}
                 onError={setError}
               />
             ))}

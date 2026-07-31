@@ -21,6 +21,7 @@ export function StatsView({ uid }: { uid: string }) {
   const {
     challenges,
     checkinsByChallenge,
+    joinedDateByChallenge,
     loading,
     error: activeError,
   } = useActiveChallengeCheckins(uid);
@@ -71,7 +72,12 @@ export function StatsView({ uid }: { uid: string }) {
     (sum, records) => sum + records.length,
     0
   );
-  const longestActiveStreak = maxLongestStreak(activeChallenges, checkinYmdsByChallenge, today);
+  const longestActiveStreak = maxLongestStreak(
+    activeChallenges,
+    checkinYmdsByChallenge,
+    today,
+    joinedDateByChallenge
+  );
 
   // Ratings span everything the user has ever run, not just what's live — the
   // whole point of the section is the long view. Held until both sources have

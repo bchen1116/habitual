@@ -17,6 +17,15 @@ export interface ChainReader {
   /** Null when the doc is missing OR unreadable — a client can't read an ancestor cycle it wasn't a member of. */
   getChallenge(id: string): Promise<Challenge | null>;
   getCheckinYmds(challengeId: string, uid: string): Promise<string[]>;
+  /**
+   * The member's own joinedDate on that cycle, or undefined if they weren't in
+   * it (or the doc predates the field). Needed so an ancestor cycle someone
+   * joined partway through is judged the same way their current one is —
+   * repeatChallengeAdmin stamps joinedDate = the new cycle's startDate for
+   * everyone carried over, so this only differs for someone who joined that
+   * particular cycle late.
+   */
+  getJoinedDate(challengeId: string, uid: string): Promise<string | undefined>;
 }
 
 /**
@@ -54,7 +63,13 @@ export async function walkChainWith(
     if (addDaysYmd(ancestor.endDate, 1) !== childStartDate) break; // gap: repeated late
 
     const ymds = await reader.getCheckinYmds(ancestor.id, uid);
-    const run = streakRun(ancestor, ymds, addDaysYmd(ancestor.endDate, 1));
+    const joinedDate = await reader.getJoinedDate(ancestor.id, uid);
+    const run = streakRun(
+      ancestor,
+      ymds,
+      addDaysYmd(ancestor.endDate, 1),
+      joinedDate
+    );
     streak += run.streak;
     spanDays += run.spanDays;
 
