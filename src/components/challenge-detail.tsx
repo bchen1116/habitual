@@ -17,6 +17,7 @@ import { useUserTimezone } from "@/hooks/use-user-timezone";
 import {
   challengeState,
   dailyHistory,
+  habitWeek,
   progressSummary,
   recentWindow,
   skipsUsed,
@@ -30,6 +31,7 @@ import { useChainStreak } from "@/hooks/use-chain-streak";
 import type { Challenge, ChallengeMember, JoinRequest, Reflection } from "@/lib/types";
 import { CheckinDialog } from "@/components/checkin-dialog";
 import { EditChallengeDialog } from "@/components/edit-challenge-dialog";
+import { HabitWeekStrip } from "@/components/habit-week-strip";
 import { MissReasonDialog } from "@/components/miss-reason-dialog";
 import { RateSessionDialog } from "@/components/rate-session-dialog";
 import { RepeatChallengeDialog } from "@/components/repeat-challenge-dialog";
@@ -196,6 +198,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
 
   const state = challengeState(challenge, today);
   const summary = progressSummary(challenge, checkinYmds, timezone, member?.joinedDate);
+  const currentWeek = habitWeek(challenge, checkinYmds, today, member?.joinedDate);
   const isCreator = challenge.createdBy === uid;
   // Cancel (soft: keeps a "Cancelled" record) only makes sense for group
   // challenges, where other members might already be watching for one. A
@@ -536,6 +539,15 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
                 }}
               />
             </div>
+            {/* The habit's own week, not the calendar's — a Friday-start habit
+                runs Friday to Thursday, and until now nothing on this screen
+                said so. Sits under the overall bar because it answers the
+                nearer question: what's left in the week you're actually in. */}
+            {currentWeek && (
+              <div className="mt-1">
+                <HabitWeekStrip week={currentWeek} />
+              </div>
+            )}
             {summary.canCheckInToday && (
               <div>
                 <CheckinDialog
