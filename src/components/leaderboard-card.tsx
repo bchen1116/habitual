@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Avatar } from "@/components/ui/avatar";
 import { GooeyLoader } from "@/components/ui/loader-10";
 import { cn } from "@/lib/utils";
@@ -245,7 +246,12 @@ function Row({
         ring="none"
         className="bg-ink-panel text-white"
       />
-      <span className="min-w-0 flex-1 truncate text-sm">
+      {/* The whole name block is the target rather than just the text, so a
+          thumb has something to hit. */}
+      <Link
+        href={`/u/${entry.uid}`}
+        className="min-w-0 flex-1 truncate text-sm hover:underline"
+      >
         <span className="font-bold text-white">
           {entry.displayName}
           {entry.isSelf ? " (you)" : ""}
@@ -253,7 +259,7 @@ function Row({
         {entry.username && (
           <span className="ml-1 text-xs text-ink-label">@{entry.username}</span>
         )}
-      </span>
+      </Link>
       <span className="flex shrink-0 flex-col items-end leading-tight">
         <span className="text-sm">
           <span

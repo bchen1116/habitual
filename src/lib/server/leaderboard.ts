@@ -40,7 +40,7 @@ export interface LeaderboardEntry {
   isSelf: boolean;
 }
 
-interface StreakPair {
+export interface StreakPair {
   currentStreak: number;
   /** Calendar span of the current streak, in whole weeks. */
   currentStreakWeeks: number;
@@ -57,7 +57,7 @@ interface StreakPair {
  */
 const MAX_RECOMPUTES_PER_REQUEST = 12;
 
-function adminChainReader(db: Firestore): ChainReader {
+export function adminChainReader(db: Firestore): ChainReader {
   return {
     async getChallenge(id) {
       const snap = await db.collection("challenges").doc(id).get();
@@ -92,7 +92,10 @@ function adminChainReader(db: Firestore): ChainReader {
  * lean on the composite index) this also picks up `cancelled` ones without a
  * new index entry.
  */
-async function challengesForUser(db: Firestore, uid: string): Promise<Challenge[]> {
+export async function challengesForUser(
+  db: Firestore,
+  uid: string
+): Promise<Challenge[]> {
   const snap = await db
     .collection("challenges")
     .where("memberIds", "array-contains", uid)
@@ -100,7 +103,7 @@ async function challengesForUser(db: Firestore, uid: string): Promise<Challenge[
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Challenge);
 }
 
-function isPrivate(challenge: Challenge): boolean {
+export function isPrivate(challenge: Challenge): boolean {
   return challenge.visibility === "private";
 }
 
@@ -158,7 +161,7 @@ async function chainLongestStreak(
 }
 
 /** Best current + best all-time across a given set of habits. */
-async function computeStreaks(
+export async function computeStreaks(
   db: Firestore,
   uid: string,
   challenges: Challenge[],
