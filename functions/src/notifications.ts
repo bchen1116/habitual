@@ -5,7 +5,10 @@ import * as logger from "firebase-functions/logger";
 export type NotificationCategory =
   | "groupActivity"
   | "challengeLifecycle"
-  | "ledger";
+  | "ledger"
+  // The evening "anything still unchecked?" nudge — the only daily one, and
+  // so the one most worth being able to turn off on its own.
+  | "dailyReminder";
 
 interface PushContent {
   title: string;
