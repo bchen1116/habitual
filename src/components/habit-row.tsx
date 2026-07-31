@@ -5,7 +5,7 @@ import { Check } from "lucide-react";
 import { motion } from "framer-motion";
 import { formatInTimeZone } from "date-fns-tz";
 import { CheckinDialog } from "@/components/checkin-dialog";
-import { challengeState, progressSummary } from "@/lib/progress";
+import { challengeState, habitWeek, progressSummary } from "@/lib/progress";
 import { useChainStreak } from "@/hooks/use-chain-streak";
 import { formatYmd, todayYmd } from "@/lib/dates";
 import { Badge } from "@/components/ui/badge";
@@ -42,6 +42,13 @@ export function HabitRow({
   const state = challengeState(challenge, today);
   const summary = progressSummary(challenge, checkinYmds, timezone, joinedDate);
   const { streak } = useChainStreak(challenge, uid, checkinYmds, today, joinedDate);
+  // An N×/week habit whose week is already satisfied but whose day is still
+  // open. Checking in was always allowed here — the only gate is one per day —
+  // so the row says so rather than leaving "Don't break it" to imply there's
+  // still an obligation, or the met target to imply the week is closed.
+  const week = habitWeek(challenge, checkinYmds, today, joinedDate);
+  const weekAlreadyMet =
+    challenge.frequency.type === "weekly_count" && !!week && week.count >= week.target;
 
   // Pops the ring only on a genuine active -> done transition, not on a
   // page load where the habit was already checked in earlier.
@@ -106,12 +113,16 @@ export function HabitRow({
         <p className="truncate text-[17px] font-extrabold lg:text-[19px]">
           {challenge.name}
         </p>
-        <div className="mt-1 flex min-w-0 items-center gap-1.5">
+        {/* Wraps rather than truncates: the check-in button is wide and this
+            column is what gives way, so on a phone `truncate` clipped even
+            "Don't break it" down to "D." — the line has effectively never
+            been readable at mobile width. */}
+        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
           <Badge variant="volt" className="shrink-0">
             Streak {streak}
           </Badge>
-          <span className="type-overline truncate text-xs text-muted-foreground">
-            Don&apos;t break it
+          <span className="type-overline text-xs text-muted-foreground">
+            {weekAlreadyMet ? "Extras count" : "Don't break it"}
           </span>
         </div>
       </div>

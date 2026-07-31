@@ -20,6 +20,11 @@ import { cn } from "@/lib/utils";
  */
 export function HabitWeekStrip({ week }: { week: HabitWeek }) {
   const complete = week.count >= week.target;
+  // Hitting the target has never stopped anyone checking in — the only gate is
+  // one per day — but a bold "5/5" reads as "done, stop", so days done beyond
+  // it are counted out loud instead of disappearing into a number that already
+  // looks finished. They're real: each one adds a day to the streak.
+  const extra = week.count - week.target;
   return (
     <div>
       <div className="flex items-baseline justify-between gap-2">
@@ -34,6 +39,11 @@ export function HabitWeekStrip({ week }: { week: HabitWeek }) {
           )}
         >
           {week.count}/{week.target}
+          {extra > 0 && (
+            <span className="ml-1 font-normal text-muted-foreground">
+              +{extra} extra
+            </span>
+          )}
         </span>
       </div>
 
