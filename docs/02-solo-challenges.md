@@ -63,6 +63,8 @@ Clarifying because these matter for adjudication in step 3:
 
 Sequential windows anchored to `startDate` (not calendar weeks) avoid timezone-sensitive week boundaries (Sun–Sat vs Mon–Sun etc.). They're also more forgiving than a true rolling-window constraint while still preventing someone from front-loading all their check-ins into week one.
 
+The grid stays anchored to `startDate` for every member, including late joiners, but each member's **requirement per window** is resolved individually by `windowRequirement()` — windows that ended before they joined are waived, and the window they joined into is prorated to the days they actually had (see docs/03). Without that proration a mid-week joiner could owe more check-ins than there are days left, which is unsatisfiable at one check-in per day.
+
 ## Backend
 
 **Firestore rules:**

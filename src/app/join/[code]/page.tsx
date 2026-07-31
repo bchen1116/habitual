@@ -108,6 +108,8 @@ export default async function JoinPage({
                   <p className="text-muted-foreground">
                     Already in progress — join now and your count starts today,
                     not from the original start date.
+                    {preview.frequencyType === "weekly_count" &&
+                      " If you land partway through a week, that week's target is scaled down to the days you have."}
                   </p>
                 )}
               </CardContent>
