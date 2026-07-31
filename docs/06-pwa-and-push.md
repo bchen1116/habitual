@@ -33,7 +33,11 @@ notificationPrefs: {
   groupActivity: bool
   challengeLifecycle: bool
   ledger: bool
+  dailyReminder: bool         # the evening "anything unchecked?" nudge
 }
+reminderHour: number | null   # 16-23, local; absent means 22 (10 PM)
+lastReminderYmd: string | null # yyyymmdd of the last evening nudge sent, so a
+                               # redelivery can't buzz twice for one evening
 notificationPromptShownAt: timestamp | null    # for "don't spam the prompt" logic
 ```
 
@@ -89,10 +93,21 @@ Same triggers as before, but sending via **FCM Web** to the user's `fcmToken`:
    - If `toType == "user"`: push to `toUid`: "[fromName] marked $10 as settled"
 
 4. **`sendDailyLifecycleNotifications`** (scheduled hourly at :00 UTC)
-   - Reads `users` grouped by `timezone`
+   - Reads `users` grouped by `timezone`; one pass covers both hours below, so a
+     user's timezone and challenge list are read once
    - For users whose local hour is 09:
      - Challenges starting today → "Your challenge '[name]' starts today"
      - Challenges ending tomorrow with pending check-ins → "Last day! Check in for [name]"
+   - For users whose local hour is their own `reminderHour` (default 22):
+     - One push covering every habit still unchecked today, or none at all.
+       Anchored to the user's timezone because that is where the day actually
+       closes — at local midnight each habit is fixed as done or missed.
+     - A `weekly_count` habit whose window has already hit its target is left
+       alone; the requirement comes from the same `windowRequirement` used by
+       adjudication, so the nudge can never ask for a check-in the money layer
+       doesn't want. Wording escalates only when today is the last day that can
+       still keep the week whole.
+     - `lastReminderYmd` guards against a double send for one local day.
 
 5. **`adjudicateEndedChallenges`** (existing, extended)
    - After creating ledger entries, push to each member: "Results are in for [challenge]"

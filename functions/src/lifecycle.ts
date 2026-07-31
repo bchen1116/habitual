@@ -1,6 +1,13 @@
 import { getFirestore } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { sendPush } from "./notifications";
+import {
+  currentWindow,
+  needsCheckinToday,
+  reminderContent,
+  reminderHourFor,
+  type ReminderChallenge,
+} from "./reminders";
 
 /** The user's current hour (0-23) in their IANA timezone. */
 function localHour(now: Date, timeZone: string): number | null {
@@ -35,10 +42,20 @@ function localYmd(now: Date, timeZone: string): string | null {
 }
 
 /**
- * Runs hourly; for every push-enabled user whose local time is 09:xx,
- * nudges about challenges starting today and last-day pending check-ins
- * (docs/06 — "ending in 24 hours with pending check-ins", interpreted as
- * a 9am nudge on the final day when today's check-in is still missing).
+ * Runs hourly, and does two things off the same pass over push-enabled users
+ * so their timezone and challenge list are only read once:
+ *
+ * - At 09:xx local, the lifecycle nudges — challenges starting today, and
+ *   last-day pending check-ins (docs/06).
+ * - At the user's own reminder hour (default 22:00 local, changeable in
+ *   Settings), one nudge covering everything still unchecked before their day
+ *   ends. This is the moment that actually matters: at midnight *in their
+ *   timezone* the day closes and each habit is fixed as done or missed, so
+ *   the reminder is anchored to that boundary rather than to a server hour.
+ *
+ * Timezones offset by 30 or 45 minutes (India, Nepal, Chatham) get theirs at
+ * :30 or :45 past, since the schedule fires on the UTC hour. Each still maps
+ * to exactly one local hour per day, so nobody is nudged twice or skipped.
  */
 export async function sendDailyLifecycleNotifications(now: Date): Promise<void> {
   const db = getFirestore();
@@ -58,7 +75,10 @@ export async function sendDailyLifecycleNotifications(now: Date): Promise<void> 
   for (const userDoc of users.docs) {
     const user = userDoc.data();
     const timeZone = (user.timezone as string | undefined) ?? "UTC";
-    if (localHour(now, timeZone) !== 9) continue;
+    const hour = localHour(now, timeZone);
+    const isLifecycleHour = hour === 9;
+    const isReminderHour = hour === reminderHourFor(user.reminderHour);
+    if (!isLifecycleHour && !isReminderHour) continue;
     const today = localYmd(now, timeZone);
     if (!today) continue;
 
@@ -69,35 +89,112 @@ export async function sendDailyLifecycleNotifications(now: Date): Promise<void> 
         .where("status", "==", "active")
         .get();
 
-      for (const challengeDoc of challenges.docs) {
-        const challenge = challengeDoc.data();
+      if (isLifecycleHour) {
+        for (const challengeDoc of challenges.docs) {
+          const challenge = challengeDoc.data();
 
-        if (challenge.startDate === today) {
-          await sendPush(userDoc.id, {
-            title: "Challenge starts today",
-            body: `"${challenge.name}" begins — day one is today.`,
-            targetUrl: `/challenges/${challengeDoc.id}`,
-            category: "challengeLifecycle",
-          });
-        }
-
-        if (challenge.endDate === today) {
-          const checkin = await challengeDoc.ref
-            .collection("checkins")
-            .doc(`${today}_${userDoc.id}`)
-            .get();
-          if (!checkin.exists) {
+          if (challenge.startDate === today) {
             await sendPush(userDoc.id, {
-              title: "Last day!",
-              body: `Final check-in for "${challenge.name}" — don't lose your stake now.`,
+              title: "Challenge starts today",
+              body: `"${challenge.name}" begins — day one is today.`,
               targetUrl: `/challenges/${challengeDoc.id}`,
               category: "challengeLifecycle",
             });
           }
+
+          if (challenge.endDate === today) {
+            const checkin = await challengeDoc.ref
+              .collection("checkins")
+              .doc(`${today}_${userDoc.id}`)
+              .get();
+            if (!checkin.exists) {
+              await sendPush(userDoc.id, {
+                title: "Last day!",
+                body: `Final check-in for "${challenge.name}" — don't lose your stake now.`,
+                targetUrl: `/challenges/${challengeDoc.id}`,
+                category: "challengeLifecycle",
+              });
+            }
+          }
         }
+      }
+
+      if (isReminderHour) {
+        await sendCheckinReminder(userDoc, challenges.docs, today);
       }
     } catch (err) {
       logger.warn(`lifecycle notifications failed for user ${userDoc.id}`, err);
     }
   }
+}
+
+/**
+ * One evening push covering every habit still unchecked, or none at all.
+ *
+ * `lastReminderYmd` makes it idempotent per local day: this trigger sets no
+ * `retry`, but a redelivery or an overlapping run would otherwise buzz twice
+ * for the same evening, and a reminder that double-fires is one people
+ * silence rather than re-configure.
+ */
+async function sendCheckinReminder(
+  userDoc: FirebaseFirestore.QueryDocumentSnapshot,
+  challengeDocs: FirebaseFirestore.QueryDocumentSnapshot[],
+  today: string
+): Promise<void> {
+  if (userDoc.data().lastReminderYmd === today) return;
+
+  const outstanding: { name: string; urgent: boolean }[] = [];
+  let onlyChallengeId: string | null = null;
+
+  for (const challengeDoc of challengeDocs) {
+    const data = challengeDoc.data();
+    const challenge: ReminderChallenge = {
+      id: challengeDoc.id,
+      name: data.name,
+      frequency: data.frequency,
+      startDate: data.startDate,
+      endDate: data.endDate,
+    };
+
+    // Only this member's current window is needed. Filtering by localDate
+    // alone keeps it on the auto-created single-field index — a uid equality
+    // plus a date range would need a composite one deployed first, and a
+    // week of a group's check-ins is small enough to filter in memory.
+    const window = currentWindow(challenge, today);
+    if (!window) continue;
+    const snap = await challengeDoc.ref
+      .collection("checkins")
+      .where("localDate", ">=", window.start)
+      .where("localDate", "<=", window.end)
+      .get();
+    const mine = snap.docs
+      .map((d) => d.data())
+      .filter((c) => c.uid === userDoc.id)
+      .map((c) => c.localDate as string);
+
+    const memberSnap = await challengeDoc.ref
+      .collection("members")
+      .doc(userDoc.id)
+      .get();
+
+    const verdict = needsCheckinToday(
+      challenge,
+      memberSnap.data()?.joinedDate as string | undefined,
+      today,
+      mine
+    );
+    if (!verdict.needed) continue;
+    outstanding.push({ name: challenge.name, urgent: verdict.urgent });
+    onlyChallengeId = outstanding.length === 1 ? challengeDoc.id : null;
+  }
+
+  const content = reminderContent(outstanding);
+  if (!content) return;
+
+  await sendPush(userDoc.id, {
+    ...content,
+    targetUrl: onlyChallengeId ? `/challenges/${onlyChallengeId}` : "/dashboard",
+    category: "dailyReminder",
+  });
+  await userDoc.ref.update({ lastReminderYmd: today });
 }
