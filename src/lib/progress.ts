@@ -44,6 +44,38 @@ function weekWindowBounds(challenge: Challenge): { start: string; end: string }[
   });
 }
 
+/**
+ * How many check-ins one 7-day window actually demands of one member.
+ *
+ * Windows that concluded before they joined are waived outright, and windows
+ * that begin on or after their start owe the full target. The interesting
+ * case is the window they land in the middle of, which is prorated by the
+ * days they actually have.
+ *
+ * The `daysAvailable` cap is the part that matters most: only one check-in
+ * can exist per member per day (the doc id is `${localDate}_${uid}`), so
+ * without it a 5×/week habit joined on a Saturday would owe 5 check-ins
+ * across 2 remaining days — a shortfall charged for something no amount of
+ * effort could have prevented, and one that could fail the whole challenge
+ * and move real money before the member had lived a single full week.
+ * `ceil` keeps the prorated figure demanding rather than generous, and the
+ * result is never 0, so joining mid-window is never a free pass either.
+ *
+ * Mirrored in functions/src/adjudicate.ts — that copy is the one that decides
+ * money, this one is what the UI promises. They have to agree.
+ */
+export function windowRequirement(
+  target: number,
+  windowStart: string,
+  windowEnd: string,
+  memberStart: string
+): number {
+  if (windowEnd < memberStart) return 0;
+  if (windowStart >= memberStart) return target;
+  const daysAvailable = daysBetweenInclusive(memberStart, windowEnd);
+  return Math.min(daysAvailable, Math.ceil((target * daysAvailable) / 7));
+}
+
 /** Total check-ins needed to fully complete the challenge, from a member's own effective start onward. */
 export function totalRequired(challenge: Challenge, memberJoinedDate?: string): number {
   const start = effectiveStart(challenge, memberJoinedDate);
@@ -51,11 +83,11 @@ export function totalRequired(challenge: Challenge, memberJoinedDate?: string): 
   if (challenge.frequency.type === "daily") {
     return daysBetweenInclusive(start, challenge.endDate);
   }
-  // A late joiner still owes a full week's target for the window they joined
-  // mid-way through (no proration) — only windows that fully concluded
-  // before they joined are waived entirely.
-  const relevantWeeks = weekWindowBounds(challenge).filter((w) => w.end >= start).length;
-  return challenge.frequency.target * relevantWeeks;
+  return weekWindowBounds(challenge).reduce(
+    (sum, w) =>
+      sum + windowRequirement(challenge.frequency.target, w.start, w.end, start),
+    0
+  );
 }
 
 export interface DayEntry {
@@ -94,7 +126,10 @@ export interface WindowEntry {
   start: string;
   end: string;
   count: number;
+  /** This member's requirement for the window — prorated if they joined into it. */
   target: number;
+  /** True when `target` is below the challenge's, i.e. they joined mid-window. */
+  prorated: boolean;
   state: "complete" | "current" | "past-incomplete" | "future";
 }
 
@@ -112,17 +147,26 @@ export function weeklyWindows(
   memberJoinedDate?: string
 ): WindowEntry[] {
   const start = effectiveStart(challenge, memberJoinedDate);
-  const target = challenge.frequency.target;
+  const fullTarget = challenge.frequency.target;
   const windows: WindowEntry[] = [];
   weekWindowBounds(challenge).forEach((bounds, w) => {
     if (bounds.end < start) return;
+    const target = windowRequirement(fullTarget, bounds.start, bounds.end, start);
     const count = checkinYmds.filter((d) => d >= bounds.start && d <= bounds.end).length;
     let state: WindowEntry["state"];
     if (count >= target) state = "complete";
     else if (today > bounds.end) state = "past-incomplete";
     else if (today >= bounds.start) state = "current";
     else state = "future";
-    windows.push({ index: w + 1, start: bounds.start, end: bounds.end, count, target, state });
+    windows.push({
+      index: w + 1,
+      start: bounds.start,
+      end: bounds.end,
+      count,
+      target,
+      prorated: target < fullTarget,
+      state,
+    });
   });
   return windows;
 }

@@ -48,13 +48,41 @@ function effectiveStart(challenge: ChallengeData, memberJoinedDate?: string): st
 }
 
 /**
+ * How many check-ins one 7-day window demands of one member: nothing if it
+ * concluded before they joined, the full target if it began on or after they
+ * joined, and otherwise prorated by the days they actually had.
+ *
+ * The `daysAvailable` cap is the point. Only one check-in can exist per
+ * member per day (the doc id is `${localDate}_${uid}`), so without it a
+ * 5×/week habit joined on a Saturday would owe 5 check-ins across 2 days —
+ * a shortfall this function would charge, and one large enough to fail the
+ * challenge and move real money, for something no amount of effort could
+ * have prevented. `ceil` keeps the prorated figure demanding, and it never
+ * reaches 0, so joining late is not a way to buy a free week either.
+ *
+ * Mirrors windowRequirement() in src/lib/progress.ts (this Cloud Function
+ * shares no package with the Next app). The two must agree — this copy
+ * decides the money, that one makes the promise the member sees.
+ */
+export function windowRequirement(
+  target: number,
+  windowStart: string,
+  windowEnd: string,
+  memberStart: string
+): number {
+  if (windowEnd < memberStart) return 0;
+  if (windowStart >= memberStart) return target;
+  const daysAvailable = daysBetweenInclusive(memberStart, windowEnd);
+  return Math.min(daysAvailable, Math.ceil((target * daysAvailable) / 7));
+}
+
+/**
  * Missed check-ins per docs/03. Daily: required = day count from the
  * member's own effective start. weekly_count: sequential 7-day windows from
  * the challenge's startDate (whole-week durations enforced at creation) —
- * the grid itself never shifts, but windows that fully concluded before the
- * member's effective start are waived entirely; a window they joined
- * mid-way through still owes the full target, no proration. Per-window
- * shortfalls summed, so front-loading week one doesn't satisfy later ones.
+ * the grid itself never shifts, but each window's requirement is resolved
+ * per member by windowRequirement above. Per-window shortfalls summed, so
+ * front-loading week one doesn't satisfy later ones.
  */
 export function computeMissed(
   challenge: ChallengeData,
@@ -81,8 +109,9 @@ export function computeMissed(
     const windowStart = addDaysYmd(challenge.startDate, w * 7);
     const windowEnd = addDaysYmd(windowStart, 6);
     if (windowEnd < start) continue;
+    const required = windowRequirement(target, windowStart, windowEnd, start);
     const count = inRange.filter((d) => d >= windowStart && d <= windowEnd).length;
-    missed += Math.max(0, target - count);
+    missed += Math.max(0, required - count);
   }
   return { missed, completed: inRange.length };
 }

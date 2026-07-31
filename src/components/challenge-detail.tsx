@@ -926,10 +926,19 @@ function WeeklyWindowList({
         // A weekly habit misses a window, not a day, so the reflection for one
         // is keyed on the window's start date.
         const explained = Boolean(reflectionsByDate.get(w.start)?.missReason);
+        // Without this, a prorated week reads as "2/2" beside its neighbours'
+        // "5/5" with nothing to explain the different denominator — which
+        // looks like a bug rather than the fairness adjustment it is.
+        const proratedNote = w.prorated
+          ? `You joined partway through this week, so ${w.target} of the usual ${challenge.frequency.target} were required.`
+          : undefined;
         const label = (
           <>
-            <span>
+            <span className="min-w-0">
               Week {w.index} · {formatYmd(w.start)} – {formatYmd(w.end)}
+              {w.prorated && (
+                <span className="text-muted-foreground"> · joined mid-week</span>
+              )}
             </span>
             <span
               className={
@@ -949,6 +958,7 @@ function WeeklyWindowList({
           return (
             <div
               key={w.index}
+              title={proratedNote}
               className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
             >
               {label}
@@ -961,9 +971,10 @@ function WeeklyWindowList({
             key={w.index}
             type="button"
             onClick={() => onSelectMiss(w.start)}
+            title={proratedNote}
             aria-label={`Week ${w.index}, ${w.count} of ${w.target}. ${
-              explained ? "Reason noted — edit it." : "Note what got in the way."
-            }`}
+              proratedNote ? proratedNote + " " : ""
+            }${explained ? "Reason noted — edit it." : "Note what got in the way."}`}
             className={
               "flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" +
               (explained ? " border-destructive/40" : "")
