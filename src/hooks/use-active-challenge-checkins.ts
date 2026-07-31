@@ -80,7 +80,15 @@ export function useActiveChallengeCheckins(uid: string): ActiveChallengeActivity
               completedAtMs:
                 (c.completedAt?.toMillis?.() as number | undefined) ?? null,
             }));
-          setCheckinsByChallenge((prev) => ({ ...prev, [id]: records }));
+          // Keyed to the challenges currently active, so a habit that has since
+          // been adjudicated or cancelled drops out instead of accumulating
+          // for the life of the session — its listener is already gone by the
+          // time this runs, so its entry could never be refreshed again.
+          setCheckinsByChallenge((prev) => {
+            const next: Record<string, CheckinRecord[]> = { [id]: records };
+            for (const key of ids) if (key !== id && prev[key]) next[key] = prev[key];
+            return next;
+          });
         },
         (err) => console.error(`checkins query failed for challenge ${id}:`, err)
       )

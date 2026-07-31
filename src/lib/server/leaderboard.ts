@@ -186,7 +186,7 @@ async function getPublicStats(
   db: Firestore,
   uid: string,
   today: string,
-  budget: { remaining: number }
+  budget: { remaining: number; skipped: number }
 ): Promise<StreakPair> {
   const ref = db.collection("userStreakStats").doc(uid);
   const snap = await ref.get();
@@ -203,6 +203,7 @@ async function getPublicStats(
   if (budget.remaining <= 0) {
     // Serve a stale figure rather than blowing the request budget. All-time is
     // still valid (it only ever grows); the current streak may be a day out.
+    budget.skipped++;
     if (cached) {
       return {
         currentStreak: (cached.currentStreak as number) ?? 0,
@@ -253,7 +254,7 @@ export async function getLeaderboard(viewerUid: string): Promise<LeaderboardResu
   // outside them is affected.
   const sharedPrivate = viewerChallenges.filter(isPrivate);
 
-  const budget = { remaining: MAX_RECOMPUTES_PER_REQUEST };
+  const budget = { remaining: MAX_RECOMPUTES_PER_REQUEST, skipped: 0 };
   const uids = [...peerUids];
 
   let viewerHidden = false;
@@ -317,9 +318,15 @@ export async function getLeaderboard(viewerUid: string): Promise<LeaderboardResu
     })
   );
 
-  if (budget.remaining <= 0) {
+  // Counts peers actually turned away, not merely a budget that landed on
+  // zero: warning whenever the last recompute happened to be the twelfth
+  // cried wolf on complete boards, which is how a real partial board stops
+  // being noticed.
+  if (budget.skipped > 0) {
     console.warn(
-      `leaderboard for ${viewerUid}: hit the recompute cap, some entries served stale`
+      `leaderboard for ${viewerUid}: hit the recompute cap, ${budget.skipped} ${
+        budget.skipped === 1 ? "entry" : "entries"
+      } served stale`
     );
   }
 

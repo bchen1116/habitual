@@ -4,8 +4,10 @@ import { useState } from "react";
 import { editChallenge } from "@/lib/challenges";
 import {
   addDaysYmd,
+  browserTimezone,
   dateInputToYmd,
   daysBetweenInclusive,
+  todayYmd,
   ymdToDateInput,
 } from "@/lib/dates";
 import {
@@ -50,6 +52,14 @@ export function EditChallengeDialog({ challenge, currentStreak }: EditChallengeD
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  // Floored at today as well as at one whole week: on a habit that has been
+  // running a while the one-week mark is already in the past, and the picker
+  // would otherwise offer dates editChallengeAdmin then rejects. yyyymmdd
+  // sorts lexicographically, so a plain string comparison is the later date.
+  const oneWeekIn = addDaysYmd(challenge.startDate, MIN_DURATION_DAYS - 1);
+  const today = todayYmd(browserTimezone());
+  const earliestEnd = oneWeekIn > today ? oneWeekIn : today;
+
   const skipDaysNum = Number(skipDays);
   const increasesSkips = Number.isFinite(skipDaysNum) && skipDaysNum > challenge.skipDays;
   const willEndStreak = increasesSkips && currentStreak > 0;
@@ -74,6 +84,13 @@ export function EditChallengeDialog({ challenge, currentStreak }: EditChallengeD
       setFormError(
         `Duration must be a whole number of weeks, up to ${MAX_DURATION_WEEKS}.`
       );
+      return;
+    }
+    // editChallengeAdmin rejects an end date in the past. Saying so here
+    // rather than letting the server answer keeps the message specific to
+    // the field the user actually got wrong.
+    if (newEndYmd < today) {
+      setFormError("The end date can't be in the past.");
       return;
     }
     if (!Number.isFinite(skipDaysNum) || skipDaysNum < 0 || skipDaysNum > 30) {
@@ -138,9 +155,7 @@ export function EditChallengeDialog({ challenge, currentStreak }: EditChallengeD
             id="edit-end-date"
             type="date"
             className="w-44"
-            min={ymdToDateInput(
-              addDaysYmd(challenge.startDate, MIN_DURATION_DAYS - 1)
-            )}
+            min={ymdToDateInput(earliestEnd)}
             max={ymdToDateInput(
               addDaysYmd(challenge.startDate, MAX_DURATION_DAYS - 1)
             )}

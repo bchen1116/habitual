@@ -544,7 +544,7 @@ export class EditChallengeError extends Error {
  * challenge has no one else to protect, so it's editable any time it's
  * still active (upcoming or in-progress, not yet ended).
  *
- * Increasing skipDays stamps `streakResetAt = today`, which currentStreak()
+ * Increasing skipDays stamps `streakResetAt = today`, which streakRun()
  * (src/lib/streak.ts) treats as a floor — checkins before the edit stop
  * counting toward the live streak, i.e. "starting a new habit," per the
  * product decision this exists for. Decreasing or leaving skipDays alone

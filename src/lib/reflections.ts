@@ -41,7 +41,7 @@ export function missReasonLabel(reason: MissReason): string {
 }
 
 /** Same `<localDate>_<uid>` shape as a check-in doc, and enforced by rules. */
-export function reflectionId(localDate: string, uid: string): string {
+function reflectionId(localDate: string, uid: string): string {
   return `${localDate}_${uid}`;
 }
 

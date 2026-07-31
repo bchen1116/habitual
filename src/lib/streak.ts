@@ -112,15 +112,6 @@ export function streakRun(
   };
 }
 
-/** currentStreak(...) === streakRun(..., today).streak — kept for the (many) callers that just want the number. */
-export function currentStreak(
-  challenge: Challenge,
-  checkinYmds: ReadonlySet<string> | readonly string[],
-  today: string
-): number {
-  return streakRun(challenge, checkinYmds, today).streak;
-}
-
 /**
  * Longest run ever completed (not required to be ongoing), for a "best"
  * stat — in DAYS for both frequency types, same units as streakRun above.
@@ -166,19 +157,6 @@ export function longestStreak(
     }
   }
   return best;
-}
-
-/** The largest current streak across a set of challenges (the hero number). */
-export function maxCurrentStreak(
-  challenges: readonly Challenge[],
-  checkinsByChallenge: Readonly<Record<string, readonly string[]>>,
-  today: string
-): number {
-  return challenges.reduce(
-    (max, c) =>
-      Math.max(max, currentStreak(c, checkinsByChallenge[c.id] ?? [], today)),
-    0
-  );
 }
 
 /** The largest best-ever streak across a set of challenges. */
