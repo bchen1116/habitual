@@ -5,7 +5,8 @@ import { Check } from "lucide-react";
 import { motion } from "framer-motion";
 import { formatInTimeZone } from "date-fns-tz";
 import { CheckinDialog } from "@/components/checkin-dialog";
-import { challengeState, progressSummary } from "@/lib/progress";
+import { HabitWeekStrip } from "@/components/habit-week-strip";
+import { challengeState, habitWeek, progressSummary } from "@/lib/progress";
 import { useChainStreak } from "@/hooks/use-chain-streak";
 import { formatYmd, todayYmd } from "@/lib/dates";
 import { Badge } from "@/components/ui/badge";
@@ -42,6 +43,9 @@ export function HabitRow({
   const state = challengeState(challenge, today);
   const summary = progressSummary(challenge, checkinYmds, timezone, joinedDate);
   const { streak } = useChainStreak(challenge, uid, checkinYmds, today, joinedDate);
+  // This habit's own seven days, anchored to its start date rather than to
+  // Monday — a habit begun on a Saturday shows S M T W T F S.
+  const week = habitWeek(challenge, checkinYmds, today, joinedDate);
 
   // Pops the ring only on a genuine active -> done transition, not on a
   // page load where the habit was already checked in earlier.
@@ -79,45 +83,49 @@ export function HabitRow({
       ? formatInTimeZone(new Date(todaysCheckin.completedAtMs), timezone, "h:mm a")
       : null;
     return (
-      <div className="flex items-center gap-3 rounded-2xl bg-card px-4 py-3.5 lg:px-5 lg:py-4">
-        <motion.span
-          animate={justCompleted ? { scale: [0.7, 1.2, 1] } : { scale: 1 }}
-          transition={{ duration: 0.15, ease: "easeOut" }}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ink text-primary"
-        >
-          <Check className="h-4 w-4" strokeWidth={3} />
-        </motion.span>
-        <span className="min-w-0 flex-1 truncate text-[17px] font-bold text-muted-foreground line-through lg:text-[19px]">
-          {challenge.name}
-        </span>
-        {time && (
-          <span className="type-overline shrink-0 text-xs text-muted-foreground">
-            {time}
+      <div className="rounded-2xl bg-card px-4 py-3.5 lg:px-5 lg:py-4">
+        <div className="flex items-center gap-3">
+          <motion.span
+            animate={justCompleted ? { scale: [0.7, 1.2, 1] } : { scale: 1 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ink text-primary"
+          >
+            <Check className="h-4 w-4" strokeWidth={3} />
+          </motion.span>
+          <span className="min-w-0 flex-1 truncate text-[17px] font-bold text-muted-foreground line-through lg:text-[19px]">
+            {challenge.name}
           </span>
-        )}
+          {time && (
+            <span className="type-overline shrink-0 text-xs text-muted-foreground">
+              {time}
+            </span>
+          )}
+        </div>
+        {week && <HabitWeekStrip week={week} tone="volt" dense className="mt-3" />}
       </div>
     );
   }
 
   return (
-    <div className="flex items-center gap-3 rounded-2xl border-2 border-foreground bg-card px-4 py-3.5 lg:px-5 lg:py-4">
-      <span className="h-8 w-8 shrink-0 rounded-full border-2 border-foreground" />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-[17px] font-extrabold lg:text-[19px]">
-          {challenge.name}
-        </p>
-        <div className="mt-1 flex min-w-0 items-center gap-1.5">
-          <Badge variant="volt" className="shrink-0">
+    <div className="rounded-2xl border-2 border-foreground bg-card px-4 py-3.5 lg:px-5 lg:py-4">
+      <div className="flex items-center gap-3">
+        <span className="h-8 w-8 shrink-0 rounded-full border-2 border-foreground" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[17px] font-extrabold lg:text-[19px]">
+            {challenge.name}
+          </p>
+          {/* No nudge text beside the badge any more: the check-in button
+              squeezes this column to about two words on a phone, and the week
+              strip below now says the same thing with real numbers. */}
+          <Badge variant="volt" className="mt-1">
             Streak {streak}
           </Badge>
-          <span className="type-overline truncate text-xs text-muted-foreground">
-            Don&apos;t break it
-          </span>
+        </div>
+        <div className="shrink-0">
+          <CheckinDialog challenge={challenge} uid={uid} today={today} onError={onError} />
         </div>
       </div>
-      <div className="shrink-0">
-        <CheckinDialog challenge={challenge} uid={uid} today={today} onError={onError} />
-      </div>
+      {week && <HabitWeekStrip week={week} tone="volt" dense className="mt-3" />}
     </div>
   );
 }

@@ -8,24 +8,42 @@ import { cn } from "@/lib/utils";
  * This habit's current seven days, on its own calendar.
  *
  * A habit that starts on a Friday counts Friday-to-Thursday everywhere it
- * matters — adjudication, skips, the History list — but the only week strip
- * in the app was the dashboard's, which is Monday-anchored because it spans
- * every habit at once. So the one screen dedicated to a single habit had
- * nowhere showing that habit's week the way the habit itself counts it.
+ * matters — adjudication, skips, the History list — so its week is shown
+ * that way here, letters and all. There used to be a single Monday-anchored
+ * strip on Today covering every habit at once, which stops meaning anything
+ * the moment you have more than one: two habits that started on different
+ * days share no week, and averaging them describes neither.
  *
- * Deliberately not volt-filled: the check-in button on this screen already
- * spends the one-volt-element budget, so completed days take the same ink
- * fill the History grid uses. Today keeps the volt outline the grid gives it,
- * for consistency with the card directly below.
+ * `tone` picks the fill for completed days. Today's habit rows use "volt",
+ * which is the whole point of the strip there — progress you can read at a
+ * glance from across the room. The habit detail screen uses "ink", because
+ * its check-in button already carries that screen's volt.
  */
-export function HabitWeekStrip({ week }: { week: HabitWeek }) {
+export function HabitWeekStrip({
+  week,
+  tone = "ink",
+  dense = false,
+  className,
+}: {
+  week: HabitWeek;
+  tone?: "ink" | "volt";
+  dense?: boolean;
+  className?: string;
+}) {
   const complete = week.count >= week.target;
+  // Hitting the target has never stopped anyone checking in — the only gate is
+  // one per day — but a bold "5/5" reads as "done, stop", so days done beyond
+  // it are counted out loud instead of disappearing into a number that already
+  // looks finished. They're real: each one adds a day to the streak.
+  const extra = week.count - week.target;
+
   return (
-    <div>
+    <div className={className}>
       <div className="flex items-baseline justify-between gap-2">
-        <span className="type-overline text-xs text-muted-foreground">
-          Week {week.index} of {week.totalWeeks} · {formatYmd(week.start)} –{" "}
-          {formatYmd(week.end)}
+        <span className="type-overline truncate text-xs text-muted-foreground">
+          {dense
+            ? `Week ${week.index} · ${formatYmd(week.start)}`
+            : `Week ${week.index} of ${week.totalWeeks} · ${formatYmd(week.start)} – ${formatYmd(week.end)}`}
         </span>
         <span
           className={cn(
@@ -34,17 +52,31 @@ export function HabitWeekStrip({ week }: { week: HabitWeek }) {
           )}
         >
           {week.count}/{week.target}
+          {extra > 0 && (
+            <span className="ml-1 font-normal text-muted-foreground">
+              +{extra} extra
+            </span>
+          )}
+          {/* The invitation lives beside the numbers rather than in the habit
+              row's name column, which the check-in button squeezes to about
+              two words. */}
+          {extra === 0 && complete && week.allowsExtras && week.daysLeft && (
+            <span className="ml-1 font-normal text-muted-foreground">
+              · extras count
+            </span>
+          )}
         </span>
       </div>
 
-      <div aria-hidden className="mt-2.5 flex gap-1.5">
+      <div aria-hidden className={cn("flex gap-1.5", dense ? "mt-2" : "mt-2.5")}>
         {week.days.map((day) => (
-          <div key={day.ymd} className="flex flex-1 flex-col items-center gap-1.5">
+          <div key={day.ymd} className="flex flex-1 flex-col items-center gap-1">
             <div
               title={`${formatYmd(day.ymd)}: ${day.state}`}
               className={cn(
-                "h-9 w-full rounded-md",
-                day.state === "done" && "bg-foreground",
+                "w-full rounded-md",
+                dense ? "h-7" : "h-9",
+                day.state === "done" && (tone === "volt" ? "bg-primary" : "bg-foreground"),
                 day.state === "missed" && "bg-destructive/15",
                 day.state === "today" && "border-2 border-primary bg-secondary",
                 day.state === "future" && "bg-secondary",

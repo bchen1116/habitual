@@ -1,4 +1,4 @@
-import { addDaysYmd, ymdToDate } from "@/lib/dates";
+import { addDaysYmd } from "@/lib/dates";
 import { dailyHistory, weeklyWindows } from "@/lib/progress";
 import type { Challenge } from "@/lib/types";
 
@@ -192,43 +192,4 @@ export function maxLongestStreak(
       ),
     0
   );
-}
-
-const DAY_LETTERS = ["M", "T", "W", "T", "F", "S", "S"] as const;
-
-export interface WeekStripDay {
-  ymd: string;
-  letter: string;
-  state: "done" | "empty";
-  isToday: boolean;
-}
-
-/** The current Mon–Sun week, each day marked "done" if any activity landed on it. */
-export function weekStripDays(
-  activityYmds: ReadonlySet<string> | readonly string[],
-  today: string
-): WeekStripDay[] {
-  const activity =
-    activityYmds instanceof Set ? activityYmds : new Set(activityYmds);
-  const dow = ymdToDate(today).getUTCDay(); // 0=Sun..6=Sat
-  const daysSinceMonday = (dow + 6) % 7;
-  const monday = addDaysYmd(today, -daysSinceMonday);
-
-  return DAY_LETTERS.map((letter, i) => {
-    const ymd = addDaysYmd(monday, i);
-    return {
-      ymd,
-      letter,
-      state: ymd <= today && activity.has(ymd) ? "done" : "empty",
-      isToday: ymd === today,
-    };
-  });
-}
-
-/** % of elapsed days this week (Monday through today) marked "done". */
-export function weekStripPercent(days: WeekStripDay[], today: string): number {
-  const elapsed = days.filter((d) => d.ymd <= today);
-  if (elapsed.length === 0) return 0;
-  const done = elapsed.filter((d) => d.state === "done").length;
-  return Math.round((done / elapsed.length) * 100);
 }

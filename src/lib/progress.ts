@@ -220,6 +220,14 @@ export interface HabitWeek {
   count: number;
   /** What this window asks of this member (prorated if they joined into it). */
   target: number;
+  /**
+   * Whether check-ins past `target` are possible at all. True for
+   * weekly_count, where the target is below the number of days; false for
+   * daily, which already asks for every day there is.
+   */
+  allowsExtras: boolean;
+  /** Whether any day in the window is still today or ahead of it. */
+  daysLeft: boolean;
 }
 
 /**
@@ -280,6 +288,8 @@ export function habitWeek(
     days,
     count: days.filter((d) => d.state === "done").length,
     target,
+    allowsExtras: challenge.frequency.type === "weekly_count",
+    daysLeft: days.some((d) => d.state === "today" || d.state === "future"),
   };
 }
 

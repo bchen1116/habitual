@@ -8,7 +8,6 @@ import { useMaxChainStreak } from "@/hooks/use-chain-streak";
 import { useUserTimezone } from "@/hooks/use-user-timezone";
 import { todayYmd } from "@/lib/dates";
 import { challengeState, progressSummary } from "@/lib/progress";
-import { weekStripDays, weekStripPercent } from "@/lib/streak";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { GroupCard } from "@/components/group-card";
@@ -18,7 +17,6 @@ import { LedgerSummary } from "@/components/ledger-summary";
 import { PushProvider } from "@/components/push-provider";
 import { StatTile } from "@/components/stat-tile";
 import { StreakHero } from "@/components/streak-hero";
-import { WeekStrip } from "@/components/week-strip";
 
 function greeting(hour: number): string {
   if (hour < 12) return "Morning";
@@ -64,10 +62,6 @@ export function TodayView({
     today,
     joinedDateByChallenge
   );
-
-  const activityYmds = new Set(Object.values(checkinYmdsByChallenge).flat());
-  const days = weekStripDays(activityYmds, today);
-  const percent = weekStripPercent(days, today);
 
   const doneCount = activeChallenges.filter(
     (c) => progressSummary(c, checkinYmdsByChallenge[c.id] ?? [], timezone).checkedInToday
@@ -155,8 +149,11 @@ export function TodayView({
           </div>
         </div>
 
+        {/* Each habit carries its own week now (HabitRow), so this column no
+            longer opens with a single Mon–Sun strip pooling all of them — two
+            habits that started on different days share no week, and one bar
+            averaging them described neither. */}
         <div className="flex flex-col gap-[22px] lg:w-[384px] lg:shrink-0">
-          <WeekStrip days={days} percent={percent} />
           <div className="hidden grid-cols-2 gap-3.5 lg:grid">
             <StatTile value={totalCheckIns} label="Total check-ins" />
             <StatTile value={activeChallenges.length} label="Active habits" />
