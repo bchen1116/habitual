@@ -119,6 +119,17 @@ export interface ChallengeMember {
    * members created before this field existed; treat as == startDate.
    */
   joinedDate?: string;
+  /**
+   * Spare skips earned by completing whole weeks, banked against this habit
+   * (see lib/badges.ts). Rolled forward by repeatChallengeAdmin so they can be
+   * spent in a later cycle of the same habit, never another one. Absent on
+   * members predating badges; treat as 0.
+   */
+  badgesCarried?: number;
+  /** Badges earned in this cycle, frozen at adjudication. */
+  badgesEarned?: number;
+  /** skipDays + badges, frozen at adjudication so a result stays explainable. */
+  skipsAllowed?: number;
 }
 
 /** challenges/{cid}/joinRequests/{uid} — pending approval on an invite-only group. */

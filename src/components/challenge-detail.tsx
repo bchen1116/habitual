@@ -27,6 +27,7 @@ import {
 import Link from "next/link";
 import { addDaysYmd, daysBetweenInclusive, formatYmd, todayYmd } from "@/lib/dates";
 import { formatAmount } from "@/lib/currency";
+import { canEarnBadges, skipAllowance } from "@/lib/badges";
 import { useChainStreak } from "@/hooks/use-chain-streak";
 import type { Challenge, ChallengeMember, JoinRequest, Reflection } from "@/lib/types";
 import { CheckinDialog } from "@/components/checkin-dialog";
@@ -199,6 +200,15 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   const state = challengeState(challenge, today);
   const summary = progressSummary(challenge, checkinYmds, timezone, member?.joinedDate);
   const currentWeek = habitWeek(challenge, checkinYmds, today, member?.joinedDate);
+  // Badges are spent automatically, so the only job here is to make sure the
+  // number someone is judged against is never a surprise.
+  const allowance = skipAllowance(
+    challenge,
+    checkinYmds,
+    today,
+    member?.joinedDate,
+    member?.badgesCarried
+  );
   const isCreator = challenge.createdBy === uid;
   // Cancel (soft: keeps a "Cancelled" record) only makes sense for group
   // challenges, where other members might already be watching for one. A
@@ -524,7 +534,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
             </CardTitle>
             <CardDescription>
               {state === "active" &&
-                `${summary.daysRemaining} day${summary.daysRemaining === 1 ? "" : "s"} remaining · ${summary.skipsUsed} of ${challenge.skipDays} skips used`}
+                `${summary.daysRemaining} day${summary.daysRemaining === 1 ? "" : "s"} remaining · ${summary.skipsUsed} of ${allowance.total} skips used`}
               {state === "ended" && "Ended — results land in the next day or two"}
               {state === "adjudicated" &&
                 `${formatYmd(challenge.startDate)} – ${formatYmd(challenge.endDate)}`}
@@ -547,6 +557,28 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
               <div className="mt-1">
                 <HabitWeekStrip week={currentWeek} />
               </div>
+            )}
+            {/* Spent automatically at grading — but an allowance that silently
+                grew would be as confusing as one that silently shrank, so the
+                arithmetic is spelled out rather than folded into one number. */}
+            {canEarnBadges(challenge) && (
+              <p className="text-xs text-muted-foreground">
+                {allowance.earned + allowance.carried > 0 ? (
+                  <>
+                    <span className="font-medium text-foreground">
+                      ◆ {allowance.earned + allowance.carried} spare skip
+                      {allowance.earned + allowance.carried === 1 ? "" : "s"} earned
+                    </span>{" "}
+                    — {allowance.base} from the habit
+                    {allowance.carried > 0 && `, ${allowance.carried} carried over`}
+                    {allowance.earned > 0 && `, ${allowance.earned} from full weeks`}, so{" "}
+                    {allowance.total} in total. They&apos;re used automatically if you
+                    miss.
+                  </>
+                ) : (
+                  <>Complete a full week to earn a spare skip.</>
+                )}
+              </p>
             )}
             {summary.canCheckInToday && (
               <div>

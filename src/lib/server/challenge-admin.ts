@@ -761,6 +761,13 @@ export async function repeatChallengeAdmin(
       // Everyone carried over starts the new cycle together, regardless of
       // when they joined the previous one.
       joinedDate: newStartDate,
+      // Badges follow the habit, not the cycle: "a badge in one habit cannot
+      // be applied to another habit". Adjudication writes each cycle's running
+      // total onto the member doc, so this is simply that total rolled forward
+      // — and it means the adjudicator never has to walk the repeat chain to
+      // know what someone has banked. Cycles repeated before results land
+      // carry what was banked at that point.
+      badgesCarried: (member.badgesCarried as number | undefined) ?? 0,
       charityName: member.charityName ?? null,
       outcome: null,
       completedCount: 0,
