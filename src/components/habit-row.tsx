@@ -122,7 +122,13 @@ export function HabitRow({
           </Badge>
         </div>
         <div className="shrink-0">
-          <CheckinDialog challenge={challenge} uid={uid} today={today} onError={onError} />
+          <CheckinDialog
+            challenge={challenge}
+            uid={uid}
+            today={today}
+            timezone={timezone}
+            onError={onError}
+          />
         </div>
       </div>
       {week && <HabitWeekStrip week={week} tone="volt" dense className="mt-3" />}

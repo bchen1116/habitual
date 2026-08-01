@@ -62,8 +62,13 @@ export async function walkChainWith(
 
     if (addDaysYmd(ancestor.endDate, 1) !== childStartDate) break; // gap: repeated late
 
-    const ymds = await reader.getCheckinYmds(ancestor.id, uid);
-    const joinedDate = await reader.getJoinedDate(ancestor.id, uid);
+    // Independent of each other, so one round trip rather than two. The walk
+    // itself stays sequential by nature — whether to look at the next ancestor
+    // depends on how this one turned out.
+    const [ymds, joinedDate] = await Promise.all([
+      reader.getCheckinYmds(ancestor.id, uid),
+      reader.getJoinedDate(ancestor.id, uid),
+    ]);
     const run = streakRun(
       ancestor,
       ymds,

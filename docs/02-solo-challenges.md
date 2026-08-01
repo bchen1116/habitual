@@ -120,9 +120,17 @@ match /challenges/{cid} {
 
 **Today's date for check-in:**
 ```ts
-const today = formatInTimeZone(new Date(), user.timezone, 'yyyyMMdd')
+const today = formatInTimeZone(
+  new Date(Date.now() - DAY_CUTOFF_HOUR * 3600_000),
+  user.timezone,
+  'yyyyMMdd'
+)
 ```
 This gives the user's local date consistently regardless of what timezone they're currently in, in the same `yyyymmdd` format used by the check-in doc ID (`${today}_${uid}`) and the `localDate` field.
+
+**The habit day rolls over at 03:00 local, not midnight** (`DAY_CUTOFF_HOUR`, `src/lib/dates.ts`). Someone still awake at 1am has not been to bed, so the run they owe is still *today's* run; telling them they missed it while they are awake to do it is simply wrong. Anything logged between 00:00 and 02:59 counts for the previous calendar date, and the next day's habit begins at 03:00. Between those hours the check-in sheet names the date it will land on, since otherwise it looks like it landed on the wrong day.
+
+The shift subtracts real elapsed time rather than manipulating the calendar: across a DST boundary "three hours ago" is what the rule means, and what someone still awake experiences. It stays comfortably inside the check-in rule's ±1-day tolerance for every timezone on earth (asserted in the unit tests), so no rules change is needed — but it *does* move the adjudication buffer, see docs/03.
 
 **Offline persistence:**
 ```ts

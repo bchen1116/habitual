@@ -10,9 +10,40 @@ export function browserTimezone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
-/** Today's calendar date in the given IANA timezone, as yyyymmdd. */
-export function todayYmd(timezone: string): string {
-  return formatInTimeZone(new Date(), timezone, "yyyyMMdd");
+/**
+ * The hour a habit day rolls over, local to the user. Not midnight, because
+ * midnight is in the middle of many people's evening: at 1am you have not
+ * been to bed, so "today's" run is still the run you owe, and being told you
+ * missed it while you are still awake to do it is simply wrong. Anything
+ * logged before this hour counts for the previous calendar date; the next
+ * day's habit begins at 03:00.
+ */
+export const DAY_CUTOFF_HOUR = 3;
+
+/**
+ * The habit date in the given IANA timezone, as yyyymmdd — the calendar date
+ * shifted back by DAY_CUTOFF_HOUR, so 00:00–02:59 still belongs to the day
+ * before.
+ *
+ * Subtracting real elapsed time rather than manipulating the calendar is
+ * deliberate: across a DST boundary "three hours ago" is what the rule
+ * actually means, and it's what someone still awake experiences.
+ *
+ * `now` is injectable so the boundary can be tested at a specific instant
+ * instead of only whenever the suite happens to run.
+ */
+export function todayYmd(timezone: string, now: Date = new Date()): string {
+  const shifted = new Date(now.getTime() - DAY_CUTOFF_HOUR * 60 * 60 * 1000);
+  return formatInTimeZone(shifted, timezone, "yyyyMMdd");
+}
+
+/**
+ * True between midnight and the cutoff, when the habit date on screen is
+ * yesterday's. Worth saying out loud — otherwise a check-in at 1am looks like
+ * it landed on the wrong day.
+ */
+export function isBeforeDayCutoff(timezone: string, now: Date = new Date()): boolean {
+  return Number(formatInTimeZone(now, timezone, "H")) < DAY_CUTOFF_HOUR;
 }
 
 /** Parse yyyymmdd to a Date pinned to noon UTC (immune to DST edges). */

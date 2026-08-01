@@ -2,6 +2,11 @@
 
 import { useState } from "react";
 import { checkIn } from "@/lib/challenges";
+import {
+  DAY_CUTOFF_HOUR,
+  formatYmd,
+  isBeforeDayCutoff,
+} from "@/lib/dates";
 import { saveRating } from "@/lib/reflections";
 import type { Challenge } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -19,7 +24,8 @@ import {
 interface CheckinDialogProps {
   challenge: Challenge;
   uid: string;
-  today: string; // yyyymmdd in the user's timezone
+  today: string; // yyyymmdd habit date in the user's timezone
+  timezone: string;
   onError: (message: string | null) => void;
 }
 
@@ -38,8 +44,15 @@ interface CheckinDialogProps {
  * separately-failing promise for the same reason — it must never be able to
  * cost someone a check-in (see the Reflection docblock in lib/types.ts).
  */
-export function CheckinDialog({ challenge, uid, today, onError }: CheckinDialogProps) {
+export function CheckinDialog({
+  challenge,
+  uid,
+  today,
+  timezone,
+  onError,
+}: CheckinDialogProps) {
   const [open, setOpen] = useState(false);
+  const beforeCutoff = isBeforeDayCutoff(timezone);
   const [note, setNote] = useState("");
   const [rating, setRating] = useState<number | null>(null);
 
@@ -69,7 +82,14 @@ export function CheckinDialog({ challenge, uid, today, onError }: CheckinDialogP
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{challenge.name}</DialogTitle>
-          <DialogDescription>Mark today as done.</DialogDescription>
+          {/* Between midnight and 3am the habit date on screen is yesterday's,
+              which is the whole point of the cutoff — but unexplained it looks
+              like the check-in landed on the wrong day. */}
+          <DialogDescription>
+            {beforeCutoff
+              ? `Still counts for ${formatYmd(today)} — the day rolls over at ${DAY_CUTOFF_HOUR}am.`
+              : "Mark today as done."}
+          </DialogDescription>
         </DialogHeader>
         <div>
           <p className="type-overline mb-2 text-xs text-muted-foreground">

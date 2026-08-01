@@ -117,12 +117,29 @@ export function computeMissed(
 }
 
 /**
- * The 36-hour buffer (docs/03): a challenge ending "July 22" isn't over
- * everywhere on earth until July 23 12:00 UTC. `endDate <= yyyymmdd(now − 36h)`
- * first becomes true exactly then.
+ * Hours to wait past an end date before grading it.
+ *
+ * Was 36: a challenge ending "July 22" isn't over everywhere on earth until
+ * July 23 12:00 UTC, because the last timezone to finish July 22 is UTC-12,
+ * where 23:59 local is 11:59 UTC the next day.
+ *
+ * The 3am habit-day cutoff (DAY_CUTOFF_HOUR in src/lib/dates.ts) extends that.
+ * The last instant someone can still log July 22 is 02:59 on July 23 *local*,
+ * which in UTC-12 is 14:59 UTC on July 23 — three hours later than the old
+ * buffer allowed. At 36 the nightly run could grade a member while their day
+ * was still open and their stake still winnable. 39 moves the earliest
+ * possible grading to exactly that last instant.
+ */
+const ADJUDICATION_BUFFER_HOURS = 39;
+
+/**
+ * `endDate <= yyyymmdd(now − ADJUDICATION_BUFFER_HOURS)` first becomes true at
+ * the moment the final member on earth can no longer check in.
  */
 export function adjudicationCutoffYmd(now: Date): string {
-  return dateToYmdUTC(new Date(now.getTime() - 36 * 60 * 60 * 1000));
+  return dateToYmdUTC(
+    new Date(now.getTime() - ADJUDICATION_BUFFER_HOURS * 60 * 60 * 1000)
+  );
 }
 
 /** Adjudicates every ended challenge. Returns the number processed. */
