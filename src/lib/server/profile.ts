@@ -2,10 +2,10 @@ import "server-only";
 
 import { getAdminDb } from "@/lib/firebase/admin";
 import {
-  adminChainReader,
   challengesForUser,
   computeStreaks,
   isPrivate,
+  memoizedChainReader,
 } from "@/lib/server/leaderboard";
 import { yyyymmddUTC } from "@/lib/server/challenge-admin";
 import { challengeState, totalRequired, type ChallengeState } from "@/lib/progress";
@@ -132,46 +132,64 @@ export async function getUserProfile(
     (c) => !isPrivate(c) || viewerChallengeIds.has(c.id)
   );
 
+  // One memo for the whole request, shared with computeStreaks below: the
+  // member docs and check-in sets the habit list needs are exactly the ones
+  // the streak engine reads, so between them each is fetched once.
+  const reader = memoizedChainReader(db);
+
   const hidden =
     (user.leaderboardVisibility as LeaderboardVisibility | undefined) === "hidden";
-  const streaks =
-    hidden && !isSelf ? null : await computeStreaks(db, targetUid, visible, today);
 
-  const reader = adminChainReader(db);
-  const habits: ProfileHabit[] = [];
-  for (const challenge of visible) {
-    const memberSnap = await db
-      .collection("challenges")
-      .doc(challenge.id)
-      .collection("members")
-      .doc(targetUid)
-      .get();
-    const member = memberSnap.data() as ChallengeMember | undefined;
-    const state = challengeState(challenge, today);
+  // The habit list and the streaks are independent of each other, and the
+  // habits resolve concurrently rather than one round trip per habit.
+  const [streaks, habits] = await Promise.all([
+    hidden && !isSelf
+      ? Promise.resolve(null)
+      : computeStreaks(db, targetUid, visible, today, reader),
+    Promise.all(
+      visible.map(async (challenge): Promise<ProfileHabit> => {
+        const state = challengeState(challenge, today);
+        const [memberSnap, checkinYmds] = await Promise.all([
+          db
+            .collection("challenges")
+            .doc(challenge.id)
+            .collection("members")
+            .doc(targetUid)
+            .get(),
+          // Adjudicated challenges froze completedCount at grading time, so
+          // their check-ins are never needed — but the memo means asking for
+          // them costs nothing extra when the streak engine wants them anyway.
+          state === "adjudicated"
+            ? Promise.resolve<string[] | null>(null)
+            : reader.getCheckinYmds(challenge.id, targetUid),
+        ]);
+        const member = memberSnap.data() as ChallengeMember | undefined;
 
-    // Adjudicated challenges froze completedCount at grading time — cheaper
-    // than recounting, and authoritative in a way a recount wouldn't be if the
-    // rules ever changed underneath an old result.
-    const completed =
-      state === "adjudicated" && typeof member?.completedCount === "number"
-        ? member.completedCount
-        : (await reader.getCheckinYmds(challenge.id, targetUid)).length;
+        // Authoritative in a way a recount wouldn't be, if the rules ever
+        // changed underneath an old result.
+        const completed =
+          checkinYmds === null && typeof member?.completedCount === "number"
+            ? member.completedCount
+            : (checkinYmds ?? (await reader.getCheckinYmds(challenge.id, targetUid)))
+                .length;
 
-    habits.push({
-      id: challenge.id,
-      name: challenge.name,
-      mode: challenge.mode,
-      state,
-      frequencyLabel: frequencyLabel(challenge),
-      startDate: challenge.startDate,
-      endDate: challenge.endDate,
-      completed,
-      total: totalRequired(challenge, member?.joinedDate),
-      outcome: member?.outcome ?? null,
-      shared: viewerChallengeIds.has(challenge.id),
-      isPrivate: isPrivate(challenge),
-    });
-  }
+        return {
+          id: challenge.id,
+          name: challenge.name,
+          mode: challenge.mode,
+          state,
+          frequencyLabel: frequencyLabel(challenge),
+          startDate: challenge.startDate,
+          endDate: challenge.endDate,
+          completed,
+          total: totalRequired(challenge, member?.joinedDate),
+          outcome: member?.outcome ?? null,
+          shared: viewerChallengeIds.has(challenge.id),
+          isPrivate: isPrivate(challenge),
+        };
+      })
+    ),
+  ]);
 
   const isFinished = (h: ProfileHabit) =>
     h.state === "adjudicated" || h.state === "cancelled" || h.state === "ended";
