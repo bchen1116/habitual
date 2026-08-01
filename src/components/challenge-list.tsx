@@ -159,6 +159,7 @@ function ChallengeCard({ challenge, uid }: { challenge: Challenge; uid: string }
               challenge={challenge}
               uid={uid}
               today={today}
+              timezone={timezone}
               onError={setError}
             />
           </div>

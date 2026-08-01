@@ -554,6 +554,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
                   challenge={challenge}
                   uid={uid}
                   today={today}
+                  timezone={timezone}
                   onError={setError}
                 />
               </div>
