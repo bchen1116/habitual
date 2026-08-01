@@ -103,9 +103,44 @@ export function adminChainReader(db: Firestore): ChainReader {
  * The win compounds across peers on a shared board: a group habit's challenge
  * doc is read once for the whole leaderboard rather than once per member.
  */
-export function memoizedChainReader(db: Firestore): ChainReader {
+/** Challenge docs a caller already holds, per memoized reader. */
+const seedTables = new WeakMap<ChainReader, Map<string, Promise<unknown>>>();
+
+/**
+ * Hand a memoized reader challenge documents the caller has already fetched.
+ * Pure saving: `challengesForUser` returns every cycle a member belongs to,
+ * ancestors included, so without this the chain walk pays a round trip to
+ * re-read a document already sitting in memory.
+ */
+export function seedChallenges(
+  reader: ChainReader,
+  challenges: readonly Challenge[]
+): void {
+  const cache = seedTables.get(reader);
+  if (!cache) return;
+  for (const challenge of challenges) {
+    const key = `c:${challenge.id}`;
+    if (!cache.has(key)) cache.set(key, Promise.resolve(challenge));
+  }
+}
+
+export function memoizedChainReader(
+  db: Firestore,
+  /**
+   * Challenge docs already in hand — `challengesForUser` returns every cycle
+   * a member belongs to, ancestors included, so the chain walk's per-ancestor
+   * `getChallenge` is a document we have already paid for. Seeding them turns
+   * the walk's slowest part (sequential by nature: whether to look at the next
+   * ancestor depends on this one's result) from a round trip per cycle into
+   * memory lookups.
+   */
+  seed: readonly Challenge[] = []
+): ChainReader {
   const inner = adminChainReader(db);
   const cache = new Map<string, Promise<unknown>>();
+  for (const challenge of seed) {
+    cache.set(`c:${challenge.id}`, Promise.resolve(challenge));
+  }
   const memo = <T>(key: string, run: () => Promise<T>): Promise<T> => {
     const hit = cache.get(key);
     if (hit) return hit as Promise<T>;
@@ -115,13 +150,15 @@ export function memoizedChainReader(db: Firestore): ChainReader {
     cache.set(key, started);
     return started;
   };
-  return {
+  const reader: ChainReader = {
     getChallenge: (id) => memo(`c:${id}`, () => inner.getChallenge(id)),
     getCheckinYmds: (cid, uid) =>
       memo(`k:${cid}:${uid}`, () => inner.getCheckinYmds(cid, uid)),
     getJoinedDate: (cid, uid) =>
       memo(`j:${cid}:${uid}`, () => inner.getJoinedDate(cid, uid)),
   };
+  seedTables.set(reader, cache);
+  return reader;
 }
 
 /** Admin `getAll` in chunks, so a well-connected board can't exceed its limits. */
@@ -322,6 +359,9 @@ async function getPublicStats(
   budget.remaining--;
 
   const all = await challengesForUser(db, uid);
+  // Their whole challenge list, ancestors included — seeding it means the
+  // chain walk below never round-trips for a cycle document.
+  seedChallenges(reader, all);
   const stats = await computeStreaks(
     db,
     uid,
@@ -366,7 +406,9 @@ export async function getLeaderboard(viewerUid: string): Promise<LeaderboardResu
   // One reader for the whole request: challenge docs are shared between every
   // member of a group habit, so this is read once for the board rather than
   // once per peer.
-  const reader = memoizedChainReader(db);
+  // Seeded with the viewer's own challenges — every shared habit and every
+  // ancestor cycle of one is already in hand.
+  const reader = memoizedChainReader(db, viewerChallenges);
 
   let viewerHidden = false;
 

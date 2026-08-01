@@ -60,6 +60,18 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Collection-group read for a user's OWN reflections across every habit,
+    // so the Progress page can fetch them in one query instead of one per
+    // habit. Scoped identically to the nested rule below — owner-only — and a
+    // collection-group query only succeeds if every document it could return
+    // satisfies that, so it must filter `uid == request.auth.uid` (see
+    // allMyReflectionsQuery). Read-only on purpose: writes still go through
+    // the nested block, which additionally validates the doc id, the rating
+    // range and the miss-reason allow-list.
+    match /{path=**}/reflections/{reflectionId} {
+      allow read: if request.auth != null && request.auth.uid == resource.data.uid;
+    }
+
     match /challenges/{cid} {
       // All creation goes through the server (see /api/challenges): join
       // codes need collision checks clients can't perform under these

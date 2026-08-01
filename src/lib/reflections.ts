@@ -2,12 +2,14 @@
 
 import {
   collection,
+  collectionGroup,
   doc,
   query,
   serverTimestamp,
   setDoc,
   where,
   type Firestore,
+  type DocumentReference,
   type Query,
 } from "firebase/firestore";
 import { getClientDb } from "@/lib/firebase/client";
@@ -43,6 +45,26 @@ export function missReasonLabel(reason: MissReason): string {
 /** Same `<localDate>_<uid>` shape as a check-in doc, and enforced by rules. */
 function reflectionId(localDate: string, uid: string): string {
   return `${localDate}_${uid}`;
+}
+
+/**
+ * Every reflection this user has ever written, in one query, whichever habit
+ * it belongs to. The per-habit version below is one query per habit — for
+ * someone with five running habits and twenty finished ones that is twenty-five
+ * round trips from a phone to render a single page.
+ *
+ * Needs the `reflections` collection-group index and the collection-group read
+ * rule, both of which deploy separately from the app. Callers must therefore
+ * be able to fall back (see use-reflection-history) rather than assume it
+ * works — the app can ship before the index does.
+ */
+export function allMyReflectionsQuery(db: Firestore, uid: string): Query {
+  return query(collectionGroup(db, "reflections"), where("uid", "==", uid));
+}
+
+/** The challenge a reflection belongs to, from its document path. */
+export function reflectionChallengeId(ref: DocumentReference): string | null {
+  return ref.parent.parent?.id ?? null;
 }
 
 /**

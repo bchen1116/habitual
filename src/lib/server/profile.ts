@@ -135,7 +135,7 @@ export async function getUserProfile(
   // One memo for the whole request, shared with computeStreaks below: the
   // member docs and check-in sets the habit list needs are exactly the ones
   // the streak engine reads, so between them each is fetched once.
-  const reader = memoizedChainReader(db);
+  const reader = memoizedChainReader(db, targetChallenges);
 
   const hidden =
     (user.leaderboardVisibility as LeaderboardVisibility | undefined) === "hidden";

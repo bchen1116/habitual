@@ -3,7 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { getDocs } from "firebase/firestore";
 import { getClientDb } from "@/lib/firebase/client";
-import { myReflectionsQuery } from "@/lib/reflections";
+import {
+  allMyReflectionsQuery,
+  myReflectionsQuery,
+  reflectionChallengeId,
+} from "@/lib/reflections";
 import type { Reflection } from "@/lib/types";
 
 export interface HabitReflections {
@@ -54,18 +58,47 @@ export function useReflectionHistory(
     let cancelled = false;
 
     (async () => {
+      const db = getClientDb();
       try {
-        const db = getClientDb();
-        const results = await Promise.all(
-          challenges.map(async (challenge) => {
-            const snap = await getDocs(myReflectionsQuery(db, challenge.id, uid));
-            return {
-              challengeId: challenge.id,
-              name: challenge.name,
-              reflections: snap.docs.map((d) => d.data() as Reflection),
-            };
-          })
-        );
+        let results: HabitReflections[];
+        try {
+          // One collection-group query for every habit at once, instead of one
+          // per habit — twenty-five round trips from a phone for a user with a
+          // little history.
+          const snap = await getDocs(allMyReflectionsQuery(db, uid));
+          const byChallenge = new Map<string, Reflection[]>();
+          for (const d of snap.docs) {
+            const challengeId = reflectionChallengeId(d.ref);
+            if (!challengeId) continue;
+            const list = byChallenge.get(challengeId);
+            if (list) list.push(d.data() as Reflection);
+            else byChallenge.set(challengeId, [d.data() as Reflection]);
+          }
+          results = challenges.map((challenge) => ({
+            challengeId: challenge.id,
+            name: challenge.name,
+            reflections: byChallenge.get(challenge.id) ?? [],
+          }));
+        } catch (err) {
+          // The collection-group index and its read rule deploy separately from
+          // the app, so a build can reach production before they do. Falling
+          // back to the per-habit queries keeps the page correct — just slower —
+          // instead of showing an error for a purely operational gap.
+          console.warn(
+            "collection-group reflections query unavailable, falling back:",
+            err
+          );
+          results = await Promise.all(
+            challenges.map(async (challenge) => {
+              const snap = await getDocs(myReflectionsQuery(db, challenge.id, uid));
+              return {
+                challengeId: challenge.id,
+                name: challenge.name,
+                reflections: snap.docs.map((d) => d.data() as Reflection),
+              };
+            })
+          );
+        }
         if (!cancelled) {
           setHabits(results);
           setError(false);
