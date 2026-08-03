@@ -22,6 +22,7 @@ import {
   weeksLabel,
 } from "@/lib/duration";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -37,6 +38,7 @@ const formSchema = z
     forfeitType: z.enum(["charity", "pool"]),
     joinPolicy: z.enum(["open", "invite"]),
     visibility: z.enum(["public", "private"]),
+    autoRepeat: z.boolean(),
     maxMembers: z
       .string()
       .refine(
@@ -101,7 +103,7 @@ const STEPS = ["Basics", "Mode", "Schedule", "Stakes", "Review"] as const;
 const STEP_FIELDS: (keyof FormValues)[][] = [
   ["name", "description"],
   ["mode", "forfeitType", "joinPolicy", "maxMembers", "visibility"],
-  ["frequencyType", "target", "startDate", "durationWeeks"],
+  ["frequencyType", "target", "startDate", "durationWeeks", "autoRepeat"],
   ["skipDays", "stakeAmount", "charityName"],
   [],
 ];
@@ -122,6 +124,7 @@ export function NewChallengeForm() {
       forfeitType: "charity",
       joinPolicy: "open",
       visibility: "public",
+      autoRepeat: false,
       maxMembers: "",
       frequencyType: "daily",
       target: "5",
@@ -194,6 +197,7 @@ export function NewChallengeForm() {
         charityName:
           effectiveForfeit === "charity" ? data.charityName.trim() : null,
         visibility: data.visibility,
+        autoRepeat: data.autoRepeat,
       });
       router.replace(`/challenges/${id}`);
     } catch (err) {
@@ -506,13 +510,33 @@ export function NewChallengeForm() {
             )}
             {/* "Can it just never end?" is the obvious question, and the honest
                 answer is a product one: the stake is settled at the end date,
-                so there has to be one. Repeat is the answer for a habit that
-                shouldn't stop — said here rather than leaving people to
-                discover it a year later. */}
+                so there has to be one. Auto-repeat below is the closest thing
+                to "never" — said here rather than leaving people to discover
+                it a year later. */}
             <p className="text-xs text-muted-foreground">
               Whole weeks, up to a year — your stake settles on the end date.
-              When it finishes you can start the next cycle straight away and
-              your streak carries over.
+            </p>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Switch
+              checked={values.autoRepeat}
+              onCheckedChange={(next) => form.setValue("autoRepeat", next)}
+              label="Repeat automatically"
+              className="w-full"
+            >
+              <span>
+                <span className="block text-sm font-medium">
+                  Repeat automatically
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Start the next cycle on its own, same length and same stake
+                </span>
+              </span>
+            </Switch>
+            <p className="text-xs text-muted-foreground">
+              {values.autoRepeat
+                ? `Keeps going in ${weeksLabel(durationWeeks ?? MIN_DURATION_WEEKS)} blocks until you turn it off — each cycle settles its own stake${startYmd && endYmd ? `, the first on ${formatYmd(endYmd)}` : ""}, and your streak carries across. You can turn this off any time.`
+                : "Otherwise it just ends, and you can start the next cycle yourself with the Repeat button."}
             </p>
           </div>
         </div>
@@ -624,6 +648,11 @@ export function NewChallengeForm() {
               {values.visibility === "public"
                 ? "Counts toward leaderboards"
                 : "Private — hidden from leaderboards"}
+            </p>
+            <p className="text-muted-foreground">
+              {values.autoRepeat
+                ? "Repeats automatically until you turn it off"
+                : "Ends on the end date unless you repeat it"}
             </p>
           </CardContent>
         </Card>

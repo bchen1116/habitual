@@ -11,6 +11,7 @@ import {
   removeMember,
   respondToJoinRequest,
   setJoinClosed,
+  setAutoRepeat,
   setChallengeVisibility,
 } from "@/lib/challenges";
 import { useUserTimezone } from "@/hooks/use-user-timezone";
@@ -28,6 +29,7 @@ import Link from "next/link";
 import { addDaysYmd, daysBetweenInclusive, formatYmd, todayYmd } from "@/lib/dates";
 import { formatAmount } from "@/lib/currency";
 import { canEarnBadges, skipAllowance } from "@/lib/badges";
+import { repeatDurationDays } from "@/lib/duration";
 import { useChainStreak } from "@/hooks/use-chain-streak";
 import type { Challenge, ChallengeMember, JoinRequest, Reflection } from "@/lib/types";
 import { CheckinDialog } from "@/components/checkin-dialog";
@@ -40,6 +42,7 @@ import { SessionRatingsCard } from "@/components/session-ratings-card";
 import { ShareLink } from "@/components/share-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import {
   Card,
   CardContent,
@@ -69,6 +72,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   const [removingUid, setRemovingUid] = useState<string | null>(null);
   const [togglingJoin, setTogglingJoin] = useState(false);
   const [togglingVisibility, setTogglingVisibility] = useState(false);
+  const [togglingAutoRepeat, setTogglingAutoRepeat] = useState(false);
   const [reflections, setReflections] = useState<Reflection[]>([]);
   /** yyyymmdd of the missed day/window currently being explained, if any. */
   const [missDate, setMissDate] = useState<string | null>(null);
@@ -236,6 +240,21 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   // settings carried forward and (for group habits) every prior member
   // carried over automatically.
   const canRepeat = isCreator && (state === "ended" || state === "adjudicated");
+  // Auto-repeat is settable for as long as the habit is running, and no
+  // longer: the job that acts on it looks a day *ahead* of the end date, so
+  // by the time a cycle has ended the flag has nothing left to do — which is
+  // exactly the case Repeat above covers.
+  const canSetAutoRepeat = isCreator && challenge.status === "active";
+  // Members see it too, read-only, whenever it's on: being carried into
+  // another cycle means another stake of real money, and finding that out
+  // when the debt arrives would be the wrong way to learn it.
+  const showAutoRepeat =
+    challenge.status === "active" && (isCreator || challenge.autoRepeat === true);
+  const nextCycleStart = addDaysYmd(challenge.endDate, 1);
+  const nextCycleWeeks =
+    repeatDurationDays(
+      daysBetweenInclusive(challenge.startDate, challenge.endDate)
+    ) / 7;
 
   async function handleCancel() {
     if (!window.confirm("Cancel this challenge? This can't be undone.")) return;
@@ -301,6 +320,20 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
       );
     } finally {
       setTogglingJoin(false);
+    }
+  }
+
+  async function handleToggleAutoRepeat(next: boolean) {
+    setTogglingAutoRepeat(true);
+    setError(null);
+    try {
+      await setAutoRepeat(id, next);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Couldn't update auto-repeat."
+      );
+    } finally {
+      setTogglingAutoRepeat(false);
     }
   }
 
@@ -679,6 +712,72 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
             ? `If you fail, your ${formatAmount(challenge.stakeAmount)} is split among the members who succeed.`
             : `If you fail, you owe ${formatAmount(challenge.stakeAmount)} to ${member?.charityName ?? challenge.charityName ?? "your charity"}.`}
         </p>
+      )}
+
+      {showAutoRepeat && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle>Keep it going</CardTitle>
+            <CardDescription>
+              {challenge.autoRepeatedToId
+                ? "The next cycle is already set up and starts when this one ends."
+                : challenge.autoRepeat
+                  ? `Set up automatically shortly before ${formatYmd(challenge.endDate)}, so it starts ${formatYmd(nextCycleStart)} with no gap and your streak carries across.`
+                  : `This habit ends ${formatYmd(challenge.endDate)}. Turn this on and it'll roll straight into another ${nextCycleWeeks} week${nextCycleWeeks === 1 ? "" : "s"} instead.`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {canSetAutoRepeat ? (
+              <Switch
+                checked={challenge.autoRepeat === true}
+                onCheckedChange={handleToggleAutoRepeat}
+                disabled={togglingAutoRepeat}
+                label="Repeat automatically"
+                className="w-full"
+              >
+                <span>
+                  <span className="block text-sm font-medium">
+                    Repeat automatically
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    Same length, same stake
+                    {challenge.mode === "group" ? ", same members" : ""} — until
+                    you turn it off
+                  </span>
+                </span>
+              </Switch>
+            ) : (
+              <p className="text-sm">
+                You&apos;ll be carried into the next cycle without needing to
+                rejoin, and it stakes {formatAmount(challenge.stakeAmount)}{" "}
+                again. Only{" "}
+                {members?.find((m) => m.uid === challenge.createdBy)
+                  ?.displayName ?? "the creator"}{" "}
+                can turn that off.
+              </p>
+            )}
+            {canSetAutoRepeat && challenge.autoRepeat && (
+              <p className="text-xs text-muted-foreground">
+                Each cycle settles its own{" "}
+                {formatAmount(challenge.stakeAmount)} stake.
+              </p>
+            )}
+            {/* Deliberately not deleted when the switch goes off: it is a real
+                challenge people may already have checked into. */}
+            {canSetAutoRepeat && challenge.autoRepeatedToId && !challenge.autoRepeat && (
+              <p className="text-xs text-muted-foreground">
+                The cycle already created still runs —{" "}
+                <Link
+                  href={`/challenges/${challenge.autoRepeatedToId}`}
+                  className="underline"
+                >
+                  open it
+                </Link>{" "}
+                to cancel or delete it.
+              </p>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {/* Creator-only, and available even after friends have joined —

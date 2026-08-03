@@ -13,6 +13,12 @@ interface ChallengeData {
   endDate: string;
   status: string;
   forfeitType: "charity" | "pool";
+  /**
+   * Set when auto-repeat already created this habit's next cycle. It has to
+   * be created before grading (see functions/src/auto-repeat.ts), so the
+   * badges earned in *this* cycle land on it from here.
+   */
+  autoRepeatedToId?: string | null;
 }
 
 interface MemberData {
@@ -257,7 +263,31 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
           }
         }
 
+        // Auto-repeat builds the successor a day before this cycle ends, so
+        // the badges it copied forward were the pre-grading total. Now that
+        // the final weeks are graded, correct it — otherwise a habit that
+        // repeats itself quietly loses every badge earned in its last cycle,
+        // which is the one people are most likely to have been counting on.
+        //
+        // Only members the successor actually has: someone who joined this
+        // cycle after the successor was built isn't in it, and writing a
+        // lone badgesCarried field would conjure a member doc for a challenge
+        // whose memberIds never listed them.
+        const successorRef = challenge.autoRepeatedToId
+          ? db.collection("challenges").doc(challenge.autoRepeatedToId)
+          : null;
+        const successorMemberIds = new Set<string>();
+        if (successorRef) {
+          const successorMembers = await t.get(successorRef.collection("members"));
+          for (const doc of successorMembers.docs) successorMemberIds.add(doc.id);
+        }
+
         for (const update of memberUpdates) {
+          if (successorRef && successorMemberIds.has(update.ref.id)) {
+            t.update(successorRef.collection("members").doc(update.ref.id), {
+              badgesCarried: update.allowance.carried + update.allowance.earned,
+            });
+          }
           t.update(update.ref, {
             outcome: update.succeeded ? "succeeded" : "failed",
             completedCount: update.completed,

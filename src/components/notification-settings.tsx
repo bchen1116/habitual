@@ -19,6 +19,7 @@ import {
   type NotificationCategory,
 } from "@/lib/notifications";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import {
   Card,
   CardContent,
@@ -164,12 +165,10 @@ export function NotificationSettings({ uid }: { uid: string }) {
             const enabled = prefs[category.key] ?? true;
             return (
               <div key={category.key} className="flex flex-col gap-2.5">
-              <button
-                role="switch"
-                aria-checked={enabled}
-                aria-label={category.label}
-                onClick={() => toggle(category.key)}
-                className="flex items-center justify-between gap-4 text-left"
+              <Switch
+                checked={enabled}
+                onCheckedChange={() => toggle(category.key)}
+                label={category.label}
               >
                 <span>
                   <span className="block text-sm font-medium">
@@ -179,21 +178,7 @@ export function NotificationSettings({ uid }: { uid: string }) {
                     {category.description}
                   </span>
                 </span>
-                <span
-                  aria-hidden="true"
-                  className={
-                    "relative h-6 w-10 shrink-0 rounded-full transition-colors " +
-                    (enabled ? "bg-foreground" : "bg-secondary")
-                  }
-                >
-                  <span
-                    className={
-                      "absolute top-0.5 h-5 w-5 rounded-full bg-background shadow transition-all " +
-                      (enabled ? "left-[1.125rem]" : "left-0.5")
-                    }
-                  />
-                </span>
-              </button>
+              </Switch>
               {category.key === "dailyReminder" && enabled && (
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl bg-secondary px-3 py-2.5">
                   <label htmlFor="reminder-hour" className="text-xs font-medium">

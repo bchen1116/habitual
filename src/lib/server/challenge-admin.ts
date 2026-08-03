@@ -66,6 +66,7 @@ export interface CreateChallengePayload {
   stakeAmount: number;
   charityName: string | null; // null in pool mode
   visibility: "public" | "private";
+  autoRepeat: boolean;
 }
 
 /**
@@ -134,6 +135,8 @@ export async function createChallengeAdmin(
     stakeAmount: payload.stakeAmount,
     startDate: payload.startDate,
     endDate: payload.endDate,
+    autoRepeat: payload.autoRepeat,
+    autoRepeatedToId: null,
     status: "active",
     memberIds: [uid],
     createdAt: FieldValue.serverTimestamp(),
@@ -479,6 +482,49 @@ export async function setChallengeVisibilityAdmin(
   await ref.update({ visibility });
 }
 
+export type SetAutoRepeatErrorCode = "not-found" | "not-owner" | "not-active";
+
+export class SetAutoRepeatError extends Error {
+  constructor(public code: SetAutoRepeatErrorCode) {
+    super(code);
+  }
+}
+
+/**
+ * Creator-only "keep this habit going" switch, same shape as
+ * setChallengeVisibilityAdmin above and available for the same reason: it
+ * isn't a money term of the *current* cycle, so freezing it once other people
+ * have joined would protect nothing. It only decides whether a successor gets
+ * created, and turning it off before that happens cancels it outright.
+ *
+ * Restricted to active challenges. Once a cycle has ended there's nothing
+ * useful left for the flag to do — the job that reads it has already passed
+ * this habit by, and a successor starting today would leave a gap in the
+ * chain that breaks the streak. The manual Repeat button covers that case,
+ * which is exactly why it still exists.
+ *
+ * Turning it off does NOT delete a successor already created (autoRepeatedToId
+ * is left as-is): that cycle is a real challenge other people may already have
+ * checked into, and silently deleting it would be a far bigger surprise than
+ * one extra cycle. The UI says so.
+ */
+export async function setAutoRepeatAdmin(
+  uid: string,
+  challengeId: string,
+  autoRepeat: boolean
+): Promise<void> {
+  const db = getAdminDb();
+  const ref = db.collection("challenges").doc(challengeId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new SetAutoRepeatError("not-found");
+
+  const data = snap.data()!;
+  if (data.createdBy !== uid) throw new SetAutoRepeatError("not-owner");
+  if (data.status !== "active") throw new SetAutoRepeatError("not-active");
+
+  await ref.update({ autoRepeat });
+}
+
 export type RemoveMemberErrorCode =
   | "not-found"
   | "not-owner"
@@ -760,6 +806,10 @@ export async function repeatChallengeAdmin(
     stakeAmount: payload.stakeAmount,
     startDate: newStartDate,
     endDate: newEndDate,
+    // Carried forward like visibility: a habit set to keep going keeps going,
+    // whether this particular cycle was started by the button or by the job.
+    autoRepeat: (data.autoRepeat as boolean | undefined) ?? false,
+    autoRepeatedToId: null,
     status: "active",
     memberIds: memberDocs.docs.map((d) => d.id),
     repeatedFromId: challengeId,

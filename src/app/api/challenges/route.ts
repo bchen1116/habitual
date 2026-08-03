@@ -28,6 +28,9 @@ const payloadSchema = z
     // Absent from an older client's payload ⇒ public, matching the "missing
     // means public" rule the Challenge type documents.
     visibility: z.enum(["public", "private"]).default("public"),
+    // Same "absent means off" rule the Challenge type documents, so an older
+    // client's payload creates a habit that repeats only when asked.
+    autoRepeat: z.boolean().default(false),
   })
   .superRefine((data, ctx) => {
     if (data.forfeitType === "pool" && data.mode !== "group") {
@@ -98,6 +101,7 @@ export async function POST(request: NextRequest) {
         charityName:
           data.forfeitType === "charity" ? data.charityName!.trim() : null,
         visibility: data.visibility,
+        autoRepeat: data.autoRepeat,
       }
     );
     return NextResponse.json(result);

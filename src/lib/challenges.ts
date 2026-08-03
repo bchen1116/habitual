@@ -29,6 +29,7 @@ export interface CreateChallengeInput {
   stakeAmount: number;
   charityName: string | null; // null in pool mode
   visibility: "public" | "private";
+  autoRepeat: boolean;
 }
 
 /** Active challenges the user belongs to (dashboard query). */
@@ -150,6 +151,27 @@ export async function setChallengeVisibility(
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     throw new Error(body?.error ?? "Couldn't update this habit's visibility");
+  }
+}
+
+/**
+ * Creator-only: whether this habit rolls into a new cycle on its own when
+ * this one is nearly over. Like `setChallengeVisibility`, available for the
+ * whole active life of the habit — it doesn't change any term of the cycle
+ * people already signed up for.
+ */
+export async function setAutoRepeat(
+  challengeId: string,
+  autoRepeat: boolean
+): Promise<void> {
+  const response = await fetch(`/api/challenges/${challengeId}/auto-repeat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ autoRepeat }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.error ?? "Couldn't update auto-repeat");
   }
 }
 
