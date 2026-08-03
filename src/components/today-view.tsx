@@ -14,7 +14,6 @@ import { Button } from "@/components/ui/button";
 import { GroupCard } from "@/components/group-card";
 import { HabitRow } from "@/components/habit-row";
 import { InstallBanner } from "@/components/install-banner";
-import { LedgerSummary } from "@/components/ledger-summary";
 import { PushProvider } from "@/components/push-provider";
 import { StatTile } from "@/components/stat-tile";
 import { StreakHero } from "@/components/streak-hero";
@@ -101,7 +100,6 @@ export function TodayView({
 
       <PushProvider uid={uid} />
       <InstallBanner />
-      <LedgerSummary uid={uid} />
 
       <div className="flex flex-col gap-5 lg:flex-row lg:gap-6">
         <div className="flex flex-1 flex-col gap-[18px] lg:gap-[22px]">

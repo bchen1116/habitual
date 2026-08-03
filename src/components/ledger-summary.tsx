@@ -9,7 +9,16 @@ import { owedByMeQuery, owedToMeQuery } from "@/lib/ledger";
 import type { LedgerEntry } from "@/lib/types";
 import { Card, CardContent } from "@/components/ui/card";
 
-/** Dashboard card: unsettled totals in both directions. */
+/**
+ * Unsettled totals in both directions, on the Habits page.
+ *
+ * Renders nothing at all unless money is actually outstanding — no "all
+ * settled" card, and no loading skeleton either. It used to sit on Today and
+ * congratulate you every morning for owing nobody anything, which is the
+ * normal state: a permanent fixture reporting the absence of a problem, in the
+ * most valuable space in the app. As a card that appears only when there's a
+ * debt, its presence is the whole message, and it can't be tuned out.
+ */
 export function LedgerSummary({ uid }: { uid: string }) {
   const [owedByMe, setOwedByMe] = useState<LedgerEntry[] | null>(null);
   const [owedToMe, setOwedToMe] = useState<LedgerEntry[] | null>(null);
@@ -43,28 +52,21 @@ export function LedgerSummary({ uid }: { uid: string }) {
     };
   }, [uid]);
 
-  // Auxiliary card: on error, render nothing rather than spin forever or
-  // falsely claim "all settled".
+  // On error, render nothing rather than spin forever or wrongly imply
+  // there's nothing owed.
   if (loadError) return null;
 
-  if (owedByMe === null || owedToMe === null) {
-    return <div className="h-16 animate-pulse rounded-xl bg-muted" />;
-  }
+  // No skeleton while loading: having nothing outstanding is the common case,
+  // so a placeholder would usually be reserving space for a card that never
+  // arrives — and the page above it would visibly jump when it didn't.
+  if (owedByMe === null || owedToMe === null) return null;
 
   const debts = owedByMe.filter((e) => e.status === "unsettled");
   const credits = owedToMe.filter((e) => e.status === "unsettled");
   const debtTotal = debts.reduce((sum, e) => sum + e.amount, 0);
   const creditTotal = credits.reduce((sum, e) => sum + e.amount, 0);
 
-  if (debts.length === 0 && credits.length === 0) {
-    return (
-      <Card>
-        <CardContent className="p-4 text-sm text-muted-foreground">
-          You&apos;re all settled 🎉
-        </CardContent>
-      </Card>
-    );
-  }
+  if (debts.length === 0 && credits.length === 0) return null;
 
   const toPeople = debts
     .filter((e) => e.toType === "user")
