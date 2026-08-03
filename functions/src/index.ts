@@ -6,6 +6,7 @@ import {
 } from "firebase-functions/v2/firestore";
 import * as logger from "firebase-functions/logger";
 import { adjudicateEndedChallenges } from "./adjudicate";
+import { autoRepeatEndingChallenges } from "./auto-repeat";
 import { sendDailyLifecycleNotifications } from "./lifecycle";
 import {
   ledgerCreatedContent,
@@ -16,13 +17,28 @@ import {
 initializeApp();
 
 /**
- * Daily at 03:00 UTC (docs/03). The 36-hour cutoff inside guarantees no
+ * Daily at 03:00 UTC (docs/03). The 39-hour cutoff inside guarantees no
  * member is graded before their final local day has ended in any timezone.
+ *
+ * Auto-repeat runs first, and the order is not incidental: it only considers
+ * challenges still marked active, so grading a cycle before looking at it
+ * would make its successor invisible to this run. The two operate a day or
+ * more apart in practice (one looks ~24h ahead of an end date, the other ~39h
+ * behind it), but the ordering makes that a property rather than a hope.
  */
 export const adjudicateendedchallenges = onSchedule(
   { schedule: "0 3 * * *", timeZone: "UTC", region: "us-central1" },
   async () => {
-    const processed = await adjudicateEndedChallenges(new Date());
+    const now = new Date();
+    try {
+      const repeated = await autoRepeatEndingChallenges(now);
+      logger.info(`Auto-repeated ${repeated} challenge(s)`);
+    } catch (err) {
+      // Never let this stop adjudication: money settlement is the job that
+      // must not be skipped, and a missed auto-repeat retries tomorrow.
+      logger.error("Auto-repeat pass failed", err);
+    }
+    const processed = await adjudicateEndedChallenges(now);
     logger.info(`Adjudicated ${processed} challenge(s)`);
   }
 );

@@ -34,6 +34,21 @@ export interface Challenge {
   maxMembers?: number | null; // group only, optional cap
   streakResetAt?: string | null; // yyyymmdd; set when an edit increases skipDays
   repeatedFromId?: string | null; // id of the previous cycle (repeatChallengeAdmin); unset for a chain's first cycle
+  /**
+   * Keep going: when this cycle is nearly over, create the next one
+   * automatically with the same terms, and set this flag on that one too, so
+   * the habit rolls on until it's turned off. Missing/null means off — Repeat
+   * stays a manual button for every habit created before this existed.
+   */
+  autoRepeat?: boolean | null;
+  /**
+   * The successor auto-repeat already created, if any. Doubles as the
+   * idempotency guard for the Cloud Function that writes it, which is why it
+   * is a document id rather than a boolean — a "done" flag would prove a
+   * successor was made but not which one, and there'd be no way to check the
+   * link is still intact.
+   */
+  autoRepeatedToId?: string | null;
   frequency: {
     type: FrequencyType;
     target: number; // check-ins per 7-day window; meaningful for weekly_count
