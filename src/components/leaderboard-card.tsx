@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Avatar } from "@/components/ui/avatar";
 import { GooeyLoader } from "@/components/ui/loader-10";
+import { cacheGet, cacheSet } from "@/lib/client-cache";
+import { browserTimezone, todayYmd } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 
 interface LeaderboardEntry {
@@ -30,23 +32,52 @@ const PODIUM_SIZE = 3;
  * budget, so rank pills here stay monochrome and the panel matches the
  * existing ink chrome (week-strip, streak-hero).
  */
+interface LeaderboardBody {
+  entries: LeaderboardEntry[];
+  viewerHidden: boolean;
+}
+
+/**
+ * The day belongs in the key because a current streak decays with the
+ * calendar: nobody has to write anything for yesterday's board to be wrong
+ * today. Computed per render rather than once at module load — a tab left open
+ * overnight would otherwise keep serving the previous day's ranking, and the
+ * one thing this cache must never do is outlive the truth of what it holds.
+ */
+function cacheKeyForToday(): string {
+  return `leaderboard:${todayYmd(browserTimezone())}`;
+}
+
 export function LeaderboardCard() {
-  const [entries, setEntries] = useState<LeaderboardEntry[] | null>(null);
-  const [viewerHidden, setViewerHidden] = useState(false);
+  const cacheKey = cacheKeyForToday();
+  const cached = cacheGet<LeaderboardBody>(cacheKey);
+  const [entries, setEntries] = useState<LeaderboardEntry[] | null>(
+    cached?.entries ?? null
+  );
+  const [viewerHidden, setViewerHidden] = useState(cached?.viewerHidden ?? false);
   const [error, setError] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("currentStreak");
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    const key = cacheKeyForToday();
+    const hadCache = cacheGet<LeaderboardBody>(key) !== undefined;
+
+    // Stale-while-revalidate. The board is the most expensive thing on the
+    // page — the server recomputes streaks for every peer — so a cached copy
+    // renders immediately and the refresh lands underneath it. Coming back to
+    // this page therefore costs nothing visible, and nothing is ever shown
+    // that wasn't true when it was computed.
     fetch("/api/leaderboard")
       .then(async (res) => {
         if (!res.ok) throw new Error(String(res.status));
-        return res.json();
+        return (await res.json()) as LeaderboardBody;
       })
       .then((body) => {
+        cacheSet(key, body);
         if (cancelled) return;
-        setEntries(body.entries as LeaderboardEntry[]);
+        setEntries(body.entries);
         setViewerHidden(Boolean(body.viewerHidden));
         setError(false);
       })
@@ -55,7 +86,9 @@ export function LeaderboardCard() {
         // Distinct from "no peers" below — conflating a failed fetch with an
         // empty result is a bug this codebase has already had once.
         console.error("leaderboard fetch failed:", err);
-        setError(true);
+        // A cached board stays on screen: it was correct when it was computed,
+        // and showing it beats replacing something true with an error.
+        if (!hadCache) setError(true);
       });
     return () => {
       cancelled = true;
@@ -160,7 +193,10 @@ export function LeaderboardCard() {
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="type-overline mt-3.5 text-[11px] text-ink-nav-inactive transition-colors hover:text-white"
+          // A bordered pill, not bare text: inside the ink panel this was a
+          // caption that happened to be tappable, with nothing but hover to
+          // say so — and there is no hover on a phone.
+          className="type-overline mt-3.5 rounded-full border border-ink-nav-inactive px-3 py-1 text-[11px] text-ink-nav-inactive transition-colors hover:border-white hover:text-white active:translate-y-px"
         >
           {expanded ? "Show less" : `See all ${ranked.length}`}
         </button>
@@ -205,8 +241,13 @@ function SortButton({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "type-overline rounded-full px-2.5 py-1 text-[11px] transition-colors",
-        active ? "bg-white text-ink" : "text-ink-nav-inactive hover:text-white"
+        // The unselected half carried no edge, so a two-option segmented
+        // control read as one button beside a label. Both halves are pills
+        // now; the fill is what says which is selected.
+        "type-overline rounded-full border px-2.5 py-1 text-[11px] transition-colors active:translate-y-px",
+        active
+          ? "border-white bg-white text-ink"
+          : "border-ink-nav-inactive text-ink-nav-inactive hover:border-white hover:text-white"
       )}
     >
       {children}

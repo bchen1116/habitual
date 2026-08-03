@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
 import { getClientAuth } from "@/lib/firebase/client";
+import { clearClientCache } from "@/lib/client-cache";
 import { Button } from "@/components/ui/button";
 
 export function SignOutButton() {
@@ -17,6 +18,10 @@ export function SignOutButton() {
         // Client-side sign-out is best-effort; the cookie is the source of truth.
       });
       await fetch("/api/auth/session", { method: "DELETE" });
+      // Streaks and boards are cached in module scope, which outlives a
+      // client-side navigation — so without this the next person to sign in on
+      // this device would see the last one's numbers until a hard reload.
+      clearClientCache();
       router.replace("/");
       router.refresh();
     } finally {

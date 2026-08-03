@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { getClientDb } from "@/lib/firebase/client";
 import { chainLongestStreak, walkChain } from "@/lib/chain-streak";
 import { longestStreak, streakRun } from "@/lib/streak";
+import { cacheGet, cacheSet, chainStreakKey } from "@/lib/client-cache";
 import type { Challenge } from "@/lib/types";
 
 /**
@@ -84,20 +85,6 @@ export function useMaxChainStreak(
   today: string,
   joinedDateByChallenge: Readonly<Record<string, string | undefined>> = {}
 ): ChainStreak {
-  const [chainMax, setChainMax] = useState<ChainStreak | null>(null);
-
-  const localMax = challenges.reduce<ChainStreak>((best, c) => {
-    const run = streakRun(
-      c,
-      checkinYmdsByChallenge[c.id] ?? [],
-      today,
-      joinedDateByChallenge[c.id]
-    );
-    return run.streak > best.streak
-      ? { streak: run.streak, weeks: Math.floor(run.spanDays / 7) }
-      : best;
-  }, ZERO);
-
   const checkinsKey = challenges
     .map((c) => `${c.id}:${(checkinYmdsByChallenge[c.id] ?? []).join("|")}`)
     .join(",");
@@ -120,9 +107,34 @@ export function useMaxChainStreak(
     )
     .join(",");
 
+  const cacheKey = chainStreakKey("current", uid, today, chainKey, checkinsKey);
+  // Seeded from the cache, so navigating away and back paints the real number
+  // on the first frame instead of falling back to the single-cycle figure and
+  // visibly correcting itself once the chain walk resolves again.
+  const [chainMax, setChainMax] = useState<ChainStreak | null>(
+    () => cacheGet<ChainStreak>(cacheKey) ?? null
+  );
+
+  const localMax = challenges.reduce<ChainStreak>((best, c) => {
+    const run = streakRun(
+      c,
+      checkinYmdsByChallenge[c.id] ?? [],
+      today,
+      joinedDateByChallenge[c.id]
+    );
+    return run.streak > best.streak
+      ? { streak: run.streak, weeks: Math.floor(run.spanDays / 7) }
+      : best;
+  }, ZERO);
+
   useEffect(() => {
     if (challenges.length === 0) {
       setChainMax(null);
+      return;
+    }
+    const hit = cacheGet<ChainStreak>(cacheKey);
+    if (hit) {
+      setChainMax(hit);
       return;
     }
     let cancelled = false;
@@ -140,16 +152,20 @@ export function useMaxChainStreak(
         };
       })
     ).then((totals) => {
-      if (cancelled) return;
-      setChainMax(
-        totals.reduce<ChainStreak>((best, t) => (t.streak > best.streak ? t : best), ZERO)
+      const best = totals.reduce<ChainStreak>(
+        (acc, t) => (t.streak > acc.streak ? t : acc),
+        ZERO
       );
+      // Cached even if this render was cancelled: the answer is keyed on its
+      // own inputs, so it stays correct for whoever asks next.
+      cacheSet(cacheKey, best);
+      if (!cancelled) setChainMax(best);
     });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chainKey, checkinsKey, uid, today]);
+  }, [cacheKey]);
 
   return chainMax ?? localMax;
 }
@@ -176,7 +192,20 @@ export function useMaxChainLongestStreak(
   today: string,
   joinedDateByChallenge: Readonly<Record<string, string | undefined>> = {}
 ): number {
-  const [chainBest, setChainBest] = useState<number | null>(null);
+  const checkinsKey = challenges
+    .map((c) => `${c.id}:${(checkinYmdsByChallenge[c.id] ?? []).join("|")}`)
+    .join(",");
+  const chainKey = challenges
+    .map(
+      (c) =>
+        `${c.id}:${c.repeatedFromId ?? ""}:${joinedDateByChallenge[c.id] ?? ""}`
+    )
+    .join(",");
+  const cacheKey = chainStreakKey("longest", uid, today, chainKey, checkinsKey);
+
+  const [chainBest, setChainBest] = useState<number | null>(
+    () => cacheGet<number>(cacheKey) ?? null
+  );
 
   const localBest = challenges.reduce(
     (best, c) =>
@@ -192,19 +221,14 @@ export function useMaxChainLongestStreak(
     0
   );
 
-  const checkinsKey = challenges
-    .map((c) => `${c.id}:${(checkinYmdsByChallenge[c.id] ?? []).join("|")}`)
-    .join(",");
-  const chainKey = challenges
-    .map(
-      (c) =>
-        `${c.id}:${c.repeatedFromId ?? ""}:${joinedDateByChallenge[c.id] ?? ""}`
-    )
-    .join(",");
-
   useEffect(() => {
     if (challenges.length === 0) {
       setChainBest(null);
+      return;
+    }
+    const hit = cacheGet<number>(cacheKey);
+    if (hit !== undefined) {
+      setChainBest(hit);
       return;
     }
     let cancelled = false;
@@ -224,7 +248,9 @@ export function useMaxChainLongestStreak(
       )
     )
       .then((bests) => {
-        if (!cancelled) setChainBest(Math.max(0, ...bests));
+        const best = Math.max(0, ...bests);
+        cacheSet(cacheKey, best);
+        if (!cancelled) setChainBest(best);
       })
       .catch(() => {
         // An unreadable ancestor already collapses to "chain ends here" in the
@@ -236,7 +262,7 @@ export function useMaxChainLongestStreak(
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chainKey, checkinsKey, uid, today]);
+  }, [cacheKey]);
 
   return Math.max(chainBest ?? 0, localBest);
 }

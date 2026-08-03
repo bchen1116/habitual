@@ -8,12 +8,21 @@ import {
   type ChainCarry,
   type ChainReader,
 } from "@/lib/chain-core";
+import { cachedPromise } from "@/lib/client-cache";
 import type { Challenge } from "@/lib/types";
 
 /**
  * Client-side chain reader. Every read here is one-time (`getDoc`/`getDocs`),
  * not a live listener — ancestors are settled history that won't change,
  * unlike the caller's own current-cycle checkins.
+ *
+ * Reads are memoized in lib/client-cache.ts, which is the same fix
+ * memoizedChainReader applies on the server and for the same measured reason:
+ * a habit's current streak and its all-time best are two walks over the same
+ * cycles, so every ancestor was being read exactly twice. The cache also spans
+ * navigations, so leaving a page and returning re-reads nothing. checkIn()
+ * evicts the affected `checkins:` entries; everything else here is a settled
+ * cycle and cannot change.
  *
  * A missing ancestor and an *unreadable* one collapse to the same `null`: if
  * this user wasn't a member of an earlier cycle, firestore.rules denies the
@@ -26,39 +35,45 @@ import type { Challenge } from "@/lib/types";
 function clientChainReader(db: Firestore): ChainReader {
   return {
     async getChallenge(id) {
-      try {
-        const snap = await getDoc(doc(db, "challenges", id));
-        if (!snap.exists()) return null;
-        return { id: snap.id, ...snap.data() } as Challenge;
-      } catch {
-        return null;
-      }
+      return cachedPromise(`cycle:${id}`, async () => {
+        try {
+          const snap = await getDoc(doc(db, "challenges", id));
+          if (!snap.exists()) return null;
+          return { id: snap.id, ...snap.data() } as Challenge;
+        } catch {
+          return null;
+        }
+      });
     },
     async getCheckinYmds(challengeId, uid) {
-      try {
-        const snap = await getDocs(
-          collection(db, "challenges", challengeId, "checkins")
-        );
-        return snap.docs
-          .map((d) => d.data())
-          .filter((c) => c.uid === uid)
-          .map((c) => c.localDate as string);
-      } catch {
-        return [];
-      }
+      return cachedPromise(`checkins:${challengeId}:${uid}`, async () => {
+        try {
+          const snap = await getDocs(
+            collection(db, "challenges", challengeId, "checkins")
+          );
+          return snap.docs
+            .map((d) => d.data())
+            .filter((c) => c.uid === uid)
+            .map((c) => c.localDate as string);
+        } catch {
+          return [];
+        }
+      });
     },
     async getJoinedDate(challengeId, uid) {
-      try {
-        const snap = await getDoc(
-          doc(db, "challenges", challengeId, "members", uid)
-        );
-        return snap.data()?.joinedDate as string | undefined;
-      } catch {
-        // Same swallow as above: undefined means "treat them as having been
-        // here from the start", which is exactly what a member doc predating
-        // the field means anyway.
-        return undefined;
-      }
+      return cachedPromise(`joined:${challengeId}:${uid}`, async () => {
+        try {
+          const snap = await getDoc(
+            doc(db, "challenges", challengeId, "members", uid)
+          );
+          return snap.data()?.joinedDate as string | undefined;
+        } catch {
+          // Same swallow as above: undefined means "treat them as having been
+          // here from the start", which is exactly what a member doc predating
+          // the field means anyway.
+          return undefined;
+        }
+      });
     },
   };
 }
