@@ -2,6 +2,7 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { addDaysYmd, dateToYmdUTC, daysBetweenInclusive } from "./dates";
 import { repeatDurationDays } from "./duration";
+import { badgesEarnedIn, type BadgeChallenge } from "./badges";
 import { sendPushToMany } from "./notifications";
 
 /**
@@ -21,7 +22,7 @@ import { sendPushToMany } from "./notifications";
  * endDate + 1 with nothing retroactive about it. The cost is that grading
  * hasn't happened yet, so badges earned in the final cycle aren't known here.
  * Adjudication settles that afterwards by writing the graded total onto the
- * successor's member docs — see the autoRepeatedToId branch in adjudicate.ts.
+ * successor's member docs — see the repeatedToId branch in adjudicate.ts.
  */
 
 /**
@@ -50,7 +51,7 @@ export function autoRepeatHorizonYmd(now: Date): string {
 interface AutoRepeatChallenge {
   status: string;
   autoRepeat?: boolean;
-  autoRepeatedToId?: string | null;
+  repeatedToId?: string | null;
   startDate: string;
   endDate: string;
 }
@@ -125,29 +126,29 @@ export async function autoRepeatEndingChallenges(now: Date): Promise<number> {
       // means a previous run reserved the link and then failed to write the
       // cycle. Clearing it turns what would be a permanently un-repeating
       // habit into a one-day delay.
-      if (data.autoRepeatedToId) {
+      if (data.repeatedToId) {
         const successor = await db
           .collection("challenges")
-          .doc(data.autoRepeatedToId)
+          .doc(data.repeatedToId)
           .get();
         if (successor.exists) continue;
         logger.warn(
-          `auto-repeat: ${doc.id} points at missing successor ${data.autoRepeatedToId}; retrying`
+          `auto-repeat: ${doc.id} points at missing successor ${data.repeatedToId}; retrying`
         );
-        await doc.ref.update({ autoRepeatedToId: null });
+        await doc.ref.update({ repeatedToId: null });
       }
 
       const newRef = db.collection("challenges").doc();
 
       // Claim the successor slot before writing it, so two overlapping runs
       // can't both create one. Whoever loses the compare-and-set sees a
-      // non-null autoRepeatedToId and bails.
+      // non-null repeatedToId and bails.
       const claimed = await db.runTransaction(async (t) => {
         const fresh = await t.get(doc.ref);
         const current = fresh.data() as AutoRepeatChallenge | undefined;
         if (!current || !shouldAutoRepeat(current, now)) return false;
-        if (current.autoRepeatedToId) return false;
-        t.update(doc.ref, { autoRepeatedToId: newRef.id });
+        if (current.repeatedToId) return false;
+        t.update(doc.ref, { repeatedToId: newRef.id });
         return true;
       });
       if (!claimed) continue;
@@ -195,11 +196,26 @@ async function writeSuccessor(
 ): Promise<void> {
   const db = getFirestore();
   const oldRef = db.collection("challenges").doc(oldId);
-  const [snap, memberDocs] = await Promise.all([
+  const [snap, memberDocs, checkinDocs] = await Promise.all([
     oldRef.get(),
     oldRef.collection("members").get(),
+    oldRef.collection("checkins").get(),
   ]);
   const data = snap.data()!;
+
+  // Counted here rather than read off the member doc: `badgesCarried` is only
+  // written by adjudication, which hasn't run yet — this executes a day
+  // *before* the cycle ends. Every week already completed is already earned
+  // and can't be lost, so carrying that count now means the successor opens
+  // with the right allowance instead of one that's short until grading fixes
+  // it. Only the final week can still change, and adjudication settles that.
+  const oldCheckinsByUid = new Map<string, string[]>();
+  for (const doc of checkinDocs.docs) {
+    const { uid, localDate } = doc.data() as { uid: string; localDate: string };
+    const list = oldCheckinsByUid.get(uid) ?? [];
+    list.push(localDate);
+    oldCheckinsByUid.set(uid, list);
+  }
 
   const newStartDate = addDaysYmd(data.endDate, 1);
   const days = repeatDurationDays(
@@ -227,7 +243,7 @@ async function writeSuccessor(
     endDate: addDaysYmd(newStartDate, days - 1),
     // The successor repeats too, or "auto-repeat" would mean "once more".
     autoRepeat: true,
-    autoRepeatedToId: null,
+    repeatedToId: null,
     status: "active",
     memberIds: memberDocs.docs.map((d) => d.id),
     repeatedFromId: oldId,
@@ -241,10 +257,17 @@ async function writeSuccessor(
       username: member.username ?? null,
       joinedAt: FieldValue.serverTimestamp(),
       joinedDate: newStartDate,
-      // Whatever was banked at this point. The final cycle's own badges
-      // aren't graded yet — adjudication overwrites this with the settled
-      // total once it runs (see adjudicate.ts).
-      badgesCarried: (member.badgesCarried as number | undefined) ?? 0,
+      // Everything banked before this cycle, plus every full week it has
+      // already completed. Adjudication overwrites this with the settled
+      // total once it runs (see adjudicate.ts), which can only ever add the
+      // final week.
+      badgesCarried:
+        ((member.badgesCarried as number | undefined) ?? 0) +
+        badgesEarnedIn(
+          data as BadgeChallenge,
+          oldCheckinsByUid.get(memberDoc.id) ?? [],
+          member.joinedDate as string | undefined
+        ),
       charityName: member.charityName ?? null,
       outcome: null,
       completedCount: 0,

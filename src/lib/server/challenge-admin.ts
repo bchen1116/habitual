@@ -8,6 +8,8 @@ import {
 import { getAdminDb } from "@/lib/firebase/admin";
 import { addDaysYmd, daysBetweenInclusive, todayYmd } from "@/lib/dates";
 import { repeatDurationDays } from "@/lib/duration";
+import { badgesEarnedIn } from "@/lib/badges";
+import type { Challenge } from "@/lib/types";
 
 /**
  * Server-side challenge creation and joining. Docs/04 specifies callable
@@ -136,7 +138,7 @@ export async function createChallengeAdmin(
     startDate: payload.startDate,
     endDate: payload.endDate,
     autoRepeat: payload.autoRepeat,
-    autoRepeatedToId: null,
+    repeatedToId: null,
     status: "active",
     memberIds: [uid],
     createdAt: FieldValue.serverTimestamp(),
@@ -503,7 +505,7 @@ export class SetAutoRepeatError extends Error {
  * chain that breaks the streak. The manual Repeat button covers that case,
  * which is exactly why it still exists.
  *
- * Turning it off does NOT delete a successor already created (autoRepeatedToId
+ * Turning it off does NOT delete a successor already created (repeatedToId
  * is left as-is): that cycle is a real challenge other people may already have
  * checked into, and silently deleting it would be a far bigger surprise than
  * one extra cycle. The UI says so.
@@ -784,7 +786,33 @@ export async function repeatChallengeAdmin(
 
   const joinCode = data.mode === "group" ? await generateUniqueJoinCode() : null;
 
-  const memberDocs = await oldRef.collection("members").get();
+  // The old cycle's check-ins, so the badges it earned come across with it.
+  // Copying the stored `badgesCarried` alone silently loses them: that field
+  // is only ever written by adjudication, which doesn't run until 39 hours
+  // past the end date — and Repeat is normally pressed the moment the habit
+  // ends, well before that. A 4-week habit with perfect attendance would
+  // hand over 0 of the 4 skips it had just earned.
+  const [memberDocs, checkinDocs] = await Promise.all([
+    oldRef.collection("members").get(),
+    oldRef.collection("checkins").get(),
+  ]);
+  const oldCheckinsByUid = new Map<string, string[]>();
+  for (const doc of checkinDocs.docs) {
+    const { uid: memberUid, localDate } = doc.data() as {
+      uid: string;
+      localDate: string;
+    };
+    const list = oldCheckinsByUid.get(memberUid) ?? [];
+    list.push(localDate);
+    oldCheckinsByUid.set(memberUid, list);
+  }
+  const oldChallenge = { id: challengeId, ...data } as Challenge;
+  // Once adjudication has run, the member doc's badgesCarried IS the settled
+  // running total — it already includes this cycle's earnings. Recounting
+  // them on top would hand out every badge twice to anyone who repeated a
+  // habit a day or two later than usual.
+  const settled = data.status === "adjudicated";
+
   const newRef = db.collection("challenges").doc();
   const batch = db.batch();
   batch.set(newRef, {
@@ -809,7 +837,7 @@ export async function repeatChallengeAdmin(
     // Carried forward like visibility: a habit set to keep going keeps going,
     // whether this particular cycle was started by the button or by the job.
     autoRepeat: (data.autoRepeat as boolean | undefined) ?? false,
-    autoRepeatedToId: null,
+    repeatedToId: null,
     status: "active",
     memberIds: memberDocs.docs.map((d) => d.id),
     repeatedFromId: challengeId,
@@ -825,18 +853,38 @@ export async function repeatChallengeAdmin(
       // when they joined the previous one.
       joinedDate: newStartDate,
       // Badges follow the habit, not the cycle: "a badge in one habit cannot
-      // be applied to another habit". Adjudication writes each cycle's running
-      // total onto the member doc, so this is simply that total rolled forward
-      // — and it means the adjudicator never has to walk the repeat chain to
-      // know what someone has banked. Cycles repeated before results land
-      // carry what was banked at that point.
-      badgesCarried: (member.badgesCarried as number | undefined) ?? 0,
+      // be applied to another habit". Everything banked before this cycle,
+      // plus everything this cycle earned — counted here from its check-ins
+      // rather than read from a field adjudication hasn't written yet. That
+      // keeps the adjudicator from ever having to walk the repeat chain: one
+      // running total moves forward one link at a time.
+      badgesCarried:
+        ((member.badgesCarried as number | undefined) ?? 0) +
+        (settled
+          ? 0
+          : badgesEarnedIn(
+              oldChallenge,
+              oldCheckinsByUid.get(memberDoc.id) ?? [],
+              today,
+              member.joinedDate as string | undefined
+            )),
       charityName: member.charityName ?? null,
       outcome: null,
       completedCount: 0,
       skipsUsed: 0,
     });
   }
+  // The forward link, which does two jobs. Adjudication follows it to correct
+  // the successor's badge total once the final week is graded, and
+  // autoRepeatEndingChallenges treats it as "a successor already exists" — so
+  // repeating by hand can't be followed by the job quietly adding a second
+  // cycle on top. Only set when absent: if auto-repeat got here first, its
+  // successor keeps the correction, and this one already carries an accurate
+  // count from the check-ins above.
+  if (!data.repeatedToId) {
+    batch.update(oldRef, { repeatedToId: newRef.id });
+  }
+
   await batch.commit();
 
   return { id: newRef.id, joinCode };

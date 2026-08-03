@@ -42,13 +42,16 @@ export interface Challenge {
    */
   autoRepeat?: boolean | null;
   /**
-   * The successor auto-repeat already created, if any. Doubles as the
-   * idempotency guard for the Cloud Function that writes it, which is why it
-   * is a document id rather than a boolean — a "done" flag would prove a
-   * successor was made but not which one, and there'd be no way to check the
-   * link is still intact.
+   * The next cycle, once one exists — set by both the Repeat button and the
+   * auto-repeat job. The reverse of `repeatedFromId`, and it earns its keep
+   * three ways: adjudication follows it to push this cycle's graded badge
+   * total onto the successor, the auto-repeat job reads it as "a successor
+   * already exists" (so repeating by hand can't be followed by the job adding
+   * a second one), and that same read is its idempotency guard. A document id
+   * rather than a boolean because a "done" flag would prove a successor was
+   * made but not which one, leaving no way to check the link is still intact.
    */
-  autoRepeatedToId?: string | null;
+  repeatedToId?: string | null;
   frequency: {
     type: FrequencyType;
     target: number; // check-ins per 7-day window; meaningful for weekly_count

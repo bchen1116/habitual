@@ -14,11 +14,13 @@ interface ChallengeData {
   status: string;
   forfeitType: "charity" | "pool";
   /**
-   * Set when auto-repeat already created this habit's next cycle. It has to
-   * be created before grading (see functions/src/auto-repeat.ts), so the
-   * badges earned in *this* cycle land on it from here.
+   * Set when this habit's next cycle already exists — by the auto-repeat job,
+   * which must build it before grading (see functions/src/auto-repeat.ts), or
+   * by the Repeat button, which is normally pressed the day a habit ends,
+   * long before grading. Either way this cycle's badges are settled here, so
+   * they land on the successor from here.
    */
-  autoRepeatedToId?: string | null;
+  repeatedToId?: string | null;
 }
 
 interface MemberData {
@@ -273,8 +275,8 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
         // cycle after the successor was built isn't in it, and writing a
         // lone badgesCarried field would conjure a member doc for a challenge
         // whose memberIds never listed them.
-        const successorRef = challenge.autoRepeatedToId
-          ? db.collection("challenges").doc(challenge.autoRepeatedToId)
+        const successorRef = challenge.repeatedToId
+          ? db.collection("challenges").doc(challenge.repeatedToId)
           : null;
         const successorMemberIds = new Set<string>();
         if (successorRef) {
