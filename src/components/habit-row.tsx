@@ -42,7 +42,13 @@ export function HabitRow({
   const checkinYmds = checkins.map((c) => c.localDate);
   const state = challengeState(challenge, today);
   const summary = progressSummary(challenge, checkinYmds, timezone, joinedDate);
-  const { streak } = useChainStreak(challenge, uid, checkinYmds, today, joinedDate);
+  const { streak, pending: streakPending } = useChainStreak(
+    challenge,
+    uid,
+    checkinYmds,
+    today,
+    joinedDate
+  );
   // This habit's own seven days, anchored to its start date rather than to
   // Monday — a habit begun on a Saturday shows S M T W T F S.
   const week = habitWeek(challenge, checkinYmds, today, joinedDate);
@@ -117,8 +123,11 @@ export function HabitRow({
           {/* No nudge text beside the badge any more: the check-in button
               squeezes this column to about two words on a phone, and the week
               strip below now says the same thing with real numbers. */}
+          {/* An em-dash while the chain walk is out: this row sits directly
+              under the hero, and a repeated habit would otherwise show its
+              one-cycle streak and correct itself a beat later. */}
           <Badge variant="volt" className="mt-1">
-            Streak {streak}
+            Streak {streakPending ? "—" : streak}
           </Badge>
         </div>
         <div className="shrink-0">
