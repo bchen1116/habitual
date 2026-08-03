@@ -363,6 +363,18 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
               {challenge.description}
             </p>
           )}
+          {/* Not linked to the cycle it continues: a member carried over from
+              a group they joined late may have no read access to it, and a
+              link to "Challenge not found" is worse than no link. The
+              continuity itself is the useful part. */}
+          {challenge.repeatedFromId && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              Continues an earlier cycle of this habit — your streak
+              {allowance.carried > 0 &&
+                ` and ${allowance.carried} earned skip${allowance.carried === 1 ? "" : "s"}`}{" "}
+              carried over.
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-1.5 sm:shrink-0">
           {challenge.mode === "group" && (
@@ -719,7 +731,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
           <CardHeader className="pb-3">
             <CardTitle>Keep it going</CardTitle>
             <CardDescription>
-              {challenge.autoRepeatedToId
+              {challenge.repeatedToId
                 ? "The next cycle is already set up and starts when this one ends."
                 : challenge.autoRepeat
                   ? `Set up automatically shortly before ${formatYmd(challenge.endDate)}, so it starts ${formatYmd(nextCycleStart)} with no gap and your streak carries across.`
@@ -764,11 +776,11 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
             )}
             {/* Deliberately not deleted when the switch goes off: it is a real
                 challenge people may already have checked into. */}
-            {canSetAutoRepeat && challenge.autoRepeatedToId && !challenge.autoRepeat && (
+            {canSetAutoRepeat && challenge.repeatedToId && !challenge.autoRepeat && (
               <p className="text-xs text-muted-foreground">
                 The cycle already created still runs —{" "}
                 <Link
-                  href={`/challenges/${challenge.autoRepeatedToId}`}
+                  href={`/challenges/${challenge.repeatedToId}`}
                   className="underline"
                 >
                   open it
