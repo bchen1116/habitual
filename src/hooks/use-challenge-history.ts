@@ -5,11 +5,14 @@ import { doc, getDoc, getDocs } from "firebase/firestore";
 import { getClientDb } from "@/lib/firebase/client";
 import { completedChallengesQuery } from "@/lib/challenges";
 import type { CompletedChallengeEntry } from "@/lib/challenge-stats";
+import { firestoreErrorHint } from "@/lib/firestore-errors";
 import type { Challenge, ChallengeMember } from "@/lib/types";
 
 export interface ChallengeHistory {
   entries: CompletedChallengeEntry[] | null; // null while loading
   error: boolean;
+  /** Why, when it's rules or indexes that haven't been deployed. */
+  errorHint: string | null;
 }
 
 /**
@@ -21,6 +24,7 @@ export interface ChallengeHistory {
 export function useChallengeHistory(uid: string): ChallengeHistory {
   const [entries, setEntries] = useState<CompletedChallengeEntry[] | null>(null);
   const [error, setError] = useState(false);
+  const [errorHint, setErrorHint] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,7 +57,10 @@ export function useChallengeHistory(uid: string): ChallengeHistory {
         if (!cancelled) setEntries(results);
       } catch (err) {
         console.error("challenge history fetch failed:", err);
-        if (!cancelled) setError(true);
+        if (!cancelled) {
+          setError(true);
+          setErrorHint(firestoreErrorHint(err));
+        }
       }
     })();
 
@@ -62,5 +69,5 @@ export function useChallengeHistory(uid: string): ChallengeHistory {
     };
   }, [uid]);
 
-  return { entries, error };
+  return { entries, error, errorHint };
 }

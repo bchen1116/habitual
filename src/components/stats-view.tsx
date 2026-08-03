@@ -12,7 +12,7 @@ import { averageAmount, computeLifetimeStats } from "@/lib/challenge-stats";
 import { todayYmd } from "@/lib/dates";
 import { formatAmount } from "@/lib/currency";
 import { owedByMeQuery, owedToMeQuery } from "@/lib/ledger";
-import { maxLongestStreak } from "@/lib/streak";
+import { useMaxChainLongestStreak } from "@/hooks/use-chain-streak";
 import type { LedgerEntry } from "@/lib/types";
 import { LifetimeRatings } from "@/components/lifetime-ratings-card";
 import { StatTile } from "@/components/stat-tile";
@@ -26,7 +26,11 @@ export function StatsView({ uid }: { uid: string }) {
     loading,
     error: activeError,
   } = useActiveChallengeCheckins(uid);
-  const { entries: history, error: historyError } = useChallengeHistory(uid);
+  const {
+    entries: history,
+    error: historyError,
+    errorHint: historyHint,
+  } = useChallengeHistory(uid);
   const [ledger, setLedger] = useState<{ owed: LedgerEntry[]; credits: LedgerEntry[] } | null>(
     null
   );
@@ -77,8 +81,13 @@ export function StatsView({ uid }: { uid: string }) {
     (sum, records) => sum + records.length,
     0
   );
-  const longestActiveStreak = maxLongestStreak(
+  // Chain-aware: a repeated habit's best-ever run spans its earlier cycles
+  // rather than restarting with each one. Per-cycle, a 30-day run across three
+  // 2-week cycles reported 14 — and the leaderboard, which has always walked
+  // the chain, would have ranked the same person on 30.
+  const longestActiveStreak = useMaxChainLongestStreak(
     activeChallenges,
+    uid,
     checkinYmdsByChallenge,
     today,
     joinedDateByChallenge
@@ -88,17 +97,24 @@ export function StatsView({ uid }: { uid: string }) {
   // whole point of the section is the long view. Held until both sources have
   // landed so the fetch below runs once against the full set rather than
   // firing again the moment history arrives.
+  //
+  // A source that *failed*, though, is never going to land. Waiting on it left
+  // this stuck at null forever, which the section renders as a permanent
+  // loading skeleton — so one failed query took down a second, unrelated
+  // section that had everything it needed.
   const ratedHabits = useMemo(() => {
-    if (challenges === null || history === null) return null;
+    if (challenges === null && !activeError) return null;
+    if (history === null && !historyError) return null;
     return [
-      ...challenges.map((c) => ({ id: c.id, name: c.name })),
-      ...history.map((h) => ({ id: h.challenge.id, name: h.challenge.name })),
+      ...(challenges ?? []).map((c) => ({ id: c.id, name: c.name })),
+      ...(history ?? []).map((h) => ({ id: h.challenge.id, name: h.challenge.name })),
     ];
-  }, [challenges, history]);
-  const { habits: reflectionHabits, error: reflectionError } = useReflectionHistory(
-    uid,
-    ratedHabits
-  );
+  }, [challenges, history, activeError, historyError]);
+  const {
+    habits: reflectionHabits,
+    error: reflectionError,
+    errorHint: reflectionHint,
+  } = useReflectionHistory(uid, ratedHabits);
 
   const lifetime = history ? computeLifetimeStats(history) : null;
   // "Avg. won" only ever reflects pool-mode wins — a charity-mode win pays
@@ -126,9 +142,14 @@ export function StatsView({ uid }: { uid: string }) {
         )}
       </div>
 
+      {/* Only a reflections failure, or losing *both* habit sources, means the
+          ratings genuinely can't be shown. Previously any one of the three
+          failing blanked this section, so a broken lifetime query also erased
+          the ratings for habits that had loaded perfectly well. */}
       <LifetimeRatings
         habits={reflectionHabits}
-        error={reflectionError || activeError || historyError}
+        error={reflectionError || (activeError && historyError)}
+        errorHint={reflectionHint}
       />
 
       <div>
@@ -136,6 +157,7 @@ export function StatsView({ uid }: { uid: string }) {
         {historyError || ledgerError ? (
           <p className="mt-4 text-sm text-muted-foreground">
             Couldn&apos;t load your challenge history.
+            {historyHint && ` ${historyHint}`}
           </p>
         ) : !lifetime || !ledger ? (
           // Was `!lifetime || !ledger` gated behind a separate

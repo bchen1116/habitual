@@ -26,15 +26,19 @@ const MAX_WEEKS_CHARTED = 26;
 export function LifetimeRatings({
   habits,
   error,
+  errorHint,
 }: {
   habits: HabitReflections[] | null;
   error: boolean;
+  /** Names an operational cause (undeployed rules or indexes) when there is one. */
+  errorHint?: string | null;
 }) {
   if (error) {
     return (
       <Section>
         <p className="mt-4 text-sm text-muted-foreground">
           Couldn&apos;t load your session ratings.
+          {errorHint && ` ${errorHint}`}
         </p>
       </Section>
     );

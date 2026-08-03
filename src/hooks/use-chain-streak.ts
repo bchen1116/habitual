@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { getClientDb } from "@/lib/firebase/client";
-import { walkChain } from "@/lib/chain-streak";
-import { streakRun } from "@/lib/streak";
+import { chainLongestStreak, walkChain } from "@/lib/chain-streak";
+import { longestStreak, streakRun } from "@/lib/streak";
 import type { Challenge } from "@/lib/types";
 
 /**
@@ -152,4 +152,91 @@ export function useMaxChainStreak(
   }, [chainKey, checkinsKey, uid, today]);
 
   return chainMax ?? localMax;
+}
+
+/**
+ * Best-ever run across a set of habits, counting each habit's earlier cycles
+ * as part of the same timeline.
+ *
+ * Without the chain walk this reported only what the *current* cycle could
+ * show, so repeating a habit reset your all-time best to at most the length of
+ * one cycle — a 30-day run across three 2-week cycles displayed as 14. The
+ * leaderboard has always walked the chain for this (computeStreaks); the
+ * Progress page hadn't, so your own best-ever and your ranked best-ever were
+ * two different numbers.
+ *
+ * Same shape as useMaxChainStreak: the single-cycle answer renders
+ * immediately and is replaced by the chain total once the reads land, so the
+ * number only ever grows and never flashes zero.
+ */
+export function useMaxChainLongestStreak(
+  challenges: readonly Challenge[],
+  uid: string,
+  checkinYmdsByChallenge: Readonly<Record<string, readonly string[]>>,
+  today: string,
+  joinedDateByChallenge: Readonly<Record<string, string | undefined>> = {}
+): number {
+  const [chainBest, setChainBest] = useState<number | null>(null);
+
+  const localBest = challenges.reduce(
+    (best, c) =>
+      Math.max(
+        best,
+        longestStreak(
+          c,
+          checkinYmdsByChallenge[c.id] ?? [],
+          today,
+          joinedDateByChallenge[c.id]
+        )
+      ),
+    0
+  );
+
+  const checkinsKey = challenges
+    .map((c) => `${c.id}:${(checkinYmdsByChallenge[c.id] ?? []).join("|")}`)
+    .join(",");
+  const chainKey = challenges
+    .map(
+      (c) =>
+        `${c.id}:${c.repeatedFromId ?? ""}:${joinedDateByChallenge[c.id] ?? ""}`
+    )
+    .join(",");
+
+  useEffect(() => {
+    if (challenges.length === 0) {
+      setChainBest(null);
+      return;
+    }
+    let cancelled = false;
+    const db = getClientDb();
+    Promise.all(
+      challenges.map((c) =>
+        c.repeatedFromId
+          ? chainLongestStreak(db, c, uid, today)
+          : Promise.resolve(
+              longestStreak(
+                c,
+                checkinYmdsByChallenge[c.id] ?? [],
+                today,
+                joinedDateByChallenge[c.id]
+              )
+            )
+      )
+    )
+      .then((bests) => {
+        if (!cancelled) setChainBest(Math.max(0, ...bests));
+      })
+      .catch(() => {
+        // An unreadable ancestor already collapses to "chain ends here" in the
+        // reader; anything past that leaves the local figure standing, which
+        // is correct as far as it goes rather than wrong.
+        if (!cancelled) setChainBest(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chainKey, checkinsKey, uid, today]);
+
+  return Math.max(chainBest ?? 0, localBest);
 }

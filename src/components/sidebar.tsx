@@ -3,11 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useActiveChallengeCheckins } from "@/hooks/use-active-challenge-checkins";
-import { useMaxChainStreak } from "@/hooks/use-chain-streak";
+import {
+  useMaxChainLongestStreak,
+  useMaxChainStreak,
+} from "@/hooks/use-chain-streak";
 import { useUserTimezone } from "@/hooks/use-user-timezone";
 import { liveChallenges } from "@/lib/cycles";
 import { todayYmd } from "@/lib/dates";
-import { maxLongestStreak } from "@/lib/streak";
+
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -42,8 +45,11 @@ export function Sidebar({ uid }: { uid: string }) {
     today,
     joinedDateByChallenge
   );
-  const best = maxLongestStreak(
+  // Chain-aware, like the Progress page's tile: a repeated habit's best-ever
+  // run spans its earlier cycles rather than restarting with each one.
+  const best = useMaxChainLongestStreak(
     activeChallenges,
+    uid,
     checkinYmdsByChallenge,
     today,
     joinedDateByChallenge

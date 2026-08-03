@@ -8,6 +8,7 @@ import {
   myReflectionsQuery,
   reflectionChallengeId,
 } from "@/lib/reflections";
+import { firestoreErrorHint } from "@/lib/firestore-errors";
 import type { Reflection } from "@/lib/types";
 
 export interface HabitReflections {
@@ -24,6 +25,12 @@ export interface ReflectionHistory {
    * conflated those two before (see useActiveChallengeCheckins).
    */
   error: boolean;
+  /**
+   * Why, when the cause is one we can name — rules or indexes that haven't
+   * been deployed yet. Null for anything else, where a guess would be worse
+   * than the generic message.
+   */
+  errorHint: string | null;
 }
 
 /**
@@ -40,6 +47,7 @@ export function useReflectionHistory(
 ): ReflectionHistory {
   const [habits, setHabits] = useState<HabitReflections[] | null>(null);
   const [error, setError] = useState(false);
+  const [errorHint, setErrorHint] = useState<string | null>(null);
 
   // Refetch when the *set* of habits changes, not when its containing array is
   // rebuilt — the callers derive theirs from live snapshots, so a fresh array
@@ -102,10 +110,14 @@ export function useReflectionHistory(
         if (!cancelled) {
           setHabits(results);
           setError(false);
+          setErrorHint(null);
         }
       } catch (err) {
         console.error("reflection history fetch failed:", err);
-        if (!cancelled) setError(true);
+        if (!cancelled) {
+          setError(true);
+          setErrorHint(firestoreErrorHint(err));
+        }
       }
     })();
 
@@ -118,5 +130,5 @@ export function useReflectionHistory(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uid, key, challenges === null]);
 
-  return { habits, error };
+  return { habits, error, errorHint };
 }

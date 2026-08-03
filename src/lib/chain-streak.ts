@@ -2,6 +2,7 @@
 
 import { collection, doc, getDoc, getDocs, type Firestore } from "firebase/firestore";
 import {
+  chainLongestStreakWith,
   collectChainCycles,
   walkChainWith,
   type ChainCarry,
@@ -69,6 +70,20 @@ export async function walkChain(
   uid: string
 ): Promise<ChainCarry> {
   return walkChainWith(clientChainReader(db), challenge, uid);
+}
+
+/**
+ * A habit's best-ever run across its whole repeat chain. The same walk the
+ * leaderboard does server-side (computeStreaks), so the number someone sees on
+ * their own Progress page and the one they're ranked by can't disagree.
+ */
+export async function chainLongestStreak(
+  db: Firestore,
+  challenge: Challenge,
+  uid: string,
+  today: string
+): Promise<number> {
+  return chainLongestStreakWith(clientChainReader(db), challenge, uid, today);
 }
 
 /** One earlier cycle of a habit, with this viewer's record of it. */
