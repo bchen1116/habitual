@@ -85,13 +85,14 @@ export function StatsView({ uid }: { uid: string }) {
   // rather than restarting with each one. Per-cycle, a 30-day run across three
   // 2-week cycles reported 14 — and the leaderboard, which has always walked
   // the chain, would have ranked the same person on 30.
-  const longestActiveStreak = useMaxChainLongestStreak(
-    activeChallenges,
-    uid,
-    checkinYmdsByChallenge,
-    today,
-    joinedDateByChallenge
-  );
+  const { best: longestActiveStreak, pending: longestPending } =
+    useMaxChainLongestStreak(
+      activeChallenges,
+      uid,
+      checkinYmdsByChallenge,
+      today,
+      joinedDateByChallenge
+    );
 
   // Ratings span everything the user has ever run, not just what's live — the
   // whole point of the section is the long view. Held until both sources have
@@ -137,7 +138,10 @@ export function StatsView({ uid }: { uid: string }) {
           <div className="mt-4 grid grid-cols-2 gap-3.5">
             <StatTile value={totalCheckIns} label="Total check-ins" />
             <StatTile value={activeChallenges.length} label="Active habits" />
-            <StatTile value={longestActiveStreak} label="Longest streak" />
+            <StatTile
+              value={longestPending ? "—" : longestActiveStreak}
+              label="Longest streak"
+            />
           </div>
         )}
       </div>

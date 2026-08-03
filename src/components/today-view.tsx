@@ -103,7 +103,14 @@ export function TodayView({
 
       <div className="flex flex-col gap-5 lg:flex-row lg:gap-6">
         <div className="flex flex-1 flex-col gap-[18px] lg:gap-[22px]">
-          <StreakHero streak={heroStreak.streak} weeks={heroStreak.weeks} />
+          {/* `loading` counts as pending too: with no habits read yet the
+              hero's honest answer is 0, and 0 → 1 → 37 is the same wrong-then-
+              corrected number twice over. */}
+          <StreakHero
+            streak={heroStreak.streak}
+            weeks={heroStreak.weeks}
+            pending={loading || heroStreak.pending}
+          />
 
           <div className="flex items-center justify-between">
             <h2 className="type-display text-xl lg:text-2xl">Today</h2>

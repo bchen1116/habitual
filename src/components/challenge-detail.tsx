@@ -175,14 +175,15 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   const today = todayYmd(timezone);
   // Hook, so it has to run unconditionally — ahead of the loading/not-found
   // early returns below, which is why it takes a possibly-null challenge.
-  const { streak: creatorStreak, weeks: creatorWeeks } = useChainStreak(
-    challenge,
-    uid,
-    checkinYmds,
-    today,
-    member?.joinedDate
-  );
+  const {
+    streak: creatorStreak,
+    weeks: creatorWeeks,
+    pending: streakPending,
+  } = useChainStreak(challenge, uid, checkinYmds, today, member?.joinedDate);
   const pastCycles = usePastCycles(challenge, uid);
+  const tappableMiss = challenge
+    ? hasTappableMiss(challenge, checkinYmds, today, member?.joinedDate)
+    : false;
   const reflectionsByDate = useMemo(
     () => new Map(reflections.map((r) => [r.localDate, r])),
     [reflections]
@@ -385,7 +386,10 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
               {challenge.forfeitType === "pool" ? "Winner pool" : "Group"}
             </Badge>
           )}
-          {creatorStreak > 0 && (
+          {/* Held back rather than shown provisionally — on a repeated habit
+              the local figure is only this cycle's, and this badge is the
+              screen's headline claim about the streak. */}
+          {!streakPending && creatorStreak > 0 && (
             <Badge variant="volt">
               Streak {creatorStreak}
               {creatorWeeks > 0 && ` · ${creatorWeeks}w`}
@@ -677,10 +681,14 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle>History</CardTitle>
-            <CardDescription>
-              Tap anything you missed to note what got in the way — just for
-              you, and it won&apos;t change the result.
-            </CardDescription>
+            {/* Only offered when there's something to accept it. */}
+            {tappableMiss && (
+              <CardDescription>
+                Tap a missed {challenge.frequency.type === "daily" ? "day" : "week"}{" "}
+                to note what got in the way — just for you, and it won&apos;t
+                change the result.
+              </CardDescription>
+            )}
           </CardHeader>
           <CardContent>
             {challenge.frequency.type === "daily" ? (
@@ -973,6 +981,36 @@ interface HistoryReflectionProps {
  */
 const COLLAPSED_HISTORY_WEEKS = 8;
 
+/**
+ * Whether anything in the History card actually responds to a tap.
+ *
+ * Only a missed day (or an unmet week) in the *current* cycle does: a done day
+ * has nothing to explain, a future one hasn't happened, and an earlier cycle's
+ * is `settled` — its reflections live in its own subcollection, so a note
+ * tapped there would be filed against the wrong challenge. Which left the
+ * card telling everybody to "tap anything you missed" on a screen where, most
+ * of the time, nothing was tappable at all.
+ *
+ * The condition is here rather than duplicated in the two grids so the
+ * card's promise and the grids' behaviour can't drift apart — that drift is
+ * the bug being fixed, not a hypothetical.
+ */
+function hasTappableMiss(
+  challenge: Challenge,
+  checkinYmds: string[],
+  today: string,
+  joinedDate?: string
+): boolean {
+  if (challenge.frequency.type === "daily") {
+    return dailyHistory(challenge, new Set(checkinYmds), today, joinedDate).some(
+      (e) => e.state === "missed"
+    );
+  }
+  return weeklyWindows(challenge, checkinYmds, today, joinedDate).some(
+    (w) => w.state === "past-incomplete"
+  );
+}
+
 function DailyHistoryGrid({
   challenge,
   checkinYmds,
@@ -1048,10 +1086,14 @@ function DailyHistoryGrid({
             aria-label={`${formatYmd(entry.ymd)}: missed. ${
               explained ? "Reason noted — edit it." : "Note what got in the way."
             }`}
+            // The ring is what marks a cell as tappable, and every tappable
+            // cell gets one — hover says nothing on a phone, and until now the
+            // only cells that looked any different were the ones already
+            // explained, i.e. the ones you no longer needed to find.
             className={
               cellClass +
-              " relative transition-colors hover:bg-destructive/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" +
-              (explained ? " ring-1 ring-destructive/40" : "")
+              " relative ring-1 ring-inset transition-colors hover:bg-destructive/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" +
+              (explained ? " ring-destructive" : " ring-destructive/50")
             }
           >
             {formatYmd(entry.ymd, "d")}
@@ -1137,26 +1179,26 @@ function WeeklyWindowList({
         const proratedNote = w.prorated
           ? `You joined partway through this week, so ${w.target} of the usual ${w.fullTarget} were required.`
           : undefined;
-        const label = (
-          <>
-            <span className="min-w-0">
-              Week {w.index} · {formatYmd(w.start)} – {formatYmd(w.end)}
-              {w.prorated && (
-                <span className="text-muted-foreground"> · joined mid-week</span>
-              )}
-            </span>
-            <span
-              className={
-                w.state === "complete"
-                  ? "font-bold text-foreground"
-                  : w.state === "past-incomplete"
-                    ? "font-medium text-destructive"
-                    : "text-muted-foreground"
-              }
-            >
-              {w.count}/{w.target}
-            </span>
-          </>
+        const weekLabel = (
+          <span className="min-w-0">
+            Week {w.index} · {formatYmd(w.start)} – {formatYmd(w.end)}
+            {w.prorated && (
+              <span className="text-muted-foreground"> · joined mid-week</span>
+            )}
+          </span>
+        );
+        const count = (
+          <span
+            className={
+              w.state === "complete"
+                ? "font-bold text-foreground"
+                : w.state === "past-incomplete"
+                  ? "font-medium text-destructive"
+                  : "text-muted-foreground"
+            }
+          >
+            {w.count}/{w.target}
+          </span>
         );
 
         if (w.state !== "past-incomplete" || w.settled) {
@@ -1164,9 +1206,10 @@ function WeeklyWindowList({
             <div
               key={w.index}
               title={proratedNote}
-              className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
+              className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
             >
-              {label}
+              {weekLabel}
+              {count}
             </div>
           );
         }
@@ -1181,11 +1224,26 @@ function WeeklyWindowList({
               proratedNote ? proratedNote + " " : ""
             }${explained ? "Reason noted — edit it." : "Note what got in the way."}`}
             className={
-              "flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" +
-              (explained ? " border-destructive/40" : "")
+              "flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" +
+              (explained ? " border-destructive" : " border-destructive/50")
             }
           >
-            {label}
+            {weekLabel}
+            {/* A chevron, because a row that only differs by border colour
+                doesn't read as a control — this is the one shape a list row
+                can take that everyone already knows means "opens something". */}
+            <span className="flex shrink-0 items-center gap-1.5">
+              {count}
+              {explained && (
+                <span
+                  aria-hidden
+                  className="h-1.5 w-1.5 rounded-full bg-destructive"
+                />
+              )}
+              <span aria-hidden className="text-destructive">
+                ›
+              </span>
+            </span>
           </button>
         );
       })}

@@ -38,7 +38,7 @@ export function Sidebar({ uid }: { uid: string }) {
       records.map((r) => r.localDate),
     ])
   );
-  const { streak } = useMaxChainStreak(
+  const { streak, pending: streakPending } = useMaxChainStreak(
     activeChallenges,
     uid,
     checkinYmdsByChallenge,
@@ -47,7 +47,7 @@ export function Sidebar({ uid }: { uid: string }) {
   );
   // Chain-aware, like the Progress page's tile: a repeated habit's best-ever
   // run spans its earlier cycles rather than restarting with each one.
-  const best = useMaxChainLongestStreak(
+  const { best, pending: bestPending } = useMaxChainLongestStreak(
     activeChallenges,
     uid,
     checkinYmdsByChallenge,
@@ -90,8 +90,21 @@ export function Sidebar({ uid }: { uid: string }) {
 
       <div className="mt-auto flex flex-col gap-1 rounded-[14px] bg-ink-panel px-4 py-4">
         <span className="type-overline text-primary">Streak</span>
-        <span className="type-display text-4xl text-white">{streak}</span>
-        <span className="type-overline text-ink-label">Days · Best {best}</span>
+        {/* Same rule as the hero: a placeholder until the chain walk lands,
+            because this panel is on every screen and a number that revises
+            itself mid-navigation is the most visible way to look broken. */}
+        {streakPending ? (
+          <span
+            role="status"
+            aria-label="Loading your current streak"
+            className="my-1.5 h-7 w-14 animate-pulse rounded-lg bg-white/15"
+          />
+        ) : (
+          <span className="type-display text-4xl text-white">{streak}</span>
+        )}
+        <span className="type-overline text-ink-label">
+          Days · Best {bestPending ? "—" : best}
+        </span>
       </div>
     </aside>
   );

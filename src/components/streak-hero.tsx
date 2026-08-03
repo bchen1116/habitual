@@ -11,11 +11,19 @@ import { cn } from "@/lib/utils";
 export function StreakHero({
   streak,
   weeks,
+  pending = false,
   className,
 }: {
   streak: number;
   /** Calendar span of the same run — the "how long has this been going?" the check-in count alone can't answer. */
   weeks: number;
+  /**
+   * The number isn't final yet. Shows a placeholder rather than a provisional
+   * figure: this is the largest text on the home screen, so a value that
+   * changes after it's been read is read as the app being wrong, not as it
+   * having finished loading.
+   */
+  pending?: boolean;
   className?: string;
 }) {
   return (
@@ -29,15 +37,23 @@ export function StreakHero({
       <div className="flex flex-col gap-1">
         <span className="type-overline text-primary">Current streak</span>
         <div className="flex items-end gap-2">
-          <motion.span
-            key={streak}
-            initial={{ scale: 0.85 }}
-            animate={{ scale: 1 }}
-            transition={{ duration: 0.15, ease: "easeOut" }}
-            className="type-display text-[76px] leading-[0.85] text-white lg:text-[130px] lg:leading-[0.8]"
-          >
-            {streak}
-          </motion.span>
+          {pending ? (
+            <span
+              role="status"
+              aria-label="Loading your current streak"
+              className="my-[6px] h-[65px] w-[104px] animate-pulse rounded-2xl bg-white/15 lg:my-[13px] lg:h-[104px] lg:w-[168px]"
+            />
+          ) : (
+            <motion.span
+              key={streak}
+              initial={{ scale: 0.85 }}
+              animate={{ scale: 1 }}
+              transition={{ duration: 0.15, ease: "easeOut" }}
+              className="type-display text-[76px] leading-[0.85] text-white lg:text-[130px] lg:leading-[0.8]"
+            >
+              {streak}
+            </motion.span>
+          )}
           <span className="type-display pb-2 text-2xl text-white lg:pb-4 lg:text-[34px]">
             days
           </span>
@@ -47,16 +63,21 @@ export function StreakHero({
             things (50 check-ins across 10 weeks) and only read as one fact if
             they sit together. Hidden under a week so a new streak doesn't
             announce "0 weeks unbroken". */}
-        {weeks > 0 && (
+        {!pending && weeks > 0 && (
           <span className="type-overline text-xs text-primary lg:text-sm">
             {weeks} week{weeks === 1 ? "" : "s"} unbroken
           </span>
         )}
-        <p className="hidden max-w-md text-base text-white/80 lg:block">
-          {streak > 0
-            ? "Keep today's check-ins coming to keep it alive."
-            : "Check in today to start a new streak."}
-        </p>
+        {/* Both of these read off the streak, so they'd be making the same
+            unfinished claim the number is holding back on — "start a new
+            streak" is actively wrong for someone who has one. */}
+        {!pending && (
+          <p className="hidden max-w-md text-base text-white/80 lg:block">
+            {streak > 0
+              ? "Keep today's check-ins coming to keep it alive."
+              : "Check in today to start a new streak."}
+          </p>
+        )}
       </div>
     </div>
   );

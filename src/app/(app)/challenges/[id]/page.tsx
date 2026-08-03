@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
+import { BackButton } from "@/components/back-button";
 import { ChallengeDetail } from "@/components/challenge-detail";
 
 export default async function ChallengePage({
@@ -14,14 +14,11 @@ export default async function ChallengePage({
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-6 p-6">
-      <header className="flex items-center justify-between">
-        <h1 className="type-display text-3xl">Challenge</h1>
-        <Link
-          href="/dashboard"
-          className="text-sm text-muted-foreground hover:text-foreground"
-        >
-          Back to dashboard
-        </Link>
+      {/* No page title beside it: the habit's own name is the first thing
+          ChallengeDetail renders, and a generic "Challenge" above it was one
+          heading saying nothing over another saying the useful thing. */}
+      <header className="flex items-center">
+        <BackButton fallbackHref="/challenges" />
       </header>
       <main className="flex-1">
         <ChallengeDetail id={id} uid={user.uid} />

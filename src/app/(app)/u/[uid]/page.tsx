@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { getUserProfile } from "@/lib/server/profile";
+import { BackButton } from "@/components/back-button";
 import { UserProfileView } from "@/components/user-profile-view";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -18,6 +18,9 @@ export default async function UserProfilePage({
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-5 p-5 lg:p-9">
+      <header className="flex items-center">
+        <BackButton fallbackHref="/challenges" />
+      </header>
       {profile ? (
         <UserProfileView profile={profile} />
       ) : (
@@ -34,12 +37,6 @@ export default async function UserProfilePage({
           </CardHeader>
         </Card>
       )}
-      <Link
-        href="/challenges"
-        className="text-center text-sm text-muted-foreground hover:text-foreground"
-      >
-        Back to habits
-      </Link>
     </div>
   );
 }
