@@ -61,6 +61,11 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   const [allCheckins, setAllCheckins] = useState<
     { uid: string; localDate: string }[]
   >([]);
+  // Gates the progress bar's transition, same as in challenge-list: the
+  // checkins subscription lands after the challenge doc, so the bar would
+  // otherwise render at zero and then slide up to its real value on every
+  // single page load, animating something that didn't happen.
+  const [checkinsLoaded, setCheckinsLoaded] = useState(false);
   const [member, setMember] = useState<ChallengeMember | null>(null);
   const [members, setMembers] = useState<
     ({ uid: string } & ChallengeMember)[] | null
@@ -103,6 +108,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
             return { uid: data.uid as string, localDate: data.localDate as string };
           })
         );
+        setCheckinsLoaded(true);
       }
     );
     return unsubscribe;
@@ -575,7 +581,10 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
           <CardContent className="flex flex-col gap-3">
             <div className="h-2 overflow-hidden rounded-full bg-secondary">
               <div
-                className="h-full rounded-full bg-foreground transition-all"
+                className={
+                  "h-full rounded-full bg-foreground" +
+                  (checkinsLoaded ? " transition-all" : "")
+                }
                 style={{
                   width: `${summary.total > 0 ? Math.min(100, (summary.completed / summary.total) * 100) : 0}%`,
                 }}
