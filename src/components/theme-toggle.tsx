@@ -32,7 +32,7 @@ export function ThemeToggle() {
           key={value}
           type="button"
           size="sm"
-          variant={mounted && theme === value ? "secondary" : "outline"}
+          variant={mounted && theme === value ? "default" : "outline"}
           disabled={!mounted}
           onClick={() => setTheme(value)}
           className={cn(!mounted && "opacity-50")}

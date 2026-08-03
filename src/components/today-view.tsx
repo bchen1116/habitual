@@ -89,7 +89,7 @@ export function TodayView({
           </h1>
         </div>
         <div className="flex shrink-0 items-center gap-3">
-          <Button asChild size="sm" variant="secondary" className="hidden lg:inline-flex">
+          <Button asChild size="sm" variant="outline" className="hidden lg:inline-flex">
             <Link href="/challenges/new">+ New habit</Link>
           </Button>
           <Link href="/settings">

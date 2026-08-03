@@ -66,7 +66,7 @@ export function InstallBanner() {
           {installEvent ? (
             <Button
               size="sm"
-              variant="secondary"
+              variant="outline"
               onClick={async () => {
                 await installEvent.prompt();
                 dismiss();
@@ -76,7 +76,7 @@ export function InstallBanner() {
             </Button>
           ) : (
             !showIosHelp && (
-              <Button size="sm" variant="secondary" onClick={() => setShowIosHelp(true)}>
+              <Button size="sm" variant="outline" onClick={() => setShowIosHelp(true)}>
                 Show me how
               </Button>
             )

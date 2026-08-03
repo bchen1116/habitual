@@ -29,10 +29,15 @@ export function BottomNav() {
       {LEFT_ITEMS.map((item) => (
         <NavSlot key={item.href} {...item} active={isActive(item.href)} />
       ))}
+      {/* White, not volt. This bar is where the clash was sharpest: volt marks
+          the tab you're on, and the one control that actually *does* something
+          was wearing the same paint two inches away. White reads as a control
+          against the ink bar at ~18:1 in both themes — bg-background would
+          not, since it collapses to ink itself in dark mode. */}
       <Link
         href="/challenges/new"
         aria-label="New habit"
-        className="-mt-6 flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg"
+        className="-mt-6 flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-full bg-white text-ink shadow-lg"
       >
         <Plus className="h-7 w-7" strokeWidth={2.5} />
       </Link>

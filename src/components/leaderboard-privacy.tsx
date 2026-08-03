@@ -88,7 +88,7 @@ export function LeaderboardPrivacy({ uid }: { uid: string }) {
             key={option.value}
             type="button"
             size="sm"
-            variant={value === option.value ? "secondary" : "outline"}
+            variant={value === option.value ? "default" : "outline"}
             disabled={value === null || saving}
             onClick={() => choose(option.value)}
           >

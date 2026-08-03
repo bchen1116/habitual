@@ -7,23 +7,37 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 /*
- * Volt buttons: pill-shaped, Barlow Condensed 800 uppercase.
+ * Pill-shaped, Barlow Condensed 800 uppercase — and, as of this change, never
+ * volt.
  *
- * Every variant carries a fill or a border at rest, so a button is legible as
- * a button before you touch it. That used to be untrue of `ghost`, which was
- * bare text until you hovered it — and on a phone there is no hover, so a
- * dialog's Cancel was indistinguishable from a caption. The tiers below are
- * about *rank*, not about whether something is clickable:
+ * Volt is the app's emphasis colour: it marks the active nav item, your own
+ * leaderboard row, a completed day, a won habit, a streak. It appeared in
+ * about fifteen places meaning "this is yours, this happened" and in exactly
+ * one meaning "press this" — so the single most important control on a screen
+ * was wearing the same paint as a dozen things that don't respond to touch,
+ * and lost. Volt now means emphasis only, everywhere.
  *
- * - default:     volt fill + ink text — the ONE primary action per screen
- * - secondary:   ink fill ("DARK" in the spec) — everything else prominent
+ * What says "button" instead is the shape: a pill, in condensed uppercase,
+ * with a fill or a border at rest and a press animation. That was already
+ * true — every variant got a resting edge when `ghost` was fixed — so the
+ * shape was doing the work all along, with the colour arguing against it.
+ *
+ * The tiers below are about *rank*, not about whether something is clickable:
+ *
+ * - default:     ink fill — the ONE primary action per screen
  * - destructive: red fill — irreversible
- * - outline:     2px ink border — tertiary
+ * - outline:     2px ink border — everything else prominent
  * - ghost:       2px hairline border — recessive, but still visibly a control
  * - link:        underlined at rest, for prose-level actions
  *
- * They are deliberately not all one colour: flattening them would remove the
- * only signal that says which action on a screen is the main one.
+ * There is no `secondary` any more, and that's the real cost of dropping volt
+ * rather than an oversight. Without it there are exactly three legible
+ * non-red weights available — solid, bordered, hairline — where there used to
+ * be four, so the old `secondary` (ink fill) and `outline` (ink border) were
+ * a tier apart only because `default` sat above both in volt. They'd now be
+ * the same rank described two ways, so they're one variant. The alternative,
+ * a grey fill, measures ~1.08:1 against the page: bordered on paper and
+ * invisible in practice, which is the exact trap `ghost` was pulled out of.
  */
 const buttonVariants = cva(
   // active:translate-y-px is the press feedback. Hover states do nothing on a
@@ -33,9 +47,7 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/85",
-        secondary:
-          "bg-foreground text-background hover:bg-foreground/85",
+        default: "bg-foreground text-background hover:bg-foreground/85",
         destructive:
           "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         outline:

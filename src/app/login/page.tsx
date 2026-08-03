@@ -266,7 +266,7 @@ function LoginForm() {
           <>
             <Button
               size="lg"
-              variant="secondary"
+              variant="outline"
               disabled={pending !== null || finishing}
               onClick={signInWithGoogle}
             >
@@ -284,7 +284,7 @@ function LoginForm() {
             <div className="flex gap-2">
               <Button
                 type="button"
-                variant={mode === "signin" ? "secondary" : "outline"}
+                variant={mode === "signin" ? "default" : "outline"}
                 className="flex-1"
                 onClick={() => switchMode("signin")}
               >
@@ -292,7 +292,7 @@ function LoginForm() {
               </Button>
               <Button
                 type="button"
-                variant={mode === "signup" ? "secondary" : "outline"}
+                variant={mode === "signup" ? "default" : "outline"}
                 className="flex-1"
                 onClick={() => switchMode("signup")}
               >

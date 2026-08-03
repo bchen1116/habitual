@@ -280,14 +280,14 @@ export function NewChallengeForm() {
             <div className="flex gap-2">
               <Button
                 type="button"
-                variant={values.mode === "solo" ? "secondary" : "outline"}
+                variant={values.mode === "solo" ? "default" : "outline"}
                 onClick={() => selectMode("solo")}
               >
                 Solo
               </Button>
               <Button
                 type="button"
-                variant={values.mode === "group" ? "secondary" : "outline"}
+                variant={values.mode === "group" ? "default" : "outline"}
                 onClick={() => selectMode("group")}
               >
                 Group
@@ -305,14 +305,14 @@ export function NewChallengeForm() {
               <div className="flex gap-2">
                 <Button
                   type="button"
-                  variant={values.joinPolicy === "open" ? "secondary" : "outline"}
+                  variant={values.joinPolicy === "open" ? "default" : "outline"}
                   onClick={() => form.setValue("joinPolicy", "open")}
                 >
                   Open
                 </Button>
                 <Button
                   type="button"
-                  variant={values.joinPolicy === "invite" ? "secondary" : "outline"}
+                  variant={values.joinPolicy === "invite" ? "default" : "outline"}
                   onClick={() => form.setValue("joinPolicy", "invite")}
                 >
                   Invite only
@@ -331,14 +331,14 @@ export function NewChallengeForm() {
               <div className="flex gap-2">
                 <Button
                   type="button"
-                  variant={values.forfeitType === "charity" ? "secondary" : "outline"}
+                  variant={values.forfeitType === "charity" ? "default" : "outline"}
                   onClick={() => form.setValue("forfeitType", "charity")}
                 >
                   Their charity
                 </Button>
                 <Button
                   type="button"
-                  variant={values.forfeitType === "pool" ? "secondary" : "outline"}
+                  variant={values.forfeitType === "pool" ? "default" : "outline"}
                   onClick={() => form.setValue("forfeitType", "pool")}
                 >
                   The winners
@@ -375,14 +375,14 @@ export function NewChallengeForm() {
             <div className="flex gap-2">
               <Button
                 type="button"
-                variant={values.visibility === "public" ? "secondary" : "outline"}
+                variant={values.visibility === "public" ? "default" : "outline"}
                 onClick={() => form.setValue("visibility", "public")}
               >
                 Counts
               </Button>
               <Button
                 type="button"
-                variant={values.visibility === "private" ? "secondary" : "outline"}
+                variant={values.visibility === "private" ? "default" : "outline"}
                 onClick={() => form.setValue("visibility", "private")}
               >
                 Private
@@ -406,7 +406,7 @@ export function NewChallengeForm() {
             <div className="flex gap-2">
               <Button
                 type="button"
-                variant={values.frequencyType === "daily" ? "secondary" : "outline"}
+                variant={values.frequencyType === "daily" ? "default" : "outline"}
                 onClick={() => form.setValue("frequencyType", "daily")}
               >
                 Every day
@@ -414,7 +414,7 @@ export function NewChallengeForm() {
               <Button
                 type="button"
                 variant={
-                  values.frequencyType === "weekly_count" ? "secondary" : "outline"
+                  values.frequencyType === "weekly_count" ? "default" : "outline"
                 }
                 onClick={() => form.setValue("frequencyType", "weekly_count")}
               >
@@ -468,7 +468,7 @@ export function NewChallengeForm() {
                 <Button
                   key={preset.weeks}
                   type="button"
-                  variant={durationWeeks === preset.weeks ? "secondary" : "outline"}
+                  variant={durationWeeks === preset.weeks ? "default" : "outline"}
                   onClick={() =>
                     form.setValue("durationWeeks", String(preset.weeks), {
                       shouldValidate: true,
