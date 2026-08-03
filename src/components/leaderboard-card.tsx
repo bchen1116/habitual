@@ -193,7 +193,10 @@ export function LeaderboardCard() {
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="type-overline mt-3.5 text-[11px] text-ink-nav-inactive transition-colors hover:text-white"
+          // A bordered pill, not bare text: inside the ink panel this was a
+          // caption that happened to be tappable, with nothing but hover to
+          // say so — and there is no hover on a phone.
+          className="type-overline mt-3.5 rounded-full border border-ink-nav-inactive px-3 py-1 text-[11px] text-ink-nav-inactive transition-colors hover:border-white hover:text-white active:translate-y-px"
         >
           {expanded ? "Show less" : `See all ${ranked.length}`}
         </button>
@@ -238,8 +241,13 @@ function SortButton({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "type-overline rounded-full px-2.5 py-1 text-[11px] transition-colors",
-        active ? "bg-white text-ink" : "text-ink-nav-inactive hover:text-white"
+        // The unselected half carried no edge, so a two-option segmented
+        // control read as one button beside a label. Both halves are pills
+        // now; the fill is what says which is selected.
+        "type-overline rounded-full border px-2.5 py-1 text-[11px] transition-colors active:translate-y-px",
+        active
+          ? "border-white bg-white text-ink"
+          : "border-ink-nav-inactive text-ink-nav-inactive hover:border-white hover:text-white"
       )}
     >
       {children}

@@ -116,6 +116,23 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /*
+   * Anything interactive gets the hand cursor. Browsers give <button> the
+   * default arrow, which is a small, constant lie about what is clickable —
+   * and this app has a lot of controls that aren't the Button component:
+   * history cells, leaderboard sort toggles, rating dots, switches. Doing it
+   * once here covers those too, rather than every new bare <button> having to
+   * remember.
+   *
+   * Scoped to enabled controls: a disabled one should not invite the click it
+   * is about to ignore.
+   */
+  button:not(:disabled),
+  [role="switch"]:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
 }
 
 @layer utilities {
