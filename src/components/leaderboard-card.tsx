@@ -14,6 +14,7 @@ interface LeaderboardEntry {
   currentStreak: number;
   currentStreakWeeks: number;
   longestStreak: number;
+  badges: number;
   isSelf: boolean;
 }
 
@@ -277,6 +278,17 @@ function Row({
         {weeks !== null && weeks > 0 && (
           <span className="type-overline text-[10px] text-ink-label">
             {weeks}w unbroken
+          </span>
+        )}
+        {/* Spare skips earned by completing whole weeks. Shown as a count
+            rather than repeated glyphs — someone forty weeks in would
+            otherwise have a row of forty. */}
+        {entry.badges > 0 && (
+          <span
+            title={`${entry.badges} spare skip${entry.badges === 1 ? "" : "s"} earned by completing whole weeks`}
+            className="type-overline text-[10px] text-primary"
+          >
+            ◆ {entry.badges} spare
           </span>
         )}
       </span>

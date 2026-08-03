@@ -2,6 +2,7 @@ import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { addDaysYmd, dateToYmdUTC, daysBetweenInclusive } from "./dates";
 import { sendPushToMany } from "./notifications";
+import { effectiveSkipDays } from "./badges";
 
 interface ChallengeData {
   name: string;
@@ -23,6 +24,11 @@ interface MemberData {
   // in src/lib/server/challenge-admin.ts (mirrored here since this Cloud
   // Function has no shared package with the Next app).
   joinedDate?: string;
+  /**
+   * Badges rolled forward from earlier cycles of this habit — see
+   * repeatChallengeAdmin. Absent on members predating badges; treat as 0.
+   */
+  badgesCarried?: number;
 }
 
 interface MemberOutcome {
@@ -186,16 +192,27 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
           missed: number;
           completed: number;
           succeeded: boolean;
+          allowance: { base: number; carried: number; earned: number; total: number };
         }[] = [];
         for (const memberDoc of membersSnap.docs) {
           const member = memberDoc.data() as MemberData;
           const uid = memberDoc.id;
+          const ymds = checkinsByUid.get(uid) ?? [];
           const { missed, completed } = computeMissed(
             challenge,
-            checkinsByUid.get(uid) ?? [],
+            ymds,
             member.joinedDate
           );
-          const succeeded = missed <= challenge.skipDays;
+          // Badges are spare skips, earned a week at a time and spent
+          // automatically. Nothing to redeem: a reward you must remember to
+          // claim before a nightly job you cannot see is a trap, not a reward.
+          const allowance = effectiveSkipDays(
+            challenge,
+            ymds,
+            member.joinedDate,
+            member.badgesCarried
+          );
+          const succeeded = missed <= allowance.total;
           outcomes.push({
             uid,
             displayName: member.displayName,
@@ -205,7 +222,13 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
           });
           // Deferred to after the venmo reads below — transactions require
           // every read to happen before the first write.
-          memberUpdates.push({ ref: memberDoc.ref, missed, completed, succeeded });
+          memberUpdates.push({
+            ref: memberDoc.ref,
+            missed,
+            completed,
+            succeeded,
+            allowance,
+          });
         }
 
         // Pool mode: each winner's Venmo handle rides onto the loser's
@@ -238,7 +261,13 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
           t.update(update.ref, {
             outcome: update.succeeded ? "succeeded" : "failed",
             completedCount: update.completed,
-            skipsUsed: Math.min(update.missed, challenge.skipDays),
+            skipsUsed: Math.min(update.missed, update.allowance.total),
+            // Frozen alongside the outcome so a result can always be explained
+            // later, even if the badge rules change underneath it.
+            badgesEarned: update.allowance.earned,
+            skipsAllowed: update.allowance.total,
+            // What a repeat of this habit starts with (repeatChallengeAdmin).
+            badgesCarried: update.allowance.carried + update.allowance.earned,
             adjudicatedAt,
           });
         }

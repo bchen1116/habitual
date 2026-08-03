@@ -3,19 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { repeatChallenge } from "@/lib/challenges";
-import {
-  addDaysYmd,
-  dateInputToYmd,
-  daysBetweenInclusive,
-  formatYmd,
-  ymdToDateInput,
-} from "@/lib/dates";
-import {
-  MAX_DURATION_DAYS,
-  MAX_DURATION_WEEKS,
-  MIN_DURATION_DAYS,
-  isValidDurationDays,
-} from "@/lib/duration";
+import { addDaysYmd, daysBetweenInclusive, formatYmd } from "@/lib/dates";
+import { repeatDurationDays } from "@/lib/duration";
 import type { Challenge } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,10 +28,13 @@ interface RepeatChallengeDialogProps {
 /**
  * Creator-only, once a habit has ended (challenge-detail.tsx gates when
  * this renders at all). Starts a new challenge doc with the same name,
- * mode, and frequency; stake/end-date/skip-days default to the old values
- * but are editable here, same as EditChallengeDialog. The new start date
- * is never user-chosen — always today or the day after the old end date,
- * whichever is later — so repeated cycles chain without gaps or overlaps.
+ * mode, and frequency; only the stake and skip days are editable.
+ *
+ * Neither date is user-chosen. The start is today or the day after the old
+ * end date, whichever is later, so cycles chain without gaps or overlaps;
+ * the length simply repeats the last cycle's, so a weekly habit rolls into
+ * the next week and a four-week one into the next four weeks. Both are
+ * derived on the server — what is shown here is a preview, not an input.
  * For group habits, every prior member carries over automatically
  * server-side (repeatChallengeAdmin); this dialog just surfaces that as an
  * informational line.
@@ -57,18 +49,19 @@ export function RepeatChallengeDialog({
 
   const dayAfterOldEnd = addDaysYmd(challenge.endDate, 1);
   const nextStartYmd = today > dayAfterOldEnd ? today : dayAfterOldEnd;
-  const oldDurationDays = daysBetweenInclusive(challenge.startDate, challenge.endDate);
-  const defaultEndYmd = addDaysYmd(nextStartYmd, oldDurationDays - 1);
+  const durationDays = repeatDurationDays(
+    daysBetweenInclusive(challenge.startDate, challenge.endDate)
+  );
+  const weeks = durationDays / 7;
+  const nextEndYmd = addDaysYmd(nextStartYmd, durationDays - 1);
 
   const [stakeAmount, setStakeAmount] = useState(String(challenge.stakeAmount));
-  const [endDate, setEndDate] = useState(ymdToDateInput(defaultEndYmd));
   const [skipDays, setSkipDays] = useState(String(challenge.skipDays));
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   function reset() {
     setStakeAmount(String(challenge.stakeAmount));
-    setEndDate(ymdToDateInput(defaultEndYmd));
     setSkipDays(String(challenge.skipDays));
     setFormError(null);
   }
@@ -78,14 +71,6 @@ export function RepeatChallengeDialog({
     const amount = Number(stakeAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
       setFormError("Enter a stake amount greater than $0.");
-      return;
-    }
-    const newEndYmd = dateInputToYmd(endDate);
-    const days = daysBetweenInclusive(nextStartYmd, newEndYmd);
-    if (!isValidDurationDays(days)) {
-      setFormError(
-        `Duration must be a whole number of weeks, up to ${MAX_DURATION_WEEKS}.`
-      );
       return;
     }
     const skipDaysNum = Number(skipDays);
@@ -98,7 +83,6 @@ export function RepeatChallengeDialog({
     try {
       const result = await repeatChallenge(challenge.id, {
         stakeAmount: amount,
-        endDate: newEndYmd,
         skipDays: skipDaysNum,
       });
       setOpen(false);
@@ -127,8 +111,9 @@ export function RepeatChallengeDialog({
         <DialogHeader>
           <DialogTitle>Repeat habit</DialogTitle>
           <DialogDescription>
-            Starts {formatYmd(nextStartYmd)}. Same name and frequency — adjust
-            the stake, end date, or skip days below.
+            Runs {weeks} more week{weeks === 1 ? "" : "s"} — {formatYmd(nextStartYmd)}{" "}
+            to {formatYmd(nextEndYmd)}, the same length as last time. Same name
+            and frequency; adjust the stake or skips below.
           </DialogDescription>
         </DialogHeader>
 
@@ -141,22 +126,6 @@ export function RepeatChallengeDialog({
             value={stakeAmount}
             onChange={(e) => setStakeAmount(e.target.value)}
           />
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="repeat-end-date">Ends</Label>
-          <Input
-            id="repeat-end-date"
-            type="date"
-            className="w-44"
-            min={ymdToDateInput(addDaysYmd(nextStartYmd, MIN_DURATION_DAYS - 1))}
-            max={ymdToDateInput(addDaysYmd(nextStartYmd, MAX_DURATION_DAYS - 1))}
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-          />
-          <p className="text-xs text-muted-foreground">
-            Whole weeks, up to {MAX_DURATION_WEEKS}.
-          </p>
         </div>
 
         <div className="flex flex-col gap-1.5">

@@ -4,6 +4,7 @@ import { FieldValue, type Firestore } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebase/admin";
 import { collectChainCycles, walkChainWith, type ChainReader } from "@/lib/chain-core";
 import { longestStreak, streakRun } from "@/lib/streak";
+import { badgesEarnedIn } from "@/lib/badges";
 import { yyyymmddUTC } from "@/lib/server/challenge-admin";
 import type { Challenge, LeaderboardVisibility } from "@/lib/types";
 
@@ -37,6 +38,8 @@ export interface LeaderboardEntry {
   currentStreak: number;
   currentStreakWeeks: number;
   longestStreak: number;
+  /** Spare skips earned by completing whole weeks — shown beside the streak. */
+  badges: number;
   isSelf: boolean;
 }
 
@@ -45,6 +48,12 @@ export interface StreakPair {
   /** Calendar span of the current streak, in whole weeks. */
   currentStreakWeeks: number;
   longestStreak: number;
+  /**
+   * Spare skips earned by completing whole weeks, across the habits in scope.
+   * Summed over every cycle rather than walking the chain — challengesForUser
+   * already returns ancestors, so earlier cycles are counted for free.
+   */
+  badges: number;
 }
 
 /**
@@ -289,6 +298,7 @@ export async function computeStreaks(
         chained: run.streak + carry.streak,
         weeks: Math.floor((run.spanDays + carry.spanDays) / 7),
         longest: await chainLongestStreak(reader, challenge, uid, today),
+        badges: badgesEarnedIn(challenge, ymds, today, joinedDate),
       };
     })
   );
@@ -301,7 +311,9 @@ export async function computeStreaks(
   // sequential version picked.
   let currentBestWeeks = 0;
   let longestBest = 0;
+  let badges = 0;
   for (const result of perChallenge) {
+    badges += result.badges;
     if (result.chained > currentBest) {
       currentBest = result.chained;
       currentBestWeeks = result.weeks;
@@ -313,6 +325,7 @@ export async function computeStreaks(
     currentStreak: currentBest,
     currentStreakWeeks: currentBestWeeks,
     longestStreak: longestBest,
+    badges,
   };
 }
 
@@ -340,6 +353,7 @@ async function getPublicStats(
       currentStreak: (cached.currentStreak as number) ?? 0,
       currentStreakWeeks: (cached.currentStreakWeeks as number) ?? 0,
       longestStreak: (cached.longestStreak as number) ?? 0,
+      badges: (cached.badges as number) ?? 0,
     };
   }
 
@@ -352,9 +366,10 @@ async function getPublicStats(
         currentStreak: (cached.currentStreak as number) ?? 0,
         currentStreakWeeks: (cached.currentStreakWeeks as number) ?? 0,
         longestStreak: (cached.longestStreak as number) ?? 0,
+        badges: (cached.badges as number) ?? 0,
       };
     }
-    return { currentStreak: 0, currentStreakWeeks: 0, longestStreak: 0 };
+    return { currentStreak: 0, currentStreakWeeks: 0, longestStreak: 0, badges: 0 };
   }
   budget.remaining--;
 
@@ -473,6 +488,8 @@ export async function getLeaderboard(viewerUid: string): Promise<LeaderboardResu
           currentStreak: winner.currentStreak,
           currentStreakWeeks: winner.currentStreakWeeks,
           longestStreak: Math.max(publicStats.longestStreak, privateStats.longestStreak),
+          // Earned in different habits, so they add rather than compete.
+          badges: publicStats.badges + privateStats.badges,
         };
       } else if (theirSharedPrivate.length > 0) {
         budget.skipped++;
@@ -486,6 +503,7 @@ export async function getLeaderboard(viewerUid: string): Promise<LeaderboardResu
         currentStreak: stats.currentStreak,
         currentStreakWeeks: stats.currentStreakWeeks,
         longestStreak: stats.longestStreak,
+        badges: stats.badges,
         isSelf,
       };
     })

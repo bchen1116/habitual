@@ -6,7 +6,8 @@ import {
   type Transaction,
 } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebase/admin";
-import { addDaysYmd, daysBetweenInclusive } from "@/lib/dates";
+import { addDaysYmd, daysBetweenInclusive, todayYmd } from "@/lib/dates";
+import { repeatDurationDays } from "@/lib/duration";
 
 /**
  * Server-side challenge creation and joining. Docs/04 specifies callable
@@ -657,7 +658,6 @@ export async function deleteChallengeAdmin(
 
 export interface RepeatChallengePayload {
   stakeAmount: number;
-  endDate: string; // yyyymmdd — the new cycle's end date
   skipDays: number;
 }
 
@@ -665,7 +665,6 @@ export type RepeatChallengeErrorCode =
   | "not-found"
   | "not-owner"
   | "not-ended"
-  | "invalid-duration"
   | "invalid-stake";
 
 export class RepeatChallengeError extends Error {
@@ -710,15 +709,29 @@ export async function repeatChallengeAdmin(
   const data = snap.data()!;
   if (data.createdBy !== uid) throw new RepeatChallengeError("not-owner");
 
-  const today = yyyymmddUTC(new Date());
+  // The creator's own day, not UTC's, so a cycle finished on Sunday evening
+  // in New York doesn't start its successor on Tuesday.
+  const creatorSnap = await db.collection("users").doc(uid).get();
+  const timezone = (creatorSnap.data()?.timezone as string | undefined) ?? "UTC";
+  const today = todayYmd(timezone);
+
   const ended = data.status === "adjudicated" || today > data.endDate;
   if (!ended) throw new RepeatChallengeError("not-ended");
 
-  const newStartDate = today > addDaysYmd(data.endDate, 1) ? today : addDaysYmd(data.endDate, 1);
-  const days = daysBetweenInclusive(newStartDate, payload.endDate);
-  if (days % 7 !== 0 || days < 7 || days > 364) {
-    throw new RepeatChallengeError("invalid-duration");
-  }
+  const dayAfter = addDaysYmd(data.endDate, 1);
+  const newStartDate = today > dayAfter ? today : dayAfter;
+
+  // The next cycle runs exactly as long as the last one: a weekly habit
+  // repeats as another week, a four-week ("monthly") one as another four
+  // weeks. Both dates are derived here rather than sent up, which is what
+  // fixes the bug this replaced — the client computed the next start from the
+  // user's *local* date and the server re-derived it in UTC, so whenever the
+  // two disagreed (most of the day, for most of the world) the end date the
+  // client had calculated was a day out and the server rejected the whole
+  // thing as "not a whole number of weeks". Repeat simply never worked
+  // outside a narrow UTC window. With nothing to disagree about, it can't.
+  const days = repeatDurationDays(daysBetweenInclusive(data.startDate, data.endDate));
+  const newEndDate = addDaysYmd(newStartDate, days - 1);
   if (payload.stakeAmount <= 0 || payload.stakeAmount > 10000) {
     throw new RepeatChallengeError("invalid-stake");
   }
@@ -746,7 +759,7 @@ export async function repeatChallengeAdmin(
     skipDays: payload.skipDays,
     stakeAmount: payload.stakeAmount,
     startDate: newStartDate,
-    endDate: payload.endDate,
+    endDate: newEndDate,
     status: "active",
     memberIds: memberDocs.docs.map((d) => d.id),
     repeatedFromId: challengeId,
@@ -761,6 +774,13 @@ export async function repeatChallengeAdmin(
       // Everyone carried over starts the new cycle together, regardless of
       // when they joined the previous one.
       joinedDate: newStartDate,
+      // Badges follow the habit, not the cycle: "a badge in one habit cannot
+      // be applied to another habit". Adjudication writes each cycle's running
+      // total onto the member doc, so this is simply that total rolled forward
+      // — and it means the adjudicator never has to walk the repeat chain to
+      // know what someone has banked. Cycles repeated before results land
+      // carry what was banked at that point.
+      badgesCarried: (member.badgesCarried as number | undefined) ?? 0,
       charityName: member.charityName ?? null,
       outcome: null,
       completedCount: 0,
