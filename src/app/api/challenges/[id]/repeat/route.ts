@@ -5,7 +5,6 @@ import { RepeatChallengeError, repeatChallengeAdmin } from "@/lib/server/challen
 
 const repeatPayloadSchema = z.object({
   stakeAmount: z.number().positive().max(10000),
-  endDate: z.string().regex(/^\d{8}$/),
   skipDays: z.number().int().min(0).max(30),
 });
 
@@ -13,10 +12,6 @@ const ERROR_RESPONSES: Record<string, { status: number; message: string }> = {
   "not-found": { status: 404, message: "Challenge not found." },
   "not-owner": { status: 403, message: "Only the creator can repeat this habit." },
   "not-ended": { status: 400, message: "This habit hasn't ended yet." },
-  "invalid-duration": {
-    status: 400,
-    message: "Duration must be a whole number of weeks.",
-  },
   "invalid-stake": { status: 400, message: "Stake must be between $0 and $10,000." },
 };
 

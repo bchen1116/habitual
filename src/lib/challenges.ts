@@ -217,9 +217,13 @@ export async function deleteChallenge(challengeId: string): Promise<void> {
   }
 }
 
+/**
+ * No dates: the next cycle's start and end are derived server-side from the
+ * cycle being repeated, so there is nothing here for the client's clock to
+ * disagree with the server's about.
+ */
 export interface RepeatChallengeInput {
   stakeAmount: number;
-  endDate: string; // yyyymmdd
   skipDays: number;
 }
 

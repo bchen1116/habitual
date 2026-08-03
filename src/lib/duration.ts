@@ -31,6 +31,28 @@ export function isValidDurationDays(days: number): boolean {
   );
 }
 
+/**
+ * How long the next cycle of a repeated habit runs: exactly as long as the
+ * one it repeats. A weekly habit rolls into the next week, a four-week
+ * ("monthly") one into the next four weeks — no end date is ever asked for.
+ *
+ * Rounded and clamped rather than validated, so Repeat can never be the thing
+ * that fails. Every current entry point already enforces whole weeks, so the
+ * rounding only ever bites on data predating that rule; a habit whose stored
+ * dates are corrupt still repeats, as the nearest sane length.
+ *
+ * Shared by the dialog's preview and repeatChallengeAdmin so the dates the
+ * member is shown are the dates that get written.
+ */
+export function repeatDurationDays(previousDays: number): number {
+  const weeks = Math.round(previousDays / 7);
+  const clamped = Math.min(
+    MAX_DURATION_WEEKS,
+    Math.max(MIN_DURATION_WEEKS, Number.isFinite(weeks) ? weeks : MIN_DURATION_WEEKS)
+  );
+  return clamped * 7;
+}
+
 export function isValidDurationWeeks(weeks: number): boolean {
   return (
     Number.isInteger(weeks) &&
