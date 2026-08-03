@@ -139,6 +139,7 @@ export async function createChallengeAdmin(
     endDate: payload.endDate,
     autoRepeat: payload.autoRepeat,
     repeatedToId: null,
+    weeksBefore: 0,
     status: "active",
     memberIds: [uid],
     createdAt: FieldValue.serverTimestamp(),
@@ -577,7 +578,8 @@ export type EditChallengeErrorCode =
   | "ended"
   | "already-joined"
   | "invalid-duration"
-  | "invalid-stake";
+  | "invalid-stake"
+  | "has-next-cycle";
 
 export class EditChallengeError extends Error {
   constructor(public code: EditChallengeErrorCode) {
@@ -621,6 +623,16 @@ export async function editChallengeAdmin(
     const memberIds = (data.memberIds as string[]) ?? [];
     if (data.mode === "group" && memberIds.length > 1) {
       throw new EditChallengeError("already-joined");
+    }
+
+    // The next cycle is already written, and it was built from this one's end
+    // date: its start is endDate + 1, and its week numbering counts the weeks
+    // this one contains. Moving the end date now would overlap the two or
+    // leave a gap between them — either way the streak stops carrying across
+    // the seam (walkChainWith requires them to be back-to-back) and the
+    // successor's week numbers would be off by however much the date moved.
+    if (data.repeatedToId && payload.endDate !== data.endDate) {
+      throw new EditChallengeError("has-next-cycle");
     }
 
     const days = daysBetweenInclusive(data.startDate, payload.endDate);
@@ -838,6 +850,11 @@ export async function repeatChallengeAdmin(
     // whether this particular cycle was started by the button or by the job.
     autoRepeat: (data.autoRepeat as boolean | undefined) ?? false,
     repeatedToId: null,
+    // Week numbering carries on rather than restarting: repeating a 1-week
+    // habit gives you week 2, not week 1 again.
+    weeksBefore:
+      ((data.weeksBefore as number | undefined) ?? 0) +
+      Math.floor(daysBetweenInclusive(data.startDate, data.endDate) / 7),
     status: "active",
     memberIds: memberDocs.docs.map((d) => d.id),
     repeatedFromId: challengeId,

@@ -1,7 +1,12 @@
 "use client";
 
 import { collection, doc, getDoc, getDocs, type Firestore } from "firebase/firestore";
-import { walkChainWith, type ChainCarry, type ChainReader } from "@/lib/chain-core";
+import {
+  collectChainCycles,
+  walkChainWith,
+  type ChainCarry,
+  type ChainReader,
+} from "@/lib/chain-core";
 import type { Challenge } from "@/lib/types";
 
 /**
@@ -64,4 +69,42 @@ export async function walkChain(
   uid: string
 ): Promise<ChainCarry> {
   return walkChainWith(clientChainReader(db), challenge, uid);
+}
+
+/** One earlier cycle of a habit, with this viewer's record of it. */
+export interface PastCycle {
+  challenge: Challenge;
+  checkinYmds: string[];
+  joinedDate?: string;
+}
+
+/**
+ * Every earlier cycle of this habit the viewer can see, oldest first, with
+ * their own check-ins in each — so a repeated habit can show one continuous
+ * history instead of starting from nothing every cycle.
+ *
+ * Unlike walkChain this doesn't stop at a broken run (collectChainCycles
+ * doesn't either): a week you missed two cycles ago is still part of the
+ * record, and hiding it would make the history a highlight reel. It stops
+ * only at a real calendar gap or a cycle this viewer can't read — someone who
+ * joined the group late sees the history from where they joined, which is the
+ * only history that was ever theirs.
+ */
+export async function collectPastCycles(
+  db: Firestore,
+  challenge: Challenge,
+  uid: string
+): Promise<PastCycle[]> {
+  const reader = clientChainReader(db);
+  const cycles = await collectChainCycles(reader, challenge);
+  const ancestors = cycles.slice(1).reverse(); // drop `challenge` itself; oldest first
+  return Promise.all(
+    ancestors.map(async (c) => {
+      const [checkinYmds, joinedDate] = await Promise.all([
+        reader.getCheckinYmds(c.id, uid),
+        reader.getJoinedDate(c.id, uid),
+      ]);
+      return { challenge: c, checkinYmds, joinedDate };
+    })
+  );
 }

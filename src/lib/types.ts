@@ -52,6 +52,22 @@ export interface Challenge {
    * made but not which one, leaving no way to check the link is still intact.
    */
   repeatedToId?: string | null;
+  /**
+   * Weeks this habit already ran, across every earlier cycle in the chain, so
+   * the second cycle of a weekly habit calls itself week 2 instead of week 1
+   * again. Missing means 0 — a chain's first cycle, and every habit created
+   * before this field existed.
+   *
+   * Stored rather than derived, unlike the streak or the badge count. Working
+   * it out needs the length of every ancestor, and Today renders a week strip
+   * per habit: deriving it would mean a read per cycle per habit on every
+   * load, to compute a label. It also can't drift the way a derived-money
+   * number could — it's fixed when the cycle is created, and the dates it
+   * counts are fixed by then too (editChallengeAdmin refuses to move an end
+   * date once a successor exists, which is the one thing that could have
+   * stranded it).
+   */
+  weeksBefore?: number | null;
   frequency: {
     type: FrequencyType;
     target: number; // check-ins per 7-day window; meaningful for weekly_count

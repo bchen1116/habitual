@@ -148,6 +148,9 @@ export function weeklyWindows(
 ): WindowEntry[] {
   const start = effectiveStart(challenge, memberJoinedDate);
   const fullTarget = challenge.frequency.target;
+  // Same continuation as habitWeek: the History list on the second cycle of a
+  // 4-week habit opens at week 5, not week 1.
+  const before = challenge.weeksBefore ?? 0;
   const windows: WindowEntry[] = [];
   weekWindowBounds(challenge).forEach((bounds, w) => {
     if (bounds.end < start) return;
@@ -159,7 +162,7 @@ export function weeklyWindows(
     else if (today >= bounds.start) state = "current";
     else state = "future";
     windows.push({
-      index: w + 1,
+      index: w + 1 + before,
       start: bounds.start,
       end: bounds.end,
       count,
@@ -257,6 +260,9 @@ export function habitWeek(
   let index = bounds.findIndex((w) => today >= w.start && today <= w.end);
   if (index === -1) index = today < challenge.startDate ? 0 : bounds.length - 1;
   const { start, end } = bounds[index];
+  // Continues across a repeat rather than restarting: the second cycle of a
+  // weekly habit is week 2. See weeksBefore on Challenge.
+  const before = challenge.weeksBefore ?? 0;
 
   const memberStart = effectiveStart(challenge, memberJoinedDate);
   const done = new Set(checkinYmds);
@@ -281,8 +287,8 @@ export function habitWeek(
       : windowRequirement(challenge.frequency.target, start, end, memberStart);
 
   return {
-    index: index + 1,
-    totalWeeks: bounds.length,
+    index: index + 1 + before,
+    totalWeeks: bounds.length + before,
     start,
     end,
     days,

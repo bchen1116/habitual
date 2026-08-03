@@ -244,6 +244,11 @@ async function writeSuccessor(
     // The successor repeats too, or "auto-repeat" would mean "once more".
     autoRepeat: true,
     repeatedToId: null,
+    // Continues the count instead of restarting at 1 — mirrors
+    // repeatChallengeAdmin (src/lib/server/challenge-admin.ts).
+    weeksBefore:
+      ((data.weeksBefore as number | undefined) ?? 0) +
+      Math.floor(daysBetweenInclusive(data.startDate, data.endDate) / 7),
     status: "active",
     memberIds: memberDocs.docs.map((d) => d.id),
     repeatedFromId: oldId,
