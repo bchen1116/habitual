@@ -41,7 +41,8 @@ import { MissReasonDialog } from "@/components/miss-reason-dialog";
 import { RateSessionDialog } from "@/components/rate-session-dialog";
 import { RepeatChallengeDialog } from "@/components/repeat-challenge-dialog";
 import { SessionRatingsCard } from "@/components/session-ratings-card";
-import { ShareLink } from "@/components/share-link";
+import { InviteDialog } from "@/components/invite-dialog";
+import { StakesCard } from "@/components/stakes-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -249,11 +250,17 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   // by the time a cycle has ended the flag has nothing left to do — which is
   // exactly the case Repeat above covers.
   const canSetAutoRepeat = isCreator && challenge.status === "active";
-  // Members see it too, read-only, whenever it's on: being carried into
-  // another cycle means another stake of real money, and finding that out
-  // when the debt arrives would be the wrong way to learn it.
-  const showAutoRepeat =
-    challenge.status === "active" && (isCreator || challenge.autoRepeat === true);
+  // The join code, when there's any point offering it: a group habit that
+  // hasn't ended, and either still open or being looked at by the one person
+  // who can reopen it. Carried as the code itself rather than a boolean so
+  // the dialog below needs no non-null assertion to use it.
+  const inviteCode =
+    challenge.mode === "group" &&
+    challenge.joinCode &&
+    (state === "upcoming" || state === "active") &&
+    (!challenge.joinClosed || isCreator)
+      ? challenge.joinCode
+      : null;
   const nextCycleStart = addDaysYmd(challenge.endDate, 1);
   const nextCycleWeeks =
     repeatDurationDays(
@@ -367,18 +374,11 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
               {challenge.description}
             </p>
           )}
-          {/* Not linked to the cycle it continues: a member carried over from
-              a group they joined late may have no read access to it, and a
-              link to "Challenge not found" is worse than no link. The
-              continuity itself is the useful part. */}
-          {challenge.repeatedFromId && (
-            <p className="mt-1 text-sm text-muted-foreground">
-              Continues an earlier cycle of this habit — your streak
-              {allowance.carried > 0 &&
-                ` and ${allowance.carried} earned skip${allowance.carried === 1 ? "" : "s"}`}{" "}
-              carried over.
-            </p>
-          )}
+          {/* No "continues an earlier cycle" line here any more. It announced
+              something the screen already demonstrates — the history runs
+              straight through the earlier cycles and the week numbers keep
+              counting — and the carried skips it mentioned are itemised in
+              the allowance line below, where the rest of the arithmetic is. */}
         </div>
         <div className="flex flex-wrap items-center gap-1.5 sm:shrink-0">
           {challenge.mode === "group" && (
@@ -402,6 +402,16 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
             {state === "cancelled" && "Cancelled"}
             {state === "adjudicated" && "Complete"}
           </Badge>
+          {inviteCode && (
+            <InviteDialog
+              joinCode={inviteCode}
+              name={challenge.name}
+              joinClosed={challenge.joinClosed === true}
+              isCreator={isCreator}
+              toggling={togglingJoin}
+              onToggleJoinClosed={handleToggleJoinClosed}
+            />
+          )}
           {canEdit && (
             <EditChallengeDialog challenge={challenge} currentStreak={creatorStreak} />
           )}
@@ -415,46 +425,16 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
         </div>
       </div>
 
-      {challenge.mode === "group" &&
-        challenge.joinCode &&
-        (state === "upcoming" || state === "active") &&
-        (!challenge.joinClosed || isCreator) && (
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle>Invite friends</CardTitle>
-              <CardDescription>
-                {challenge.joinClosed
-                  ? "Joining is closed — reopen it to let more people in."
-                  : "Share this link — joining stays open until you close it."}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              {!challenge.joinClosed && (
-                <div className="flex items-center gap-3">
-                  <code className="rounded-full bg-ink px-4 py-1.5 font-mono text-sm font-bold tracking-widest text-primary">
-                    {challenge.joinCode}
-                  </code>
-                  <ShareLink joinCode={challenge.joinCode} name={challenge.name} />
-                </div>
-              )}
-              {isCreator && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-fit"
-                  onClick={() => handleToggleJoinClosed(!challenge.joinClosed)}
-                  disabled={togglingJoin}
-                >
-                  {togglingJoin
-                    ? "Updating…"
-                    : challenge.joinClosed
-                      ? "Reopen joining"
-                      : "Close joining"}
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        )}
+      {/* Top of the screen, where the reason any of this works belongs — it
+          spent its life as a grey footnote under the ratings chart. */}
+      {state !== "cancelled" && state !== "adjudicated" && (
+        <StakesCard
+          amount={challenge.stakeAmount}
+          forfeitType={challenge.forfeitType}
+          charityName={member?.charityName ?? challenge.charityName}
+          autoRepeats={!isCreator && challenge.autoRepeat === true}
+        />
+      )}
 
       {isCreator &&
         challenge.mode === "group" &&
@@ -612,20 +592,22 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
             )}
             {/* Spent automatically at grading — but an allowance that silently
                 grew would be as confusing as one that silently shrank, so the
-                arithmetic is spelled out rather than folded into one number. */}
+                arithmetic is spelled out rather than folded into one number.
+                Once, though: this used to announce the earned subtotal,
+                itemise the three sources, and then announce the total again,
+                which is three sentences for one row of arithmetic the card's
+                own "N of M skips used" already tops and tails. */}
             {canEarnBadges(challenge) && (
               <p className="text-xs text-muted-foreground">
                 {allowance.earned + allowance.carried > 0 ? (
                   <>
                     <span className="font-medium text-foreground">
-                      ◆ {allowance.earned + allowance.carried} spare skip
-                      {allowance.earned + allowance.carried === 1 ? "" : "s"} earned
+                      ◆ {allowance.total} skip{allowance.total === 1 ? "" : "s"}
                     </span>{" "}
                     — {allowance.base} from the habit
                     {allowance.carried > 0 && `, ${allowance.carried} carried over`}
-                    {allowance.earned > 0 && `, ${allowance.earned} from full weeks`}, so{" "}
-                    {allowance.total} in total. They&apos;re used automatically if you
-                    miss.
+                    {allowance.earned > 0 && `, ${allowance.earned} from full weeks`}.
+                    Used automatically if you miss.
                   </>
                 ) : (
                   <>Complete a full week to earn a spare skip.</>
@@ -731,67 +713,49 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
       />
 
 
-      {state !== "cancelled" && state !== "adjudicated" && (
-        <p className="text-center text-xs text-muted-foreground">
-          {challenge.forfeitType === "pool"
-            ? `If you fail, your ${formatAmount(challenge.stakeAmount)} is split among the members who succeed.`
-            : `If you fail, you owe ${formatAmount(challenge.stakeAmount)} to ${member?.charityName ?? challenge.charityName ?? "your charity"}.`}
-        </p>
-      )}
+      {/* One card for the two creator switches, replacing a card each. They
+          were "Keep it going" and "Leaderboard": a heading, a paragraph of
+          explanation and a control apiece, for two settings you touch about
+          once in the life of a habit. Neither earned a section of its own on
+          the screen you open every day to check in.
 
-      {showAutoRepeat && (
+          The switch's own label carries what each one does; the paragraph
+          each used to need is gone rather than relocated. What survives is
+          the conditional detail — an already-created next cycle that outlives
+          its own switch — because that one is genuinely surprising. */}
+      {/* canSetAutoRepeat is `isCreator && status === "active"` — the same
+          condition the visibility toggle needs, which is why the two settings
+          share one card and one gate. */}
+      {canSetAutoRepeat && (
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle>Keep it going</CardTitle>
-            <CardDescription>
-              {challenge.repeatedToId
-                ? "The next cycle is already set up and starts when this one ends."
-                : challenge.autoRepeat
-                  ? `Set up automatically shortly before ${formatYmd(challenge.endDate)}, so it starts ${formatYmd(nextCycleStart)} with no gap and your streak carries across.`
-                  : `This habit ends ${formatYmd(challenge.endDate)}. Turn this on and it'll roll straight into another ${nextCycleWeeks} week${nextCycleWeeks === 1 ? "" : "s"} instead.`}
-            </CardDescription>
+            <CardTitle>Settings</CardTitle>
           </CardHeader>
-          <CardContent className="flex flex-col gap-2">
-            {canSetAutoRepeat ? (
-              <Switch
-                checked={challenge.autoRepeat === true}
-                onCheckedChange={handleToggleAutoRepeat}
-                disabled={togglingAutoRepeat}
-                label="Repeat automatically"
-                className="w-full"
-              >
-                <span>
-                  <span className="block text-sm font-medium">
-                    Repeat automatically
-                  </span>
-                  <span className="block text-xs text-muted-foreground">
-                    Same length, same stake
-                    {challenge.mode === "group" ? ", same members" : ""} — until
-                    you turn it off
-                  </span>
+          <CardContent className="flex flex-col gap-4">
+            <Switch
+              checked={challenge.autoRepeat === true}
+              onCheckedChange={handleToggleAutoRepeat}
+              disabled={togglingAutoRepeat}
+              label="Repeat automatically"
+              className="w-full"
+            >
+              <span>
+                <span className="block text-sm font-medium">
+                  Repeat automatically
                 </span>
-              </Switch>
-            ) : (
-              <p className="text-sm">
-                You&apos;ll be carried into the next cycle without needing to
-                rejoin, and it stakes {formatAmount(challenge.stakeAmount)}{" "}
-                again. Only{" "}
-                {members?.find((m) => m.uid === challenge.createdBy)
-                  ?.displayName ?? "the creator"}{" "}
-                can turn that off.
-              </p>
-            )}
-            {canSetAutoRepeat && challenge.autoRepeat && (
-              <p className="text-xs text-muted-foreground">
-                Each cycle settles its own{" "}
-                {formatAmount(challenge.stakeAmount)} stake.
-              </p>
-            )}
+                <span className="block text-xs text-muted-foreground">
+                  Rolls into another {nextCycleWeeks} week
+                  {nextCycleWeeks === 1 ? "" : "s"} on {formatYmd(nextCycleStart)}
+                  , same stake
+                  {challenge.mode === "group" ? " and members" : ""}
+                </span>
+              </span>
+            </Switch>
             {/* Deliberately not deleted when the switch goes off: it is a real
                 challenge people may already have checked into. */}
-            {canSetAutoRepeat && challenge.repeatedToId && !challenge.autoRepeat && (
+            {challenge.repeatedToId && !challenge.autoRepeat && (
               <p className="text-xs text-muted-foreground">
-                The cycle already created still runs —{" "}
+                The next cycle was already created and still runs —{" "}
                 <Link
                   href={`/challenges/${challenge.repeatedToId}`}
                   className="underline"
@@ -801,42 +765,31 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
                 to cancel or delete it.
               </p>
             )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Creator-only, and available even after friends have joined —
-          "they joined and now I'd rather this wasn't public" is the whole
-          point (see setChallengeVisibilityAdmin). */}
-      {isCreator && challenge.status === "active" && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle>Leaderboard</CardTitle>
-            <CardDescription>
-              {challenge.visibility === "private"
-                ? challenge.mode === "group"
-                  ? "Private — this habit's streak only counts for people in it."
-                  : "Private — this habit's streak only counts for you."
-                : "This habit's streak counts toward your rank on other people's leaderboards."}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={togglingVisibility}
-              onClick={() =>
-                handleToggleVisibility(
-                  challenge.visibility === "private" ? "public" : "private"
-                )
+            {/* Available even after friends have joined — "they joined and now
+                I'd rather this wasn't public" is the whole point (see
+                setChallengeVisibilityAdmin). */}
+            <Switch
+              checked={challenge.visibility !== "private"}
+              onCheckedChange={(next) =>
+                handleToggleVisibility(next ? "public" : "private")
               }
+              disabled={togglingVisibility}
+              label="Count on leaderboards"
+              className="w-full"
             >
-              {togglingVisibility
-                ? "Updating…"
-                : challenge.visibility === "private"
-                  ? "Count on leaderboards"
-                  : "Make private"}
-            </Button>
+              <span>
+                <span className="block text-sm font-medium">
+                  Count on leaderboards
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  {challenge.visibility === "private"
+                    ? challenge.mode === "group"
+                      ? "Private — this streak only counts for people in it"
+                      : "Private — this streak only counts for you"
+                    : "This streak counts toward your rank for other people"}
+                </span>
+              </span>
+            </Switch>
           </CardContent>
         </Card>
       )}
