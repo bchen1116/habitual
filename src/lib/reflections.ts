@@ -53,10 +53,20 @@ function reflectionId(localDate: string, uid: string): string {
  * someone with five running habits and twenty finished ones that is twenty-five
  * round trips from a phone to render a single page.
  *
- * Needs the `reflections` collection-group index and the collection-group read
- * rule, both of which deploy separately from the app. Callers must therefore
- * be able to fall back (see use-reflection-history) rather than assume it
- * works — the app can ship before the index does.
+ * Needs the collection-group read rule and collection-group indexing on `uid`,
+ * both of which deploy separately from the app. Callers must therefore be able
+ * to fall back (see use-reflection-history) rather than assume it works — the
+ * app can ship before the index does.
+ *
+ * That index is a `fieldOverrides` entry in firestore.indexes.json, not an
+ * `indexes` one. A single-field composite is rejected outright — "this index
+ * is not necessary, configure using single field index controls" — because
+ * one equality filter never needs a composite. What a collection-group query
+ * actually needs is the *existing* single-field index widened to
+ * COLLECTION_GROUP scope, which is what a field override does. Declaring a
+ * field override replaces every default index on that field, so the three
+ * COLLECTION-scoped defaults are listed alongside it rather than silently
+ * dropped.
  */
 export function allMyReflectionsQuery(db: Firestore, uid: string): Query {
   return query(collectionGroup(db, "reflections"), where("uid", "==", uid));
