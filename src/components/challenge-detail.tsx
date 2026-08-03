@@ -31,6 +31,8 @@ import { formatAmount } from "@/lib/currency";
 import { canEarnBadges, skipAllowance } from "@/lib/badges";
 import { repeatDurationDays } from "@/lib/duration";
 import { useChainStreak } from "@/hooks/use-chain-streak";
+import { usePastCycles } from "@/hooks/use-past-cycles";
+import type { PastCycle } from "@/lib/chain-streak";
 import type { Challenge, ChallengeMember, JoinRequest, Reflection } from "@/lib/types";
 import { CheckinDialog } from "@/components/checkin-dialog";
 import { EditChallengeDialog } from "@/components/edit-challenge-dialog";
@@ -180,6 +182,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
     today,
     member?.joinedDate
   );
+  const pastCycles = usePastCycles(challenge, uid);
   const reflectionsByDate = useMemo(
     () => new Map(reflections.map((r) => [r.localDate, r])),
     [reflections]
@@ -686,6 +689,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
                 checkinYmds={checkinYmds}
                 today={today}
                 memberJoinedDate={member?.joinedDate}
+                pastCycles={pastCycles}
                 reflectionsByDate={reflectionsByDate}
                 onSelectMiss={setMissDate}
               />
@@ -695,6 +699,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
                 checkinYmds={checkinYmds}
                 today={today}
                 memberJoinedDate={member?.joinedDate}
+                pastCycles={pastCycles}
                 reflectionsByDate={reflectionsByDate}
                 onSelectMiss={setMissDate}
               />
@@ -973,6 +978,7 @@ function DailyHistoryGrid({
   checkinYmds,
   today,
   memberJoinedDate,
+  pastCycles,
   reflectionsByDate,
   onSelectMiss,
 }: {
@@ -980,9 +986,23 @@ function DailyHistoryGrid({
   checkinYmds: string[];
   today: string;
   memberJoinedDate?: string;
+  pastCycles: PastCycle[];
 } & HistoryReflectionProps) {
   const [showAll, setShowAll] = useState(false);
-  const all = dailyHistory(challenge, new Set(checkinYmds), today, memberJoinedDate);
+  // Earlier cycles first, so a repeated habit reads as one unbroken record
+  // rather than starting from nothing every time it rolls over. They're
+  // marked settled: their reflections live in their own subcollection, and
+  // tapping a day here would file the note against the wrong challenge.
+  const all = [
+    ...pastCycles.flatMap((c) =>
+      dailyHistory(c.challenge, new Set(c.checkinYmds), today, c.joinedDate).map(
+        (e) => ({ ...e, settled: true })
+      )
+    ),
+    ...dailyHistory(challenge, new Set(checkinYmds), today, memberJoinedDate).map(
+      (e) => ({ ...e, settled: false })
+    ),
+  ];
   const { start, end } = recentWindow(
     all.length,
     all.findIndex((e) => e.ymd === today),
@@ -1007,7 +1027,7 @@ function DailyHistoryGrid({
                 ? "border-2 border-primary text-foreground"
                 : "bg-secondary text-muted-foreground");
 
-        if (entry.state !== "missed") {
+        if (entry.state !== "missed" || entry.settled) {
           return (
             <div
               key={entry.ymd}
@@ -1066,6 +1086,7 @@ function WeeklyWindowList({
   checkinYmds,
   today,
   memberJoinedDate,
+  pastCycles,
   reflectionsByDate,
   onSelectMiss,
 }: {
@@ -1073,9 +1094,28 @@ function WeeklyWindowList({
   checkinYmds: string[];
   today: string;
   memberJoinedDate?: string;
+  pastCycles: PastCycle[];
 } & HistoryReflectionProps) {
   const [showAll, setShowAll] = useState(false);
-  const all = weeklyWindows(challenge, checkinYmds, today, memberJoinedDate);
+  // Earlier cycles first. Week numbers already run continuously across them
+  // (each cycle carries its own weeksBefore), so this reads as weeks 1..n of
+  // one habit rather than three separate runs that each start at 1. They're
+  // marked settled: a note tapped onto one would be filed against the wrong
+  // challenge, since reflections live per-cycle.
+  const all = [
+    ...pastCycles.flatMap((c) =>
+      weeklyWindows(c.challenge, c.checkinYmds, today, c.joinedDate).map((w) => ({
+        ...w,
+        settled: true,
+        fullTarget: c.challenge.frequency.target,
+      }))
+    ),
+    ...weeklyWindows(challenge, checkinYmds, today, memberJoinedDate).map((w) => ({
+      ...w,
+      settled: false,
+      fullTarget: challenge.frequency.target,
+    })),
+  ];
   const { start, end } = recentWindow(
     all.length,
     all.findIndex((w) => w.state === "current"),
@@ -1095,7 +1135,7 @@ function WeeklyWindowList({
         // "5/5" with nothing to explain the different denominator — which
         // looks like a bug rather than the fairness adjustment it is.
         const proratedNote = w.prorated
-          ? `You joined partway through this week, so ${w.target} of the usual ${challenge.frequency.target} were required.`
+          ? `You joined partway through this week, so ${w.target} of the usual ${w.fullTarget} were required.`
           : undefined;
         const label = (
           <>
@@ -1119,7 +1159,7 @@ function WeeklyWindowList({
           </>
         );
 
-        if (w.state !== "past-incomplete") {
+        if (w.state !== "past-incomplete" || w.settled) {
           return (
             <div
               key={w.index}

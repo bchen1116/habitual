@@ -66,6 +66,11 @@ const PATCH_ERROR_RESPONSES: Record<string, { status: number; message: string }>
     message: "Duration must be a whole number of weeks, ending today or later.",
   },
   "invalid-stake": { status: 400, message: "Stake must be between $0 and $10,000." },
+  "has-next-cycle": {
+    status: 400,
+    message:
+      "The next cycle of this habit already exists, so the end date is fixed. Stake and skips can still be changed.",
+  },
 };
 
 export async function PATCH(

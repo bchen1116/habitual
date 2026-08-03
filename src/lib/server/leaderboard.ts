@@ -2,8 +2,12 @@ import "server-only";
 
 import { FieldValue, type Firestore } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebase/admin";
-import { collectChainCycles, walkChainWith, type ChainReader } from "@/lib/chain-core";
-import { longestStreak, streakRun } from "@/lib/streak";
+import {
+  chainLongestStreakWith,
+  walkChainWith,
+  type ChainReader,
+} from "@/lib/chain-core";
+import { streakRun } from "@/lib/streak";
 import { badgesEarnedIn } from "@/lib/badges";
 import { yyyymmddUTC } from "@/lib/server/challenge-admin";
 import type { Challenge, LeaderboardVisibility } from "@/lib/types";
@@ -207,64 +211,6 @@ export function isPrivate(challenge: Challenge): boolean {
 }
 
 /**
- * A habit's own longest run, measured over its whole repeat-chain as one
- * continuous timeline rather than per-cycle. Cycles in a chain are contiguous
- * whole weeks by construction (repeatChallengeAdmin starts the next cycle at
- * endDate+1, and durations are whole weeks), so a synthetic challenge spanning
- * the earliest start to this cycle's end keeps the weekly window grid aligned
- * while letting a run cross cycle boundaries.
- */
-async function chainLongestStreak(
-  reader: ChainReader,
-  challenge: Challenge,
-  uid: string,
-  today: string
-): Promise<number> {
-  const cycles = await collectChainCycles(reader, challenge);
-  if (cycles.length === 1) {
-    const ymds = await reader.getCheckinYmds(challenge.id, uid);
-    return longestStreak(
-      challenge,
-      ymds,
-      today,
-      await reader.getJoinedDate(challenge.id, uid)
-    );
-  }
-
-  // One round trip for the whole chain instead of one per cycle. Order is
-  // irrelevant to both results below: longestStreak puts the dates into a Set,
-  // and the join date is a minimum.
-  const perCycle = await Promise.all(
-    cycles.map(async (cycle) => ({
-      ymds: await reader.getCheckinYmds(cycle.id, uid),
-      joined: await reader.getJoinedDate(cycle.id, uid),
-    }))
-  );
-  const allYmds = perCycle.flatMap((c) => c.ymds);
-  // The earliest cycle they were actually in. A chain can reach back past
-  // someone's own membership (the Admin SDK reads cycles they were never part
-  // of), and the spanning challenge below starts at the oldest cycle either
-  // way — so their effective start is the earliest join date on record, not
-  // the chain's start.
-  let joinedDate: string | undefined;
-  for (const { joined } of perCycle) {
-    if (joined && (!joinedDate || joined < joinedDate)) joinedDate = joined;
-  }
-  // cycles is newest-first (collectChainCycles walks backward), so the last
-  // entry is the oldest cycle and holds the chain's true start.
-  const oldest = cycles[cycles.length - 1];
-  const spanning: Challenge = {
-    ...challenge,
-    startDate: oldest.startDate,
-    // A chain-wide "best ever" is a historical record; a mid-chain skip-days
-    // edit shouldn't erase it, matching streak.ts's stated position that
-    // streakResetAt floors the *live* streak only.
-    streakResetAt: null,
-  };
-  return longestStreak(spanning, allYmds, today, joinedDate);
-}
-
-/**
  * Best current + best all-time across a given set of habits.
  *
  * `reader` is threaded in rather than built here so one memo spans a whole
@@ -297,7 +243,7 @@ export async function computeStreaks(
       return {
         chained: run.streak + carry.streak,
         weeks: Math.floor((run.spanDays + carry.spanDays) / 7),
-        longest: await chainLongestStreak(reader, challenge, uid, today),
+        longest: await chainLongestStreakWith(reader, challenge, uid, today),
         badges: badgesEarnedIn(challenge, ymds, today, joinedDate),
       };
     })
