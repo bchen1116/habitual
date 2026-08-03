@@ -12,6 +12,7 @@ import {
   type Query,
 } from "firebase/firestore";
 import { getClientDb } from "@/lib/firebase/client";
+import { invalidateAfterCheckin, invalidateHabitShape } from "@/lib/client-cache";
 import type { Challenge, FrequencyType } from "@/lib/types";
 
 export interface CreateChallengeInput {
@@ -215,6 +216,9 @@ export async function editChallenge(
   if (!response.ok) {
     throw new Error(body?.error ?? "Couldn't update the challenge");
   }
+  // Skip days feed the streak floor, and the edited doc may be a cached
+  // ancestor of a live cycle — a repeated habit overlaps itself for a day.
+  invalidateHabitShape();
   return body as EditChallengeResult;
 }
 
@@ -272,6 +276,8 @@ export async function repeatChallenge(
   if (!response.ok) {
     throw new Error(body?.error ?? "Couldn't repeat this habit");
   }
+  // A new cycle just joined the chain, so every cached walk is one link short.
+  invalidateHabitShape();
   return body as RepeatChallengeResult;
 }
 
@@ -284,7 +290,7 @@ export async function repeatChallenge(
  * rejected by that ±1-day rule — accepted trade-off (docs/02) to prevent
  * backfilling missed days.
  */
-export function checkIn(
+export async function checkIn(
   challenge: Challenge,
   uid: string,
   localDate: string,
@@ -292,10 +298,14 @@ export function checkIn(
 ): Promise<void> {
   const db = getClientDb();
   const ref = doc(db, "challenges", challenge.id, "checkins", `${localDate}_${uid}`);
-  return setDoc(ref, {
+  await setDoc(ref, {
     uid,
     localDate,
     completedAt: serverTimestamp(),
     note: note.trim() || null,
   });
+  // Every cached streak and leaderboard figure just became one short. Done
+  // here rather than at the call sites so a new check-in path can't forget:
+  // a cache that silently under-reports a streak is worse than no cache.
+  invalidateAfterCheckin(challenge.id);
 }
