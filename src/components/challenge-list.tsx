@@ -9,6 +9,7 @@ import { useUserTimezone } from "@/hooks/use-user-timezone";
 import { progressSummary } from "@/lib/progress";
 import { challengeState } from "@/lib/progress";
 import { formatYmd, todayYmd } from "@/lib/dates";
+import { splitActiveChallenges } from "@/lib/cycles";
 import type { Challenge } from "@/lib/types";
 import { CheckinDialog } from "@/components/checkin-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +22,7 @@ import {
 } from "@/components/ui/card";
 
 export function ChallengeList({ uid }: { uid: string }) {
+  const timezone = useUserTimezone(uid);
   const [challenges, setChallenges] = useState<Challenge[] | null>(null);
   const [loadError, setLoadError] = useState(false);
 
@@ -68,7 +70,14 @@ export function ChallengeList({ uid }: { uid: string }) {
     );
   }
 
-  if (challenges.length === 0) {
+  // One card per habit, not per cycle, and nothing that has already ended
+  // under "active" — see lib/cycles.ts for why `status` can't answer either.
+  const { live, awaitingResults } = splitActiveChallenges(
+    challenges,
+    todayYmd(timezone)
+  );
+
+  if (live.length === 0 && awaitingResults.length === 0) {
     return (
       <Card>
         <CardHeader>
@@ -82,10 +91,27 @@ export function ChallengeList({ uid }: { uid: string }) {
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      {challenges.map((challenge) => (
-        <ChallengeCard key={challenge.id} challenge={challenge} uid={uid} />
-      ))}
+    <div className="flex flex-col gap-6">
+      {live.length > 0 && (
+        <div className="flex flex-col gap-3">
+          {live.map((challenge) => (
+            <ChallengeCard key={challenge.id} challenge={challenge} uid={uid} />
+          ))}
+        </div>
+      )}
+      {/* Kept visible rather than hidden until the nightly job runs: these
+          settle real money, and a habit that disappeared for a day and came
+          back owing $20 would be the worse surprise. */}
+      {awaitingResults.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <h2 className="type-overline text-xs text-muted-foreground">
+            Finishing up
+          </h2>
+          {awaitingResults.map((challenge) => (
+            <ChallengeCard key={challenge.id} challenge={challenge} uid={uid} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

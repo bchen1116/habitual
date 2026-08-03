@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useActiveChallengeCheckins } from "@/hooks/use-active-challenge-checkins";
 import { useMaxChainStreak } from "@/hooks/use-chain-streak";
 import { useUserTimezone } from "@/hooks/use-user-timezone";
+import { liveChallenges } from "@/lib/cycles";
 import { todayYmd } from "@/lib/dates";
 import { maxLongestStreak } from "@/lib/streak";
 import { cn } from "@/lib/utils";
@@ -25,7 +26,9 @@ export function Sidebar({ uid }: { uid: string }) {
     useActiveChallengeCheckins(uid);
 
   const today = todayYmd(timezone);
-  const activeChallenges = challenges ?? [];
+  // The same collapsed, still-running set the Today hero uses, so the two
+  // streak figures can't disagree (lib/cycles.ts).
+  const activeChallenges = liveChallenges(challenges ?? [], today);
   const checkinYmdsByChallenge = Object.fromEntries(
     Object.entries(checkinsByChallenge).map(([id, records]) => [
       id,

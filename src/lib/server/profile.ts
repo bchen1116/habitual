@@ -9,6 +9,7 @@ import {
 } from "@/lib/server/leaderboard";
 import { yyyymmddUTC } from "@/lib/server/challenge-admin";
 import { challengeState, totalRequired, type ChallengeState } from "@/lib/progress";
+import { splitActiveChallenges } from "@/lib/cycles";
 import type {
   Challenge,
   ChallengeMember,
@@ -194,8 +195,23 @@ export async function getUserProfile(
   const isFinished = (h: ProfileHabit) =>
     h.state === "adjudicated" || h.state === "cancelled" || h.state === "ended";
 
+  // A repeating habit overlaps itself for a day — auto-repeat builds the next
+  // cycle before the current one ends, because a gap would break the streak
+  // (lib/cycles.ts). Both are open challenges, so without this the profile
+  // would list "Morning run" twice as if they were two separate commitments.
+  // Only the cycle that represents the habit right now is kept; the other is
+  // suppressed rather than demoted to `past`, since an unstarted cycle is not
+  // history either.
+  const stillOpen = visible.filter((c) => {
+    const s = challengeState(c, today);
+    return s === "active" || s === "upcoming";
+  });
+  const representing = new Set(
+    splitActiveChallenges(stillOpen, today).live.map((c) => c.id)
+  );
+
   const active = habits
-    .filter((h) => !isFinished(h))
+    .filter((h) => !isFinished(h) && representing.has(h.id))
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
   const past = habits
     .filter(isFinished)

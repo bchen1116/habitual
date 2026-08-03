@@ -6,6 +6,7 @@ import { formatInTimeZone } from "date-fns-tz";
 import { useActiveChallengeCheckins } from "@/hooks/use-active-challenge-checkins";
 import { useMaxChainStreak } from "@/hooks/use-chain-streak";
 import { useUserTimezone } from "@/hooks/use-user-timezone";
+import { liveChallenges } from "@/lib/cycles";
 import { todayYmd } from "@/lib/dates";
 import { challengeState, progressSummary } from "@/lib/progress";
 import { Avatar } from "@/components/ui/avatar";
@@ -48,7 +49,10 @@ export function TodayView({
   const firstName = (displayName ?? "").trim().split(/\s+/)[0] || "there";
   const dateLabel = formatInTimeZone(new Date(), timezone, "EEEE '·' MMM d");
 
-  const activeChallenges = challenges ?? [];
+  // One entry per habit, and nothing that has already ended: every cycle of a
+  // repeating habit is its own challenge doc, and `status` stays "active"
+  // until the nightly job grades it (see lib/cycles.ts).
+  const activeChallenges = liveChallenges(challenges ?? [], today);
   const checkinYmdsByChallenge = Object.fromEntries(
     Object.entries(checkinsByChallenge).map(([id, records]) => [
       id,

@@ -7,6 +7,7 @@ import { useActiveChallengeCheckins } from "@/hooks/use-active-challenge-checkin
 import { useChallengeHistory } from "@/hooks/use-challenge-history";
 import { useReflectionHistory } from "@/hooks/use-reflection-history";
 import { useUserTimezone } from "@/hooks/use-user-timezone";
+import { liveChallenges } from "@/lib/cycles";
 import { averageAmount, computeLifetimeStats } from "@/lib/challenge-stats";
 import { todayYmd } from "@/lib/dates";
 import { formatAmount } from "@/lib/currency";
@@ -61,7 +62,11 @@ export function StatsView({ uid }: { uid: string }) {
     };
   }, [uid]);
 
-  const activeChallenges = challenges ?? [];
+  // Collapsed to one entry per habit and stripped of anything already past
+  // its end date, so "Active habits" counts habits rather than challenge
+  // documents (lib/cycles.ts). totalCheckIns below deliberately still sums
+  // over everything — that one is a lifetime figure.
+  const activeChallenges = liveChallenges(challenges ?? [], today);
   const checkinYmdsByChallenge = Object.fromEntries(
     Object.entries(checkinsByChallenge).map(([id, records]) => [
       id,
