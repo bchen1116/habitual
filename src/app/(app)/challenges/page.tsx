@@ -14,7 +14,7 @@ export default async function ChallengesPage() {
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 p-5 lg:p-9">
       <div className="flex items-center justify-between">
         <h1 className="type-display text-3xl">Habits</h1>
-        <Button asChild size="sm" variant="secondary">
+        <Button asChild size="sm" variant="outline">
           <Link href="/challenges/new">+ New habit</Link>
         </Button>
       </div>
