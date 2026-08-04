@@ -37,13 +37,23 @@ export function canEarnBadges(challenge: Challenge): boolean {
 /**
  * Badges earned within this challenge, from its own check-ins.
  *
- * A window counts only if it asked for the habit's full target — a week
- * prorated for a late joiner (owing 2 of 5) is not a full week, and paying a
- * badge for it would make joining late the cheapest way to earn one.
+ * A window earns a badge on two conditions, and it needs both.
  *
- * A window counts as soon as it reaches its target, before it closes, matching
- * how the streak already treats a completed week: it can no longer be failed,
- * so there is nothing left to wait for.
+ * *It asked for the habit's full target.* A week prorated for a late joiner
+ * (owing 2 of 5) is not a full week, and paying a badge for it would make
+ * joining late the cheapest way to earn one.
+ *
+ * *All seven of its days have passed.* This used to pay out the moment the
+ * count was reached, on the reasoning that a met week can no longer be failed
+ * so there was nothing left to wait for. True, and beside the point: it meant
+ * a 3×/week habit checked in on Monday, Tuesday and Wednesday announced a
+ * spare skip on Wednesday, having banked a reward for a week it was three
+ * days into. What the badge is meant to recognise is a *week* kept, not a
+ * quota cleared early — so the week has to actually be over.
+ *
+ * The distinction only ever affects the window in progress. Every earlier one
+ * has closed, and by the time adjudication runs the whole challenge has, so
+ * no settled result changes.
  */
 export function badgesEarnedIn(
   challenge: Challenge,
@@ -54,7 +64,13 @@ export function badgesEarnedIn(
   if (!canEarnBadges(challenge)) return 0;
   const fullTarget = challenge.frequency.target;
   return weeklyWindows(challenge, checkinYmds, today, memberJoinedDate).filter(
-    (w) => !w.prorated && w.target === fullTarget && w.count >= fullTarget
+    (w) =>
+      !w.prorated &&
+      w.target === fullTarget &&
+      w.count >= fullTarget &&
+      // Strictly before: while today *is* the last day, the week is still
+      // running and can still be added to.
+      w.end < today
   ).length;
 }
 

@@ -271,6 +271,11 @@ async function writeSuccessor(
         badgesEarnedIn(
           data as BadgeChallenge,
           oldCheckinsByUid.get(memberDoc.id) ?? [],
+          // The run date. This job fires a day *ahead* of the end date, so
+          // the final week is still open and its badge is deliberately not
+          // carried yet — that is the "can only ever add the final week"
+          // correction the comment above describes, now made literal.
+          dateToYmdUTC(now),
           member.joinedDate as string | undefined
         ),
       charityName: member.charityName ?? null,

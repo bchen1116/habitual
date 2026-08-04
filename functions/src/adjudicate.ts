@@ -160,6 +160,10 @@ export function adjudicationCutoffYmd(now: Date): string {
 export async function adjudicateEndedChallenges(now: Date): Promise<number> {
   const db = getFirestore();
   const cutoff = adjudicationCutoffYmd(now);
+  // The run date, for the "a badge's week must be over" rule in badges.ts.
+  // Every challenge selected below ended at least 39 hours ago, so this is
+  // always past their final window and the rule withholds nothing here.
+  const cutoffToday = dateToYmdUTC(now);
 
   const ended = await db
     .collection("challenges")
@@ -214,9 +218,15 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
           // Badges are spare skips, earned a week at a time and spent
           // automatically. Nothing to redeem: a reward you must remember to
           // claim before a nightly job you cannot see is a trap, not a reward.
+          // The run date as `today`. The 39-hour buffer above guarantees it is
+          // past endDate, so every window of this challenge has closed and the
+          // "week must be over" rule inside can't withhold anything here — it
+          // only ever suppresses a week still in progress, and by now there
+          // are none.
           const allowance = effectiveSkipDays(
             challenge,
             ymds,
+            cutoffToday,
             member.joinedDate,
             member.badgesCarried
           );
