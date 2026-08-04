@@ -157,15 +157,31 @@ export async function chainLongestStreakWith(
     }))
   );
   const allYmds = perCycle.flatMap((c) => c.ymds);
-  // The earliest cycle they were actually in. A chain can reach back past
-  // someone's own membership (the Admin SDK reads cycles they were never part
-  // of), and the spanning challenge below starts at the oldest cycle either
-  // way — so their effective start is the earliest join date on record, not
+  // The earliest point they were actually in this habit. A chain can reach
+  // back past someone's own membership (the Admin SDK reads cycles they were
+  // never part of), and the spanning challenge below starts at the oldest
+  // cycle either way — so their effective start is where *they* began, not
   // the chain's start.
+  //
+  // Membership is decided by memberIds, not by whether a join date came back,
+  // because `getJoinedDate` returns undefined for two different situations and
+  // they need opposite treatment: a member doc that predates the joinedDate
+  // field (legacy — see ChallengeMember.joinedDate, where absent means "here
+  // from the start"), and no member doc at all.
+  //
+  // Taking the minimum of only the dates that *exist* conflated them, and the
+  // result was a habit whose best-ever run collapsed to its newest cycle: on a
+  // repeat whose ancestor predates the field, the ancestor contributed no date,
+  // the successor contributed its own start — written by repeatChallengeAdmin —
+  // and that became the floor for the whole chain, marking every earlier day
+  // inactive. A run of 8 across the boundary reported 8 as the current streak
+  // and 4 as the best ever, which is not just wrong but impossible.
   let joinedDate: string | undefined;
-  for (const { joined } of perCycle) {
-    if (joined && (!joinedDate || joined < joinedDate)) joinedDate = joined;
-  }
+  cycles.forEach((cycle, i) => {
+    if (!cycle.memberIds?.includes(uid)) return; // never in this cycle
+    const start = perCycle[i].joined ?? cycle.startDate;
+    if (!joinedDate || start < joinedDate) joinedDate = start;
+  });
   // cycles is newest-first (collectChainCycles walks backward), so the last
   // entry is the oldest cycle and holds the chain's true start.
   const oldest = cycles[cycles.length - 1];
