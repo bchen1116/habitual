@@ -30,6 +30,7 @@ import { addDaysYmd, daysBetweenInclusive, formatYmd, todayYmd } from "@/lib/dat
 import { formatAmount } from "@/lib/currency";
 import { canEarnBadges, skipAllowance } from "@/lib/badges";
 import { repeatDurationDays } from "@/lib/duration";
+import { chainWeekOffsets } from "@/lib/cycles";
 import { useChainStreak } from "@/hooks/use-chain-streak";
 import { usePastCycles } from "@/hooks/use-past-cycles";
 import type { PastCycle } from "@/lib/chain-streak";
@@ -187,7 +188,24 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
     weeks: creatorWeeks,
     pending: streakPending,
   } = useChainStreak(challenge, uid, checkinYmds, today, member?.joinedDate);
-  const pastCycles = usePastCycles(challenge, uid);
+  const rawPastCycles = usePastCycles(challenge, uid);
+  // Week numbers come from the chain that's actually on screen, not from each
+  // cycle's stored `weeksBefore` — see chainWeekOffsets. Every cycle in the
+  // chain is corrected, not just this one: on a three-cycle habit whose
+  // middle cycle predates the field, fixing only the newest would still leave
+  // week 1 appearing twice in the middle of the list.
+  const { pastCycles, weekChallenge } = useMemo(() => {
+    if (!challenge) return { pastCycles: rawPastCycles, weekChallenge: challenge };
+    const chain = [...rawPastCycles.map((p) => p.challenge), challenge];
+    const offsets = chainWeekOffsets(chain);
+    return {
+      pastCycles: rawPastCycles.map((p, i) => ({
+        ...p,
+        challenge: { ...p.challenge, weeksBefore: offsets[i] },
+      })),
+      weekChallenge: { ...challenge, weeksBefore: offsets[offsets.length - 1] },
+    };
+  }, [challenge, rawPastCycles]);
   const tappableMiss = challenge
     ? hasTappableMiss(challenge, checkinYmds, today, member?.joinedDate)
     : false;
@@ -214,7 +232,14 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
 
   const state = challengeState(challenge, today);
   const summary = progressSummary(challenge, checkinYmds, timezone, member?.joinedDate);
-  const currentWeek = habitWeek(challenge, checkinYmds, today, member?.joinedDate);
+  // weekChallenge, not challenge: the strip prints "Week N of M", so it has to
+  // agree with the History list underneath it about which week this is.
+  const currentWeek = habitWeek(
+    weekChallenge ?? challenge,
+    checkinYmds,
+    today,
+    member?.joinedDate
+  );
   // Badges are spent automatically, so the only job here is to make sure the
   // number someone is judged against is never a surprise.
   const allowance = skipAllowance(
@@ -694,7 +719,9 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
               />
             ) : (
               <WeeklyWindowList
-                challenge={challenge}
+                // The chain-corrected copy: this list is where "week 1 twice"
+                // was actually visible.
+                challenge={weekChallenge ?? challenge}
                 checkinYmds={checkinYmds}
                 today={today}
                 memberJoinedDate={member?.joinedDate}
