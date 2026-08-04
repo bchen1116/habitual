@@ -4,7 +4,7 @@
 
 ## What ships
 
-- **Cloud Function:** scheduled daily adjudication at 03:00 UTC
+- **Cloud Function:** scheduled hourly adjudication (the 39-hour buffer below, not the schedule, is what stops anyone being graded early)
 - Ledger entries created for failed solo challenges (charity mode)
 - **Ledger overview** (`/ledger`) with tabs: I owe / I'm owed
 - **Ledger entry detail** (`/ledger/[entryId]`)
@@ -48,7 +48,7 @@ adjudicatedAt: timestamp | null
 ## Backend
 
 **Cloud Function `adjudicateEndedChallenges`:**
-- Trigger: scheduled, every 24 hours at 03:00 UTC
+- Trigger: scheduled, hourly. It ran once daily at 03:00 UTC until the two were measured against each other: the buffer below first admits a habit ending on the 2nd at 15:00 UTC on the 3rd, twelve hours *after* that day's run, so every result waited for the next day's — a flat 12 hours added to a buffer that had already done its job (20 hours past their own last check-in for someone in US Eastern, 33 in Tokyo). Hourly polling can't grade anything early, because the buffer decides that, and both passes are idempotent: adjudication selects `status == "active"` and flips it in a transaction, auto-repeat claims its successor with a compare-and-set on `repeatedToId`.
 - Logic:
   1. Query `challenges where status == "active" and endDate <= yyyymmdd(now − 39h)`. Dates are `yyyymmdd` strings, which sort chronologically, so this is a plain string comparison. The buffer matters: check-ins are keyed by **user-local** dates, so a challenge ending "July 22" isn't over everywhere until July 23 12:00 UTC (end of day in UTC−12). Grading at a bare `endDate < now` would mark members in lagging timezones as failed while their final day is still in progress. `endDate <= yyyymmdd(now − 39h)` first becomes true exactly at endDate + 39h — safe for every timezone, at the cost of results landing up to a day later. **39, not 36:** the habit day rolls over at 03:00 local (docs/02), so the last instant anyone can still log "July 22" is 02:59 on July 23 local — 14:59 UTC in UTC−12, three hours past what 36 allowed. At 36 the nightly run could grade a member while their day was still open and their stake still winnable. (Refinement for later: gate per-challenge on the max of members' actual local end-of-day instants.) Cancelled challenges are never picked up — the status filter excludes them.
   2. For each challenge, run adjudication **inside a Firestore transaction** so ledger entry creation + challenge status update are atomic (if the function dies mid-way, next run picks up cleanly)

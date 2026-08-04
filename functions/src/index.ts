@@ -17,8 +17,27 @@ import {
 initializeApp();
 
 /**
- * Daily at 03:00 UTC (docs/03). The 39-hour cutoff inside guarantees no
- * member is graded before their final local day has ended in any timezone.
+ * Hourly. What protects a member from being graded early is the 39-hour
+ * cutoff inside (ADJUDICATION_BUFFER_HOURS), never the schedule — the query
+ * simply finds nothing until that buffer is satisfied.
+ *
+ * This used to run once daily at 03:00 UTC, and the two didn't line up. The
+ * buffer first admits a habit ending on the 2nd at 15:00 UTC on the 3rd,
+ * which is twelve hours *after* that day's run has been and gone, so every
+ * result waited for the following day's — a flat 12 hours of nothing
+ * happening, on top of the buffer that had already done its job. Someone in
+ * US Eastern waited 20 hours past their own last chance to check in; in
+ * Tokyo, 33.
+ *
+ * Polling hourly costs 23 extra runs a day of one indexed query that returns
+ * nothing, and it can't grade anything early, because the buffer is what
+ * decides that.
+ *
+ * Both passes are safe to repeat, which is what makes the frequency a free
+ * choice: adjudication only selects status == "active" and flips it inside a
+ * transaction, and auto-repeat claims its successor slot with a
+ * compare-and-set on repeatedToId, re-checking both conditions inside the
+ * transaction.
  *
  * Auto-repeat runs first, and the order is not incidental: it only considers
  * challenges still marked active, so grading a cycle before looking at it
@@ -27,7 +46,7 @@ initializeApp();
  * behind it), but the ordering makes that a property rather than a hope.
  */
 export const adjudicateendedchallenges = onSchedule(
-  { schedule: "0 3 * * *", timeZone: "UTC", region: "us-central1" },
+  { schedule: "0 * * * *", timeZone: "UTC", region: "us-central1" },
   async () => {
     const now = new Date();
     try {
