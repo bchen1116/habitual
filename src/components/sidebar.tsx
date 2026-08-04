@@ -7,8 +7,6 @@ import {
   useMaxChainLongestStreak,
   useMaxChainStreak,
 } from "@/hooks/use-chain-streak";
-import { liveChallenges } from "@/lib/cycles";
-import { todayYmd } from "@/lib/dates";
 
 import { cn } from "@/lib/utils";
 
@@ -23,19 +21,11 @@ const NAV_ITEMS = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { challenges, checkinsByChallenge, joinedDateByChallenge, timezone, uid } =
+  const { joinedDateByChallenge, uid, today, checkinYmdsByChallenge, activeChallenges } =
     useActivity();
 
-  const today = todayYmd(timezone);
   // The same collapsed, still-running set the Today hero uses, so the two
   // streak figures can't disagree (lib/cycles.ts).
-  const activeChallenges = liveChallenges(challenges ?? [], today);
-  const checkinYmdsByChallenge = Object.fromEntries(
-    Object.entries(checkinsByChallenge).map(([id, records]) => [
-      id,
-      records.map((r) => r.localDate),
-    ])
-  );
   const { streak, pending: streakPending } = useMaxChainStreak(
     activeChallenges,
     uid,

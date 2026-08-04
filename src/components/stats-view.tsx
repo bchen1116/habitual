@@ -6,9 +6,7 @@ import { getClientDb } from "@/lib/firebase/client";
 import { useActivity } from "@/components/activity-provider";
 import { useChallengeHistory } from "@/hooks/use-challenge-history";
 import { useReflectionHistory } from "@/hooks/use-reflection-history";
-import { liveChallenges } from "@/lib/cycles";
 import { averageAmount, computeLifetimeStats } from "@/lib/challenge-stats";
-import { todayYmd } from "@/lib/dates";
 import { formatAmount } from "@/lib/currency";
 import { owedByMeQuery, owedToMeQuery } from "@/lib/ledger";
 import { useMaxChainLongestStreak } from "@/hooks/use-chain-streak";
@@ -23,7 +21,9 @@ export function StatsView({ uid }: { uid: string }) {
     joinedDateByChallenge,
     loading,
     error: activeError,
-    timezone,
+    today,
+    checkinYmdsByChallenge,
+    activeChallenges,
   } = useActivity();
   const {
     entries: history,
@@ -34,7 +34,6 @@ export function StatsView({ uid }: { uid: string }) {
     null
   );
   const [ledgerError, setLedgerError] = useState(false);
-  const today = todayYmd(timezone);
 
   // One-time reads, matching the challenge history above — this section is
   // a lifetime summary, not something that needs to track live settlement.
@@ -69,13 +68,6 @@ export function StatsView({ uid }: { uid: string }) {
   // its end date, so "Active habits" counts habits rather than challenge
   // documents (lib/cycles.ts). totalCheckIns below deliberately still sums
   // over everything — that one is a lifetime figure.
-  const activeChallenges = liveChallenges(challenges ?? [], today);
-  const checkinYmdsByChallenge = Object.fromEntries(
-    Object.entries(checkinsByChallenge).map(([id, records]) => [
-      id,
-      records.map((r) => r.localDate),
-    ])
-  );
   const totalCheckIns = Object.values(checkinsByChallenge).reduce(
     (sum, records) => sum + records.length,
     0

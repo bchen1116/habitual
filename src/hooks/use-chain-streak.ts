@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getClientDb } from "@/lib/firebase/client";
 import { chainLongestStreak, walkChain } from "@/lib/chain-streak";
 import { longestStreak, streakRun } from "@/lib/streak";
@@ -147,9 +147,18 @@ export function useMaxChainStreak(
   today: string,
   joinedDateByChallenge: Readonly<Record<string, string | undefined>> = {}
 ): ChainStreak {
-  const checkinsKey = challenges
-    .map((c) => `${c.id}:${(checkinYmdsByChallenge[c.id] ?? []).join("|")}`)
-    .join(",");
+  // Memoised because it walks every check-in date the viewer has, and it did
+  // so on every render of every consumer. That only became worth doing once
+  // its inputs were stable: three components each rebuilt
+  // checkinYmdsByChallenge from scratch, so this saw a new object each time
+  // and no memo could have held (see ActivityProvider).
+  const checkinsKey = useMemo(
+    () =>
+      challenges
+        .map((c) => `${c.id}:${(checkinYmdsByChallenge[c.id] ?? []).join("|")}`)
+        .join(","),
+    [challenges, checkinYmdsByChallenge]
+  );
   // streakResetAt has to be in this key too: chainEligible below depends on
   // it, and it changes live (an in-place edit on an already-mounted
   // challenge doc, not a new/removed challenge), so leaving it out let the
@@ -160,14 +169,18 @@ export function useMaxChainStreak(
   // feeds streakRun below and lands asynchronously (the member docs are read
   // after the challenge list), so without it the effect would settle on
   // numbers computed before any join date was known.
-  const chainKey = challenges
-    .map(
-      (c) =>
-        `${c.id}:${c.repeatedFromId ?? ""}:${c.streakResetAt ?? ""}:${
-          joinedDateByChallenge[c.id] ?? ""
-        }`
-    )
-    .join(",");
+  const chainKey = useMemo(
+    () =>
+      challenges
+        .map(
+          (c) =>
+            `${c.id}:${c.repeatedFromId ?? ""}:${c.streakResetAt ?? ""}:${
+              joinedDateByChallenge[c.id] ?? ""
+            }`
+        )
+        .join(","),
+    [challenges, joinedDateByChallenge]
+  );
 
   const cacheKey = chainStreakKey("current", uid, today, chainKey, checkinsKey);
   // Seeded from the cache, so navigating away and back paints the real number
@@ -273,15 +286,23 @@ export function useMaxChainLongestStreak(
   today: string,
   joinedDateByChallenge: Readonly<Record<string, string | undefined>> = {}
 ): ChainBest {
-  const checkinsKey = challenges
-    .map((c) => `${c.id}:${(checkinYmdsByChallenge[c.id] ?? []).join("|")}`)
-    .join(",");
-  const chainKey = challenges
-    .map(
-      (c) =>
-        `${c.id}:${c.repeatedFromId ?? ""}:${joinedDateByChallenge[c.id] ?? ""}`
-    )
-    .join(",");
+  const checkinsKey = useMemo(
+    () =>
+      challenges
+        .map((c) => `${c.id}:${(checkinYmdsByChallenge[c.id] ?? []).join("|")}`)
+        .join(","),
+    [challenges, checkinYmdsByChallenge]
+  );
+  const chainKey = useMemo(
+    () =>
+      challenges
+        .map(
+          (c) =>
+            `${c.id}:${c.repeatedFromId ?? ""}:${joinedDateByChallenge[c.id] ?? ""}`
+        )
+        .join(","),
+    [challenges, joinedDateByChallenge]
+  );
   const cacheKey = chainStreakKey("longest", uid, today, chainKey, checkinsKey);
 
   const [chainBest, setChainBest] = useState<number | null>(

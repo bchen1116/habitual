@@ -14,7 +14,7 @@ const DENIED = "permission-denied";
 /** `failed-precondition` — a composite or collection-group index is missing. */
 const NO_INDEX = "failed-precondition";
 
-export function firestoreErrorCode(err: unknown): string | null {
+function firestoreErrorCode(err: unknown): string | null {
   if (typeof err === "object" && err !== null && "code" in err) {
     const code = (err as { code: unknown }).code;
     if (typeof code === "string") return code;

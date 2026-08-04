@@ -6,7 +6,7 @@ import { DAY_CUTOFF_HOUR, addDaysYmd, todayYmd } from "@/lib/dates";
  * screen at 9pm for the 3am rollover — late enough that it's about tonight
  * rather than about the day in general, early enough to still act on.
  */
-export const COUNTDOWN_LEAD_HOURS = 6;
+const COUNTDOWN_LEAD_HOURS = 6;
 export const COUNTDOWN_LEAD_MS = COUNTDOWN_LEAD_HOURS * 60 * 60 * 1000;
 
 /**

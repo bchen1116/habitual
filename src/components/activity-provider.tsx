@@ -6,13 +6,42 @@ import {
   type ActiveChallengeActivity,
 } from "@/hooks/use-active-challenge-checkins";
 import { useUserTimezone } from "@/hooks/use-user-timezone";
-import type { ActivitySnapshot } from "@/lib/types";
+import { liveChallenges } from "@/lib/cycles";
+import { todayYmd } from "@/lib/dates";
+import type { ActivitySnapshot, Challenge } from "@/lib/types";
 
 export interface ActivityValue extends ActiveChallengeActivity {
   /** users/{uid}.timezone, falling back to the browser's. */
   timezone: string;
   /** Carried so consumers don't need it threaded down as a prop as well. */
   uid: string;
+  /**
+   * The habit date, in the viewer's timezone. Derived once here rather than
+   * per component: nine call sites each ran todayYmd(timezone) on every
+   * render, and — more importantly than the wasted Intl formatting — two of
+   * them rendering either side of the 3am rollover would have disagreed about
+   * what day it is, which is enough to make the sidebar and the page show
+   * different streaks.
+   */
+  today: string;
+  /**
+   * checkinsByChallenge reduced to bare date arrays, which is the shape every
+   * streak and progress function actually takes.
+   *
+   * Memoised, and that is the point rather than a nicety. The streak hooks
+   * build their cache keys by joining every check-in date in this map on each
+   * render; when three components each rebuilt the map from scratch, those
+   * keys were recomputed from a new object every time and no downstream memo
+   * could hold. One stable object means the work happens when the data
+   * changes, not when anything re-renders.
+   */
+  checkinYmdsByChallenge: Record<string, string[]>;
+  /**
+   * One entry per habit, nothing that has already ended — what an "active
+   * habits" list should show (see lib/cycles.ts). Shared so the sidebar, Today
+   * and Progress cannot disagree about which habits are live.
+   */
+  activeChallenges: Challenge[];
 }
 
 const ActivityContext = createContext<ActivityValue | null>(null);
@@ -57,6 +86,29 @@ export function ActivityProvider({
     useActiveChallengeCheckins(uid, initial);
   const timezone = useUserTimezone(uid, initial?.timezone);
 
+  // Deliberately not memoised on [timezone]: the habit date changes with the
+  // clock, not with any value React can depend on, so caching it against its
+  // inputs would pin a tab left open overnight to yesterday. Recomputing it
+  // per provider render is both correct and still eight fewer calls than
+  // before.
+  const today = todayYmd(timezone);
+
+  const checkinYmdsByChallenge = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(checkinsByChallenge).map(([id, records]) => [
+          id,
+          records.map((r) => r.localDate),
+        ])
+      ),
+    [checkinsByChallenge]
+  );
+
+  const activeChallenges = useMemo(
+    () => liveChallenges(challenges ?? [], today),
+    [challenges, today]
+  );
+
   const value = useMemo<ActivityValue>(
     () => ({
       challenges,
@@ -66,6 +118,9 @@ export function ActivityProvider({
       error,
       timezone,
       uid,
+      today,
+      checkinYmdsByChallenge,
+      activeChallenges,
     }),
     [
       challenges,
@@ -75,6 +130,9 @@ export function ActivityProvider({
       error,
       timezone,
       uid,
+      today,
+      checkinYmdsByChallenge,
+      activeChallenges,
     ]
   );
 
