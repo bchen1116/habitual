@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
+import { getActiveChallengeActivity } from "@/lib/server/activity";
 import { ChallengeList } from "@/components/challenge-list";
 import { LeaderboardCard } from "@/components/leaderboard-card";
 import { LedgerSummary } from "@/components/ledger-summary";
@@ -9,6 +10,8 @@ import { Button } from "@/components/ui/button";
 export default async function ChallengesPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login?next=/challenges");
+
+  const activity = await getActiveChallengeActivity(user.uid);
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 p-5 lg:p-9">
@@ -23,7 +26,7 @@ export default async function ChallengesPage() {
           a debt is the one thing here you can act on. */}
       <LedgerSummary uid={user.uid} />
       <LeaderboardCard />
-      <ChallengeList uid={user.uid} />
+      <ChallengeList uid={user.uid} initialActivity={activity} />
     </div>
   );
 }

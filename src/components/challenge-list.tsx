@@ -11,7 +11,7 @@ import { challengeState } from "@/lib/progress";
 import { formatYmd, todayYmd } from "@/lib/dates";
 import { splitActiveChallenges } from "@/lib/cycles";
 import { cn } from "@/lib/utils";
-import type { Challenge } from "@/lib/types";
+import type { ActivitySnapshot, Challenge } from "@/lib/types";
 import { CheckinDialog } from "@/components/checkin-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -23,9 +23,18 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-export function ChallengeList({ uid }: { uid: string }) {
-  const timezone = useUserTimezone(uid);
-  const [challenges, setChallenges] = useState<Challenge[] | null>(null);
+export function ChallengeList({
+  uid,
+  initialActivity = null,
+}: {
+  uid: string;
+  /** Prefetched on the server; null means "load the old way". */
+  initialActivity?: ActivitySnapshot | null;
+}) {
+  const timezone = useUserTimezone(uid, initialActivity?.timezone);
+  const [challenges, setChallenges] = useState<Challenge[] | null>(
+    initialActivity?.challenges ?? null
+  );
   const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
@@ -110,7 +119,13 @@ export function ChallengeList({ uid }: { uid: string }) {
       {live.length > 0 && (
         <div className="flex flex-col gap-3">
           {live.map((challenge) => (
-            <ChallengeCard key={challenge.id} challenge={challenge} uid={uid} />
+            <ChallengeCard
+              key={challenge.id}
+              challenge={challenge}
+              uid={uid}
+              initialCheckinYmds={initialYmds(initialActivity, challenge.id)}
+              initialTimezone={initialActivity?.timezone}
+            />
           ))}
         </div>
       )}
@@ -123,7 +138,13 @@ export function ChallengeList({ uid }: { uid: string }) {
             Finishing up
           </h2>
           {awaitingResults.map((challenge) => (
-            <ChallengeCard key={challenge.id} challenge={challenge} uid={uid} />
+            <ChallengeCard
+              key={challenge.id}
+              challenge={challenge}
+              uid={uid}
+              initialCheckinYmds={initialYmds(initialActivity, challenge.id)}
+              initialTimezone={initialActivity?.timezone}
+            />
           ))}
         </div>
       )}
@@ -131,15 +152,37 @@ export function ChallengeList({ uid }: { uid: string }) {
   );
 }
 
-function ChallengeCard({ challenge, uid }: { challenge: Challenge; uid: string }) {
-  const timezone = useUserTimezone(uid);
-  const [checkinYmds, setCheckinYmds] = useState<string[]>([]);
+/** The prefetched dates for one habit, or undefined if there was no prefetch. */
+function initialYmds(
+  activity: ActivitySnapshot | null,
+  challengeId: string
+): string[] | undefined {
+  return activity?.checkinsByChallenge[challengeId]?.map((c) => c.localDate);
+}
+
+function ChallengeCard({
+  challenge,
+  uid,
+  initialCheckinYmds,
+  initialTimezone,
+}: {
+  challenge: Challenge;
+  uid: string;
+  initialCheckinYmds?: string[];
+  initialTimezone?: string | null;
+}) {
+  const timezone = useUserTimezone(uid, initialTimezone);
+  const [checkinYmds, setCheckinYmds] = useState<string[]>(
+    initialCheckinYmds ?? []
+  );
   // Whether the bar below is allowed to animate yet. Each card subscribes to
   // its own checkins, so without this every card on the page slid its
   // progress bar up from zero as its own query landed — a staggered ripple of
   // bars filling, which is the page's most visible "everything is animating
   // at once" moment and describes nothing that happened.
-  const [checkinsLoaded, setCheckinsLoaded] = useState(false);
+  const [checkinsLoaded, setCheckinsLoaded] = useState(
+    initialCheckinYmds !== undefined
+  );
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
