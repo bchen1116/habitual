@@ -1,5 +1,42 @@
+import { daysBetweenInclusive } from "@/lib/dates";
 import { challengeState } from "@/lib/progress";
 import type { Challenge } from "@/lib/types";
+
+/** Whole weeks a cycle spans — the arithmetic both repeat writers use. */
+export function cycleWeeks(challenge: Challenge): number {
+  return Math.floor(
+    daysBetweenInclusive(challenge.startDate, challenge.endDate) / 7
+  );
+}
+
+/**
+ * Each cycle's week-number offset, oldest first, worked out from the chain
+ * itself instead of taken on trust from `weeksBefore`.
+ *
+ * `weeksBefore` is stored rather than derived for a good reason — Today
+ * renders a week strip per habit and can't afford a read per ancestor just to
+ * print a label — but it was added to both repeat writers long after either
+ * of them shipped. Every cycle created before that has no value at all, reads
+ * as 0, and starts counting from week 1 again, which is how a habit's history
+ * ends up listing week 1 twice.
+ *
+ * Anywhere the ancestors are already loaded, the offset is knowable exactly
+ * and there's no reason to trust the field. `Math.max` of the two, because
+ * each is a lower bound on the truth and they fail in opposite directions:
+ * the stored value is short on legacy data, and the derived one is short when
+ * the viewer can't read an earlier cycle (a member who joined the group late
+ * is denied it by the rules, and the chain just stops there for them).
+ */
+export function chainWeekOffsets(cycles: readonly Challenge[]): number[] {
+  const offsets: number[] = [];
+  let running = 0;
+  for (const cycle of cycles) {
+    const before = Math.max(cycle.weeksBefore ?? 0, running);
+    offsets.push(before);
+    running = before + cycleWeeks(cycle);
+  }
+  return offsets;
+}
 
 /**
  * What belongs in a list of someone's habits, given that a habit and a
