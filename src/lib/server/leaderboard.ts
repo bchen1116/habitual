@@ -318,7 +318,107 @@ async function getPublicStats(
     return { currentStreak: 0, currentStreakWeeks: 0, longestStreak: 0, badges: 0 };
   }
   budget.remaining--;
+  // Should be rare now that precomputeStreakStats fills this ahead of anyone
+  // asking (see vercel.json). It still has to work: a user created since the
+  // last run has no entry, and a scheduled run that failed must degrade to the
+  // old on-demand behaviour rather than to a blank board.
+  return computeAndStorePublicStats(db, uid, today, reader);
+}
 
+export interface PrecomputeResult {
+  /** Users whose stats were recomputed and written. */
+  refreshed: number;
+  /** Users already current for today — a re-run within the same day. */
+  upToDate: number;
+  /** Users whose recompute threw; the rest of the run continues. */
+  failed: number;
+}
+
+/**
+ * Fill `userStreakStats` for everyone, ahead of anyone asking.
+ *
+ * The board is the most expensive thing in the app — a chain walk per habit
+ * per peer — and until now the first person to open it each day paid to
+ * compute for everyone they know, with MAX_RECOMPUTES_PER_REQUEST capping how
+ * much of that one request would attempt. Past the cap the board is served
+ * from yesterday's figures and converges only over later visits, so the cost
+ * did not merely fall on one person: it made the answer worse for them.
+ *
+ * Running it on a schedule turns the request path into plain document reads,
+ * and it fits the existing cache exactly rather than working around it. The
+ * key is a UTC date (see getPublicStats), so every user's entry goes stale at
+ * the same instant — midnight UTC — and a single run just after that covers
+ * the whole day for everybody. There is no per-timezone staleness to reason
+ * about, because the leaderboard has never used per-user local days.
+ *
+ * Deliberately no recompute budget here: the budget exists to stop one
+ * *request* doing unbounded work while somebody waits. Nobody is waiting on
+ * this, and doing the whole set is the entire point.
+ *
+ * One reader for the run, not one per user, because peers share habits — a
+ * group challenge document is then read once for all its members rather than
+ * once each.
+ */
+export async function precomputeStreakStats(
+  now: Date = new Date()
+): Promise<PrecomputeResult> {
+  const db = getAdminDb();
+  const today = yyyymmddUTC(now);
+  const reader = memoizedChainReader(db);
+  // Ids only — nothing on the user document itself is needed.
+  const users = await db.collection("users").select().get();
+
+  const result: PrecomputeResult = { refreshed: 0, upToDate: 0, failed: 0 };
+  // Sequential on purpose. This runs unattended with nobody waiting, and a
+  // fan-out over every user at once is how a scheduled job turns into a
+  // thundering herd against Firestore.
+  for (const doc of users.docs) {
+    try {
+      const written = await refreshPublicStats(db, doc.id, today, reader);
+      if (written) result.refreshed++;
+      else result.upToDate++;
+    } catch (err) {
+      // One user's bad data must not cost everyone else their refresh.
+      console.error(`precompute failed for ${doc.id}:`, err);
+      result.failed++;
+    }
+  }
+  return result;
+}
+
+/**
+ * Recompute and store one user's public stats. Returns false if they were
+ * already current for `today`, so a re-run in the same day is nearly free.
+ */
+async function refreshPublicStats(
+  db: Firestore,
+  uid: string,
+  today: string,
+  reader: ChainReader
+): Promise<boolean> {
+  const ref = db.collection("userStreakStats").doc(uid);
+  const snap = await ref.get();
+  if (snap.data()?.computedFor === today) return false;
+  await computeAndStorePublicStats(db, uid, today, reader);
+  return true;
+}
+
+/**
+ * The single place a user's public stats are computed and written.
+ *
+ * Both callers need exactly this — the scheduled precompute and the
+ * request-time miss in getPublicStats — and two copies of "which habits
+ * count, and what gets stored under which key" is the kind of duplication
+ * that stays correct right up until one side is edited. The visibility filter
+ * in particular is a privacy rule, not an implementation detail: a private
+ * habit must not reach the cache that other people's boards read from.
+ */
+async function computeAndStorePublicStats(
+  db: Firestore,
+  uid: string,
+  today: string,
+  reader: ChainReader
+): Promise<StreakPair> {
   const all = await challengesForUser(db, uid);
   // Their whole challenge list, ancestors included — seeding it means the
   // chain walk below never round-trips for a cycle document.
@@ -330,11 +430,13 @@ async function getPublicStats(
     today,
     reader
   );
-
-  await ref.set(
-    { ...stats, computedFor: today, updatedAt: FieldValue.serverTimestamp() },
-    { merge: true }
-  );
+  await db
+    .collection("userStreakStats")
+    .doc(uid)
+    .set(
+      { ...stats, computedFor: today, updatedAt: FieldValue.serverTimestamp() },
+      { merge: true }
+    );
   return stats;
 }
 
