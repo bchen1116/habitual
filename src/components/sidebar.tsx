@@ -2,12 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useActiveChallengeCheckins } from "@/hooks/use-active-challenge-checkins";
+import { useActivity } from "@/components/activity-provider";
 import {
   useMaxChainLongestStreak,
   useMaxChainStreak,
 } from "@/hooks/use-chain-streak";
-import { useUserTimezone } from "@/hooks/use-user-timezone";
 import { liveChallenges } from "@/lib/cycles";
 import { todayYmd } from "@/lib/dates";
 
@@ -22,11 +21,10 @@ const NAV_ITEMS = [
   { href: "/settings", label: "Settings" },
 ];
 
-export function Sidebar({ uid }: { uid: string }) {
+export function Sidebar() {
   const pathname = usePathname();
-  const timezone = useUserTimezone(uid);
-  const { challenges, checkinsByChallenge, joinedDateByChallenge } =
-    useActiveChallengeCheckins(uid);
+  const { challenges, checkinsByChallenge, joinedDateByChallenge, timezone, uid } =
+    useActivity();
 
   const today = todayYmd(timezone);
   // The same collapsed, still-running set the Today hero uses, so the two

@@ -1,17 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { collection, onSnapshot } from "firebase/firestore";
-import { getClientDb } from "@/lib/firebase/client";
-import { activeChallengesQuery } from "@/lib/challenges";
-import { useUserTimezone } from "@/hooks/use-user-timezone";
+import { useActivity } from "@/components/activity-provider";
 import { progressSummary } from "@/lib/progress";
 import { challengeState } from "@/lib/progress";
 import { formatYmd, todayYmd } from "@/lib/dates";
 import { splitActiveChallenges } from "@/lib/cycles";
 import { cn } from "@/lib/utils";
-import type { ActivitySnapshot, Challenge } from "@/lib/types";
+import type { Challenge } from "@/lib/types";
 import { CheckinDialog } from "@/components/checkin-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -23,40 +20,17 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-export function ChallengeList({
-  uid,
-  initialActivity = null,
-}: {
-  uid: string;
-  /** Prefetched on the server; null means "load the old way". */
-  initialActivity?: ActivitySnapshot | null;
-}) {
-  const timezone = useUserTimezone(uid, initialActivity?.timezone);
-  const [challenges, setChallenges] = useState<Challenge[] | null>(
-    initialActivity?.challenges ?? null
-  );
-  const [loadError, setLoadError] = useState(false);
-
-  useEffect(() => {
-    const unsubscribe = onSnapshot(
-      activeChallengesQuery(getClientDb(), uid),
-      (snap) => {
-        const items = snap.docs.map(
-          (d) => ({ id: d.id, ...d.data() }) as Challenge
-        );
-        items.sort((a, b) => a.startDate.localeCompare(b.startDate));
-        setChallenges(items);
-        setLoadError(false);
-      },
-      (err) => {
-        // Don't disguise errors (e.g. a missing Firestore index) as an
-        // empty list — that reads as "no challenges" and misleads.
-        console.error("challenges query failed:", err);
-        setLoadError(true);
-      }
-    );
-    return unsubscribe;
-  }, [uid]);
+export function ChallengeList({ uid }: { uid: string }) {
+  // The shell already holds this exact query and these exact check-in
+  // listeners for the sidebar (see ActivityProvider), so opening a private
+  // copy here was reading everything twice on this page.
+  const {
+    challenges,
+    checkinsByChallenge,
+    joinedDateByChallenge,
+    error: loadError,
+    timezone,
+  } = useActivity();
 
   if (loadError) {
     return (
@@ -123,8 +97,9 @@ export function ChallengeList({
               key={challenge.id}
               challenge={challenge}
               uid={uid}
-              initialCheckinYmds={initialYmds(initialActivity, challenge.id)}
-              initialTimezone={initialActivity?.timezone}
+              timezone={timezone}
+              checkinYmds={ymdsFor(checkinsByChallenge, challenge.id)}
+              joinedDate={joinedDateByChallenge[challenge.id]}
             />
           ))}
         </div>
@@ -142,8 +117,9 @@ export function ChallengeList({
               key={challenge.id}
               challenge={challenge}
               uid={uid}
-              initialCheckinYmds={initialYmds(initialActivity, challenge.id)}
-              initialTimezone={initialActivity?.timezone}
+              timezone={timezone}
+              checkinYmds={ymdsFor(checkinsByChallenge, challenge.id)}
+              joinedDate={joinedDateByChallenge[challenge.id]}
             />
           ))}
         </div>
@@ -152,59 +128,38 @@ export function ChallengeList({
   );
 }
 
-/** The prefetched dates for one habit, or undefined if there was no prefetch. */
-function initialYmds(
-  activity: ActivitySnapshot | null,
+/** This habit's dates out of the shared map, or undefined if it hasn't landed. */
+function ymdsFor(
+  byChallenge: Record<string, { localDate: string }[]>,
   challengeId: string
 ): string[] | undefined {
-  return activity?.checkinsByChallenge[challengeId]?.map((c) => c.localDate);
+  return byChallenge[challengeId]?.map((c) => c.localDate);
 }
 
 function ChallengeCard({
   challenge,
   uid,
-  initialCheckinYmds,
-  initialTimezone,
+  timezone,
+  checkinYmds,
+  joinedDate,
 }: {
   challenge: Challenge;
   uid: string;
-  initialCheckinYmds?: string[];
-  initialTimezone?: string | null;
+  timezone: string;
+  /** Undefined until this habit's check-ins have arrived. */
+  checkinYmds?: string[];
+  joinedDate?: string;
 }) {
-  const timezone = useUserTimezone(uid, initialTimezone);
-  const [checkinYmds, setCheckinYmds] = useState<string[]>(
-    initialCheckinYmds ?? []
-  );
-  // Whether the bar below is allowed to animate yet. Each card subscribes to
-  // its own checkins, so without this every card on the page slid its
-  // progress bar up from zero as its own query landed — a staggered ripple of
-  // bars filling, which is the page's most visible "everything is animating
-  // at once" moment and describes nothing that happened.
-  const [checkinsLoaded, setCheckinsLoaded] = useState(
-    initialCheckinYmds !== undefined
-  );
+  // The bar animates only once there is something real to animate to. Data now
+  // arrives for every card at once rather than card by card, so this no longer
+  // guards a staggered ripple — but it still stops a bar sliding up from zero
+  // on the frame the data lands.
+  const checkinsLoaded = checkinYmds !== undefined;
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const unsubscribe = onSnapshot(
-      collection(getClientDb(), "challenges", challenge.id, "checkins"),
-      (snap) => {
-        setCheckinYmds(
-          snap.docs
-            .map((d) => d.data())
-            .filter((c) => c.uid === uid)
-            .map((c) => c.localDate as string)
-        );
-        setCheckinsLoaded(true);
-      },
-      (err) => console.error(`checkins query failed for challenge ${challenge.id}:`, err)
-    );
-    return unsubscribe;
-  }, [challenge.id, uid]);
 
   const today = todayYmd(timezone);
   const state = challengeState(challenge, today);
-  const summary = progressSummary(challenge, checkinYmds, timezone);
+  const summary = progressSummary(challenge, checkinYmds ?? [], timezone, joinedDate);
   const percent =
     summary.total > 0 ? Math.min(100, (summary.completed / summary.total) * 100) : 0;
 

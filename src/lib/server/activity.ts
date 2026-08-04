@@ -137,6 +137,23 @@ export async function getActiveChallengeActivity(
       })
     );
 
+    const timezone = (userSnap.data()?.timezone as string | undefined) ?? null;
+
+    // No stored timezone, no prefetch — deliberately, and this is the one case
+    // where seeding would be worse than not seeding.
+    //
+    // Everything the seed feeds is date-dependent: the greeting, `todayYmd`,
+    // which habits count as live, every week strip. Without a stored zone the
+    // client falls back to the *browser's* timezone and the server would fall
+    // back to its own, so the two would render different days and React would
+    // hydrate onto a mismatch. That risk is new: before this prefetch the
+    // server rendered a skeleton and had no dates to be wrong about.
+    //
+    // users/{uid}.timezone is written at sign-up (lib/user.ts), so this is a
+    // legacy-account case, and the cost is only that those accounts keep the
+    // behaviour everyone had until now.
+    if (!timezone) return null;
+
     return {
       challenges,
       checkinsByChallenge: Object.fromEntries(
@@ -145,7 +162,7 @@ export async function getActiveChallengeActivity(
       joinedDateByChallenge: Object.fromEntries(
         perChallenge.map((c) => [c.id, c.joinedDate])
       ),
-      timezone: (userSnap.data()?.timezone as string | undefined) ?? null,
+      timezone,
     };
   } catch (err) {
     console.error("activity prefetch failed; falling back to client fetch:", err);

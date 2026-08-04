@@ -3,13 +3,11 @@
 import { useState } from "react";
 import Link from "next/link";
 import { formatInTimeZone } from "date-fns-tz";
-import { useActiveChallengeCheckins } from "@/hooks/use-active-challenge-checkins";
+import { useActivity } from "@/components/activity-provider";
 import { useMaxChainStreak } from "@/hooks/use-chain-streak";
-import { useUserTimezone } from "@/hooks/use-user-timezone";
 import { liveChallenges } from "@/lib/cycles";
 import { todayYmd } from "@/lib/dates";
 import { challengeState, habitWeek, progressSummary } from "@/lib/progress";
-import type { ActivitySnapshot } from "@/lib/types";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { DayCountdown } from "@/components/day-countdown";
@@ -30,22 +28,19 @@ export function TodayView({
   uid,
   displayName,
   photoURL,
-  initialActivity = null,
 }: {
   uid: string;
   displayName: string | null;
   photoURL: string | null;
-  /** Prefetched on the server so the first paint isn't a skeleton. */
-  initialActivity?: ActivitySnapshot | null;
 }) {
-  const timezone = useUserTimezone(uid, initialActivity?.timezone);
   const {
     challenges,
     checkinsByChallenge,
     joinedDateByChallenge,
     loading,
     error: loadError,
-  } = useActiveChallengeCheckins(uid, initialActivity);
+    timezone,
+  } = useActivity();
   const [error, setError] = useState<string | null>(null);
 
   const today = todayYmd(timezone);

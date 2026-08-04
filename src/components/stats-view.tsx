@@ -3,10 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { getDocs } from "firebase/firestore";
 import { getClientDb } from "@/lib/firebase/client";
-import { useActiveChallengeCheckins } from "@/hooks/use-active-challenge-checkins";
+import { useActivity } from "@/components/activity-provider";
 import { useChallengeHistory } from "@/hooks/use-challenge-history";
 import { useReflectionHistory } from "@/hooks/use-reflection-history";
-import { useUserTimezone } from "@/hooks/use-user-timezone";
 import { liveChallenges } from "@/lib/cycles";
 import { averageAmount, computeLifetimeStats } from "@/lib/challenge-stats";
 import { todayYmd } from "@/lib/dates";
@@ -18,14 +17,14 @@ import { LifetimeRatings } from "@/components/lifetime-ratings-card";
 import { StatTile } from "@/components/stat-tile";
 
 export function StatsView({ uid }: { uid: string }) {
-  const timezone = useUserTimezone(uid);
   const {
     challenges,
     checkinsByChallenge,
     joinedDateByChallenge,
     loading,
     error: activeError,
-  } = useActiveChallengeCheckins(uid);
+    timezone,
+  } = useActivity();
   const {
     entries: history,
     error: historyError,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { collection, doc, getDoc, onSnapshot } from "firebase/firestore";
+import { collection, doc, getDoc, onSnapshot, query, where } from "firebase/firestore";
 import { getClientDb } from "@/lib/firebase/client";
 import { activeChallengesQuery } from "@/lib/challenges";
 import type { ActivitySnapshot, Challenge, CheckinRecord } from "@/lib/types";
@@ -91,11 +91,18 @@ export function useActiveChallengeCheckins(
     const ids = challengeIds ? challengeIds.split(",") : [];
     const unsubscribes = ids.map((id) =>
       onSnapshot(
-        collection(getClientDb(), "challenges", id, "checkins"),
+        // Filtered server-side. This used to subscribe to the whole
+        // subcollection and drop other members' rows in JS, so a five-person
+        // group delivered five times the documents — on every teammate's
+        // check-in, to every member — to render one person's row. The server
+        // already reads it this way (lib/server/leaderboard.ts).
+        query(
+          collection(getClientDb(), "challenges", id, "checkins"),
+          where("uid", "==", uid)
+        ),
         (snap) => {
           const records = snap.docs
             .map((d) => d.data())
-            .filter((c) => c.uid === uid)
             .map((c) => ({
               localDate: c.localDate as string,
               completedAtMs:
