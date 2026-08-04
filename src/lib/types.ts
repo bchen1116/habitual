@@ -89,6 +89,35 @@ export interface CheckIn {
 }
 
 /**
+ * One of the viewer's own check-ins, flattened for the UI.
+ *
+ * `completedAtMs` rather than a Timestamp because this shape crosses the
+ * server/client boundary: a server component reads it with the Admin SDK and
+ * hands it to a client component as a prop, and a Firestore Timestamp is a
+ * class instance that React cannot serialise. A number survives the trip and
+ * is what the one consumer (the check-in time on a completed habit row) wanted
+ * anyway.
+ */
+export interface CheckinRecord {
+  localDate: string;
+  completedAtMs: number | null;
+}
+
+/**
+ * Everything Today and the habits list need about the viewer's live habits,
+ * in one payload — the same shape whether it came from the server on first
+ * render or from the client's own listeners afterwards, so one can seed the
+ * other without translation.
+ */
+export interface ActivitySnapshot {
+  challenges: Challenge[];
+  checkinsByChallenge: Record<string, CheckinRecord[]>;
+  joinedDateByChallenge: Record<string, string | undefined>;
+  /** users/{uid}.timezone, so the first render already knows what "today" is. */
+  timezone: string | null;
+}
+
+/**
  * Why a session was missed. Stored as a stable key, never the label — the
  * wording in MISS_REASONS (lib/reflections.ts) can be rewritten without
  * invalidating everything already recorded.

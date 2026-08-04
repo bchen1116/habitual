@@ -3,9 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { formatInTimeZone } from "date-fns-tz";
-import { useActiveChallengeCheckins } from "@/hooks/use-active-challenge-checkins";
+import { useActivity } from "@/components/activity-provider";
 import { useMaxChainStreak } from "@/hooks/use-chain-streak";
-import { useUserTimezone } from "@/hooks/use-user-timezone";
 import { liveChallenges } from "@/lib/cycles";
 import { todayYmd } from "@/lib/dates";
 import { challengeState, habitWeek, progressSummary } from "@/lib/progress";
@@ -34,14 +33,14 @@ export function TodayView({
   displayName: string | null;
   photoURL: string | null;
 }) {
-  const timezone = useUserTimezone(uid);
   const {
     challenges,
     checkinsByChallenge,
     joinedDateByChallenge,
     loading,
     error: loadError,
-  } = useActiveChallengeCheckins(uid);
+    timezone,
+  } = useActivity();
   const [error, setError] = useState<string | null>(null);
 
   const today = todayYmd(timezone);

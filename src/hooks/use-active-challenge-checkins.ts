@@ -1,15 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { collection, doc, getDoc, onSnapshot } from "firebase/firestore";
+import { collection, doc, getDoc, onSnapshot, query, where } from "firebase/firestore";
 import { getClientDb } from "@/lib/firebase/client";
 import { activeChallengesQuery } from "@/lib/challenges";
-import type { Challenge } from "@/lib/types";
+import type { ActivitySnapshot, Challenge, CheckinRecord } from "@/lib/types";
 
-export interface CheckinRecord {
-  localDate: string;
-  completedAtMs: number | null;
-}
+export type { CheckinRecord };
 
 export interface ActiveChallengeActivity {
   challenges: Challenge[] | null;
@@ -41,14 +38,26 @@ export interface ActiveChallengeActivity {
  * habit rows on Today, so those pieces read from one place instead of each
  * independently subscribing to the same checkins subcollections.
  */
-export function useActiveChallengeCheckins(uid: string): ActiveChallengeActivity {
-  const [challenges, setChallenges] = useState<Challenge[] | null>(null);
+export function useActiveChallengeCheckins(
+  uid: string,
+  /**
+   * The same data, already read on the server (lib/server/activity.ts). When
+   * present the first render has real content instead of a skeleton, and the
+   * listeners below become a refresh rather than the only source. Null when
+   * the prefetch failed or wasn't attempted, which is simply the old
+   * behaviour: `challenges` starts null and `loading` is true.
+   */
+  initial?: ActivitySnapshot | null
+): ActiveChallengeActivity {
+  const [challenges, setChallenges] = useState<Challenge[] | null>(
+    initial?.challenges ?? null
+  );
   const [checkinsByChallenge, setCheckinsByChallenge] = useState<
     Record<string, CheckinRecord[]>
-  >({});
+  >(initial?.checkinsByChallenge ?? {});
   const [joinedDateByChallenge, setJoinedDateByChallenge] = useState<
     Record<string, string | undefined>
-  >({});
+  >(initial?.joinedDateByChallenge ?? {});
   const [error, setError] = useState(false);
 
   useEffect(() => {
@@ -82,11 +91,18 @@ export function useActiveChallengeCheckins(uid: string): ActiveChallengeActivity
     const ids = challengeIds ? challengeIds.split(",") : [];
     const unsubscribes = ids.map((id) =>
       onSnapshot(
-        collection(getClientDb(), "challenges", id, "checkins"),
+        // Filtered server-side. This used to subscribe to the whole
+        // subcollection and drop other members' rows in JS, so a five-person
+        // group delivered five times the documents — on every teammate's
+        // check-in, to every member — to render one person's row. The server
+        // already reads it this way (lib/server/leaderboard.ts).
+        query(
+          collection(getClientDb(), "challenges", id, "checkins"),
+          where("uid", "==", uid)
+        ),
         (snap) => {
           const records = snap.docs
             .map((d) => d.data())
-            .filter((c) => c.uid === uid)
             .map((c) => ({
               localDate: c.localDate as string,
               completedAtMs:

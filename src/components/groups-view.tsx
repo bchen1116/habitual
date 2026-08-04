@@ -1,8 +1,7 @@
 "use client";
 
-import { useActiveChallengeCheckins } from "@/hooks/use-active-challenge-checkins";
+import { useActivity } from "@/components/activity-provider";
 import { useChallengeHistory } from "@/hooks/use-challenge-history";
-import { useUserTimezone } from "@/hooks/use-user-timezone";
 import { splitActiveChallenges } from "@/lib/cycles";
 import { todayYmd } from "@/lib/dates";
 import { totalRequired } from "@/lib/progress";
@@ -10,14 +9,14 @@ import { GroupCard } from "@/components/group-card";
 import { PastGroupCard } from "@/components/past-group-card";
 
 export function GroupsView({ uid }: { uid: string }) {
-  const timezone = useUserTimezone(uid);
   const {
     challenges,
     checkinsByChallenge,
     joinedDateByChallenge,
     loading,
     error: activeError,
-  } = useActiveChallengeCheckins(uid);
+    timezone,
+  } = useActivity();
   const { entries: history, error: historyError } = useChallengeHistory(uid);
 
   // A repeating group is one group, not one per cycle, and a group whose end

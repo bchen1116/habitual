@@ -1,11 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { collection, onSnapshot } from "firebase/firestore";
-import { getClientDb } from "@/lib/firebase/client";
-import { activeChallengesQuery } from "@/lib/challenges";
-import { useUserTimezone } from "@/hooks/use-user-timezone";
+import { useActivity } from "@/components/activity-provider";
 import { progressSummary } from "@/lib/progress";
 import { challengeState } from "@/lib/progress";
 import { formatYmd, todayYmd } from "@/lib/dates";
@@ -24,30 +21,16 @@ import {
 } from "@/components/ui/card";
 
 export function ChallengeList({ uid }: { uid: string }) {
-  const timezone = useUserTimezone(uid);
-  const [challenges, setChallenges] = useState<Challenge[] | null>(null);
-  const [loadError, setLoadError] = useState(false);
-
-  useEffect(() => {
-    const unsubscribe = onSnapshot(
-      activeChallengesQuery(getClientDb(), uid),
-      (snap) => {
-        const items = snap.docs.map(
-          (d) => ({ id: d.id, ...d.data() }) as Challenge
-        );
-        items.sort((a, b) => a.startDate.localeCompare(b.startDate));
-        setChallenges(items);
-        setLoadError(false);
-      },
-      (err) => {
-        // Don't disguise errors (e.g. a missing Firestore index) as an
-        // empty list — that reads as "no challenges" and misleads.
-        console.error("challenges query failed:", err);
-        setLoadError(true);
-      }
-    );
-    return unsubscribe;
-  }, [uid]);
+  // The shell already holds this exact query and these exact check-in
+  // listeners for the sidebar (see ActivityProvider), so opening a private
+  // copy here was reading everything twice on this page.
+  const {
+    challenges,
+    checkinsByChallenge,
+    joinedDateByChallenge,
+    error: loadError,
+    timezone,
+  } = useActivity();
 
   if (loadError) {
     return (
@@ -110,7 +93,14 @@ export function ChallengeList({ uid }: { uid: string }) {
       {live.length > 0 && (
         <div className="flex flex-col gap-3">
           {live.map((challenge) => (
-            <ChallengeCard key={challenge.id} challenge={challenge} uid={uid} />
+            <ChallengeCard
+              key={challenge.id}
+              challenge={challenge}
+              uid={uid}
+              timezone={timezone}
+              checkinYmds={ymdsFor(checkinsByChallenge, challenge.id)}
+              joinedDate={joinedDateByChallenge[challenge.id]}
+            />
           ))}
         </div>
       )}
@@ -123,7 +113,14 @@ export function ChallengeList({ uid }: { uid: string }) {
             Finishing up
           </h2>
           {awaitingResults.map((challenge) => (
-            <ChallengeCard key={challenge.id} challenge={challenge} uid={uid} />
+            <ChallengeCard
+              key={challenge.id}
+              challenge={challenge}
+              uid={uid}
+              timezone={timezone}
+              checkinYmds={ymdsFor(checkinsByChallenge, challenge.id)}
+              joinedDate={joinedDateByChallenge[challenge.id]}
+            />
           ))}
         </div>
       )}
@@ -131,37 +128,38 @@ export function ChallengeList({ uid }: { uid: string }) {
   );
 }
 
-function ChallengeCard({ challenge, uid }: { challenge: Challenge; uid: string }) {
-  const timezone = useUserTimezone(uid);
-  const [checkinYmds, setCheckinYmds] = useState<string[]>([]);
-  // Whether the bar below is allowed to animate yet. Each card subscribes to
-  // its own checkins, so without this every card on the page slid its
-  // progress bar up from zero as its own query landed — a staggered ripple of
-  // bars filling, which is the page's most visible "everything is animating
-  // at once" moment and describes nothing that happened.
-  const [checkinsLoaded, setCheckinsLoaded] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+/** This habit's dates out of the shared map, or undefined if it hasn't landed. */
+function ymdsFor(
+  byChallenge: Record<string, { localDate: string }[]>,
+  challengeId: string
+): string[] | undefined {
+  return byChallenge[challengeId]?.map((c) => c.localDate);
+}
 
-  useEffect(() => {
-    const unsubscribe = onSnapshot(
-      collection(getClientDb(), "challenges", challenge.id, "checkins"),
-      (snap) => {
-        setCheckinYmds(
-          snap.docs
-            .map((d) => d.data())
-            .filter((c) => c.uid === uid)
-            .map((c) => c.localDate as string)
-        );
-        setCheckinsLoaded(true);
-      },
-      (err) => console.error(`checkins query failed for challenge ${challenge.id}:`, err)
-    );
-    return unsubscribe;
-  }, [challenge.id, uid]);
+function ChallengeCard({
+  challenge,
+  uid,
+  timezone,
+  checkinYmds,
+  joinedDate,
+}: {
+  challenge: Challenge;
+  uid: string;
+  timezone: string;
+  /** Undefined until this habit's check-ins have arrived. */
+  checkinYmds?: string[];
+  joinedDate?: string;
+}) {
+  // The bar animates only once there is something real to animate to. Data now
+  // arrives for every card at once rather than card by card, so this no longer
+  // guards a staggered ripple — but it still stops a bar sliding up from zero
+  // on the frame the data lands.
+  const checkinsLoaded = checkinYmds !== undefined;
+  const [error, setError] = useState<string | null>(null);
 
   const today = todayYmd(timezone);
   const state = challengeState(challenge, today);
-  const summary = progressSummary(challenge, checkinYmds, timezone);
+  const summary = progressSummary(challenge, checkinYmds ?? [], timezone, joinedDate);
   const percent =
     summary.total > 0 ? Math.min(100, (summary.completed / summary.total) * 100) : 0;
 

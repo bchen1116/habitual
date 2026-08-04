@@ -2,13 +2,23 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { ActivityProvider } from "@/components/activity-provider";
 import { AppOverviewDialog } from "@/components/app-overview-dialog";
 import { BottomNav } from "@/components/bottom-nav";
 import { Sidebar } from "@/components/sidebar";
 import { Button } from "@/components/ui/button";
 import { useClientAuthUser } from "@/hooks/use-client-auth-user";
+import type { ActivitySnapshot } from "@/lib/types";
 
-export function AppShell({ uid, children }: { uid: string; children: ReactNode }) {
+export function AppShell({
+  uid,
+  initialActivity,
+  children,
+}: {
+  uid: string;
+  initialActivity: ActivitySnapshot | null;
+  children: ReactNode;
+}) {
   const { user, ready } = useClientAuthUser();
 
   // The server-side session cookie (checked by (app)/layout.tsx before this
@@ -36,13 +46,15 @@ export function AppShell({ uid, children }: { uid: string; children: ReactNode }
   }
 
   return (
-    <div className="flex min-h-screen w-full bg-background">
-      <Sidebar uid={uid} />
-      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
-        <main className="flex-1 pb-24 md:pb-0">{children}</main>
+    <ActivityProvider uid={uid} initial={initialActivity}>
+      <div className="flex min-h-screen w-full bg-background">
+        <Sidebar />
+        <div className="flex min-h-screen min-w-0 flex-1 flex-col">
+          <main className="flex-1 pb-24 md:pb-0">{children}</main>
+        </div>
+        <BottomNav />
+        <AppOverviewDialog uid={uid} />
       </div>
-      <BottomNav />
-      <AppOverviewDialog uid={uid} />
-    </div>
+    </ActivityProvider>
   );
 }

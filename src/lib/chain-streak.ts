@@ -1,6 +1,14 @@
 "use client";
 
-import { collection, doc, getDoc, getDocs, type Firestore } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  where,
+  type Firestore,
+} from "firebase/firestore";
 import {
   chainLongestStreakWith,
   collectChainCycles,
@@ -48,13 +56,16 @@ function clientChainReader(db: Firestore): ChainReader {
     async getCheckinYmds(challengeId, uid) {
       return cachedPromise(`checkins:${challengeId}:${uid}`, async () => {
         try {
+          // Filtered server-side rather than in JS: walking a chain reads a
+          // whole subcollection per ancestor, and on a group habit that was
+          // every member's history to compute one member's streak.
           const snap = await getDocs(
-            collection(db, "challenges", challengeId, "checkins")
+            query(
+              collection(db, "challenges", challengeId, "checkins"),
+              where("uid", "==", uid)
+            )
           );
-          return snap.docs
-            .map((d) => d.data())
-            .filter((c) => c.uid === uid)
-            .map((c) => c.localDate as string);
+          return snap.docs.map((d) => d.data().localDate as string);
         } catch {
           return [];
         }
