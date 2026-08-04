@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser, SESSION_COOKIE_NAME } from "@/lib/session";
+import { getVerifiedUser, SESSION_COOKIE_NAME } from "@/lib/session";
 import { deleteAccountAdmin } from "@/lib/server/account-admin";
 
 export async function POST(request: NextRequest) {
-  const user = await getCurrentUser();
+  const user = await getVerifiedUser();
   if (!user) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }

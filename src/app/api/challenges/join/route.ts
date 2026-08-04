@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getCurrentUser } from "@/lib/session";
+import { getVerifiedUser } from "@/lib/session";
 import { JoinError, joinChallengeAdmin } from "@/lib/server/challenge-admin";
 
 const payloadSchema = z.object({
@@ -31,7 +31,7 @@ const JOIN_ERROR_RESPONSES: Record<string, { status: number; message: string }> 
 };
 
 export async function POST(request: NextRequest) {
-  const user = await getCurrentUser();
+  const user = await getVerifiedUser();
   if (!user) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
