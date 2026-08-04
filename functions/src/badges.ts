@@ -34,13 +34,26 @@ export function canEarnBadges(challenge: BadgeChallenge): boolean {
 /**
  * Badges earned within this challenge.
  *
- * A window counts only if it asked for the habit's full target — a week
- * prorated for a late joiner (owing 2 of 5) is not a full week, and paying a
- * badge for it would make joining late the cheapest way to earn one.
+ * A window earns a badge on two conditions, and it needs both.
+ *
+ * *It asked for the habit's full target.* A week prorated for a late joiner
+ * (owing 2 of 5) is not a full week, and paying a badge for it would make
+ * joining late the cheapest way to earn one.
+ *
+ * *All seven of its days have passed.* A quota cleared on the third day of a
+ * week has not kept that week yet, and this is the number that raises the
+ * miss allowance, so it should not credit one in progress.
+ *
+ * `today` is what makes the second condition expressible, and it is why this
+ * function grew a parameter it previously did without: with no notion of now,
+ * a window counted as soon as its check-ins existed. Adjudication passes the
+ * run date, which the 39-hour buffer guarantees is past `endDate`, so every
+ * window is closed by then and no settled result moves.
  */
 export function badgesEarnedIn(
   challenge: BadgeChallenge,
   checkinYmds: readonly string[],
+  today: string,
   memberJoinedDate?: string
 ): number {
   if (!canEarnBadges(challenge)) return 0;
@@ -56,6 +69,9 @@ export function badgesEarnedIn(
   for (let w = 0; w < weeks; w++) {
     const windowStart = addDaysYmd(challenge.startDate, w * 7);
     const windowEnd = addDaysYmd(windowStart, 6);
+    // Strictly before: while today *is* the last day, the week is still
+    // running and can still be added to.
+    if (windowEnd >= today) continue; // week not over yet
     const required = windowRequirement(
       fullTarget,
       windowStart,
@@ -82,11 +98,12 @@ export function badgesEarnedIn(
 export function effectiveSkipDays(
   challenge: BadgeChallenge & { skipDays: number },
   checkinYmds: readonly string[],
+  today: string,
   memberJoinedDate?: string,
   badgesCarried = 0
 ): { base: number; carried: number; earned: number; total: number } {
   const base = challenge.skipDays ?? 0;
   const carried = Math.max(0, badgesCarried);
-  const earned = badgesEarnedIn(challenge, checkinYmds, memberJoinedDate);
+  const earned = badgesEarnedIn(challenge, checkinYmds, today, memberJoinedDate);
   return { base, carried, earned, total: base + carried + earned };
 }
