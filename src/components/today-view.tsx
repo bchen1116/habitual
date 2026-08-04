@@ -8,9 +8,10 @@ import { useMaxChainStreak } from "@/hooks/use-chain-streak";
 import { useUserTimezone } from "@/hooks/use-user-timezone";
 import { liveChallenges } from "@/lib/cycles";
 import { todayYmd } from "@/lib/dates";
-import { challengeState, progressSummary } from "@/lib/progress";
+import { challengeState, habitWeek, progressSummary } from "@/lib/progress";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { DayCountdown } from "@/components/day-countdown";
 import { GroupCard } from "@/components/group-card";
 import { HabitRow } from "@/components/habit-row";
 import { InstallBanner } from "@/components/install-banner";
@@ -73,6 +74,20 @@ export function TodayView({
     (c) => challengeState(c, today) === "active"
   ).length;
 
+  // What the countdown is counting down *for*. Not simply "can still check in
+  // today": a 3×/week habit that has already had its three runs can still
+  // accept a fourth, and putting a clock on that would be inventing a
+  // deadline the habit doesn't have. A daily habit has no such out — its
+  // target is every day, so not-yet-today is always outstanding.
+  const outstandingToday = activeChallenges.filter((c) => {
+    const ymds = checkinYmdsByChallenge[c.id] ?? [];
+    const joinedDate = joinedDateByChallenge[c.id];
+    if (!progressSummary(c, ymds, timezone, joinedDate).canCheckInToday) return false;
+    const week = habitWeek(c, ymds, today, joinedDate);
+    if (week?.allowsExtras && week.count >= week.target) return false;
+    return true;
+  }).length;
+
   const totalCheckIns = Object.values(checkinsByChallenge).reduce(
     (sum, records) => sum + records.length,
     0
@@ -111,6 +126,12 @@ export function TodayView({
             weeks={heroStreak.weeks}
             pending={loading || heroStreak.pending}
           />
+
+          {/* Between the hero and the list: it's about the list, but it's the
+              thing you'd want to see before deciding whether to scroll. Hides
+              itself outside the last six hours, and whenever nothing is
+              outstanding — see DayCountdown. */}
+          <DayCountdown timezone={timezone} outstanding={outstandingToday} />
 
           <div className="flex items-center justify-between">
             <h2 className="type-display text-xl lg:text-2xl">Today</h2>
