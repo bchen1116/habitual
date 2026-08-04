@@ -1,6 +1,5 @@
 "use client";
 
-import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 /**
@@ -44,15 +43,14 @@ export function StreakHero({
               className="my-[6px] h-[65px] w-[104px] animate-pulse rounded-2xl bg-white/15 lg:my-[13px] lg:h-[104px] lg:w-[168px]"
             />
           ) : (
-            <motion.span
+            <span
+              // Keyed on the value so React remounts it when the streak
+              // changes, which is what restarts the CSS animation.
               key={streak}
-              initial={{ scale: 0.85 }}
-              animate={{ scale: 1 }}
-              transition={{ duration: 0.15, ease: "easeOut" }}
-              className="type-display text-[76px] leading-[0.85] text-white lg:text-[130px] lg:leading-[0.8]"
+              className="type-display animate-pop-in text-[76px] leading-[0.85] text-white lg:text-[130px] lg:leading-[0.8]"
             >
               {streak}
-            </motion.span>
+            </span>
           )}
           <span className="type-display pb-2 text-2xl text-white lg:pb-4 lg:text-[34px]">
             days

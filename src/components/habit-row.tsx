@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Check } from "lucide-react";
-import { motion } from "framer-motion";
 import { formatInTimeZone } from "date-fns-tz";
 import { CheckinDialog } from "@/components/checkin-dialog";
 import { HabitWeekStrip } from "@/components/habit-week-strip";
@@ -11,6 +10,7 @@ import { useChainStreak } from "@/hooks/use-chain-streak";
 import { formatYmd, todayYmd } from "@/lib/dates";
 import { Badge } from "@/components/ui/badge";
 import type { CheckinRecord } from "@/hooks/use-active-challenge-checkins";
+import { cn } from "@/lib/utils";
 import type { Challenge } from "@/lib/types";
 
 interface HabitRowProps {
@@ -100,13 +100,14 @@ export function HabitRow({
               rows' titles 44px further in than every other row's. Here it
               keeps saying "done" and costs the title nothing. */}
           <span className="flex shrink-0 items-center gap-2">
-            <motion.span
-              animate={justCompleted ? { scale: [0.7, 1.2, 1] } : { scale: 1 }}
-              transition={{ duration: 0.15, ease: "easeOut" }}
-              className="flex h-6 w-6 items-center justify-center rounded-full bg-ink text-primary"
+            <span
+              className={cn(
+                "flex h-6 w-6 items-center justify-center rounded-full bg-ink text-primary",
+                justCompleted && "animate-pop-check"
+              )}
             >
               <Check className="h-3.5 w-3.5" strokeWidth={3} />
-            </motion.span>
+            </span>
             {time && (
               <span className="type-overline text-xs text-muted-foreground">
                 {time}
