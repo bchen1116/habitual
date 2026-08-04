@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Avatar } from "@/components/ui/avatar";
-import { GooeyLoader } from "@/components/ui/loader-10";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cacheGet, cacheSet } from "@/lib/client-cache";
 import { browserTimezone, todayYmd } from "@/lib/dates";
 import { cn } from "@/lib/utils";
@@ -108,15 +108,39 @@ export function LeaderboardCard() {
 
   // Rendered inside the same ink panel the loaded board uses, so the card
   // doesn't change shape or colour when the data lands — the leaderboard is
-  // server-computed (streaks for every peer), so this is on screen long
-  // enough to be worth looking at rather than a bare grey block.
+  // server-computed (streaks for every peer), so this is on screen a while.
+  //
+  // It used to be a liquid loader, which was the nicer thing to look at in
+  // isolation and the wrong thing on this page: the habits list below is
+  // pulsing skeletons at the same moment, and two loading animations at two
+  // rhythms read as a page in disarray rather than a page loading. Same
+  // skeleton, same rhythm, and shaped like the podium it becomes so the panel
+  // barely changes height when the data lands.
   if (entries === null) {
     return (
       <Panel>
-        <span className="type-overline text-xs text-primary">Leaderboard</span>
-        <div className="flex items-center justify-center py-4">
-          <GooeyLoader label="Working out the leaderboard" />
+        <div className="flex items-center justify-between gap-3">
+          <span className="type-overline text-xs text-primary">Leaderboard</span>
         </div>
+        <ol
+          className="mt-4 flex flex-col gap-2.5"
+          role="status"
+          aria-label="Working out the leaderboard"
+        >
+          {Array.from({ length: PODIUM_SIZE }, (_, i) => (
+            <li key={i} className="flex items-center gap-3">
+              <Skeleton tone="ink" className="h-4 w-5 shrink-0" />
+              <Skeleton tone="ink" className="h-8 w-8 shrink-0 rounded-full" />
+              {/* Descending widths: a column of identical bars reads as a
+                  table that failed to load, where uneven ones read as names. */}
+              <Skeleton
+                tone="ink"
+                className={cn("h-4 flex-1", ["max-w-40", "max-w-32", "max-w-28"][i])}
+              />
+              <Skeleton tone="ink" className="h-4 w-8 shrink-0" />
+            </li>
+          ))}
+        </ol>
       </Panel>
     );
   }

@@ -10,9 +10,11 @@ import { progressSummary } from "@/lib/progress";
 import { challengeState } from "@/lib/progress";
 import { formatYmd, todayYmd } from "@/lib/dates";
 import { splitActiveChallenges } from "@/lib/cycles";
+import { cn } from "@/lib/utils";
 import type { Challenge } from "@/lib/types";
 import { CheckinDialog } from "@/components/checkin-dialog";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Card,
   CardContent,
@@ -64,7 +66,20 @@ export function ChallengeList({ uid }: { uid: string }) {
     return (
       <div className="flex flex-col gap-3">
         {[0, 1].map((i) => (
-          <div key={i} className="h-28 animate-pulse rounded-xl bg-muted" />
+          // Shaped like the ChallengeCard below rather than a plain block, so
+          // the swap into real content shifts the page as little as the
+          // unknown row count allows. A bare rectangle was both a different
+          // height and a different silhouette from what replaced it.
+          <Card key={i}>
+            <CardHeader className="pb-3">
+              <Skeleton className="h-5 w-2/5" />
+              <Skeleton className="mt-2 h-4 w-3/5" />
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              <Skeleton className="h-2 w-full rounded-full" />
+              <Skeleton className="h-9 w-28 rounded-full" />
+            </CardContent>
+          </Card>
         ))}
       </div>
     );
@@ -119,6 +134,12 @@ export function ChallengeList({ uid }: { uid: string }) {
 function ChallengeCard({ challenge, uid }: { challenge: Challenge; uid: string }) {
   const timezone = useUserTimezone(uid);
   const [checkinYmds, setCheckinYmds] = useState<string[]>([]);
+  // Whether the bar below is allowed to animate yet. Each card subscribes to
+  // its own checkins, so without this every card on the page slid its
+  // progress bar up from zero as its own query landed — a staggered ripple of
+  // bars filling, which is the page's most visible "everything is animating
+  // at once" moment and describes nothing that happened.
+  const [checkinsLoaded, setCheckinsLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -131,6 +152,7 @@ function ChallengeCard({ challenge, uid }: { challenge: Challenge; uid: string }
             .filter((c) => c.uid === uid)
             .map((c) => c.localDate as string)
         );
+        setCheckinsLoaded(true);
       },
       (err) => console.error(`checkins query failed for challenge ${challenge.id}:`, err)
     );
@@ -174,8 +196,17 @@ function ChallengeCard({ challenge, uid }: { challenge: Challenge; uid: string }
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <div className="h-2 overflow-hidden rounded-full bg-secondary">
+          {/* The transition is added only once the data is in. A CSS
+              transition needs the property set in the *before*-change style
+              to fire, so introducing it in the same commit as the new width
+              lands the bar at its real value silently — and every later
+              check-in still animates, which is the one time the movement
+              means something. */}
           <div
-            className="h-full rounded-full bg-foreground transition-all"
+            className={cn(
+              "h-full rounded-full bg-foreground",
+              checkinsLoaded && "transition-all"
+            )}
             style={{ width: `${percent}%` }}
           />
         </div>
