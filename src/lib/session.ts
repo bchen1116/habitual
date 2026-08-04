@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { getAdminAuth } from "@/lib/firebase/admin";
 
@@ -60,10 +61,17 @@ async function readSession(checkRevoked: boolean): Promise<SessionUser | null> {
  * The worst case this buys is a revoked session rendering page furniture for
  * up to the cookie's remaining life. Use getVerifiedUser anywhere that would
  * be more than an annoyance.
+ *
+ * Wrapped in React's `cache` so the layout and the page it renders share one
+ * verification instead of doing the same JWT check twice on every hard load.
+ * The scope is a single request, so two different visitors can never see each
+ * other's result — and it is deliberately not applied to getVerifiedUser,
+ * whose entire purpose is to ask the server something it cannot answer from
+ * memory.
  */
-export async function getCurrentUser(): Promise<SessionUser | null> {
+export const getCurrentUser = cache(async function getCurrentUser(): Promise<SessionUser | null> {
   return readSession(false);
-}
+});
 
 /**
  * The signed-in user, for anything that writes or exposes something a revoked

@@ -67,10 +67,13 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   // otherwise render at zero and then slide up to its real value on every
   // single page load, animating something that didn't happen.
   const [checkinsLoaded, setCheckinsLoaded] = useState(false);
-  const [member, setMember] = useState<ChallengeMember | null>(null);
   const [members, setMembers] = useState<
     ({ uid: string } & ChallengeMember)[] | null
   >(null);
+  // The viewer's own row, taken from the collection above rather than watched
+  // separately. Null while members is still loading, which every consumer
+  // already handles via optional chaining.
+  const member = members?.find((m) => m.uid === uid) ?? null;
   const [joinRequests, setJoinRequests] = useState<
     ({ uid: string } & JoinRequest)[] | null
   >(null);
@@ -128,15 +131,10 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
 
   useEffect(() => {
     const unsubscribe = onSnapshot(
-      doc(getClientDb(), "challenges", id, "members", uid),
-      (snap) => setMember(snap.exists() ? (snap.data() as ChallengeMember) : null),
-      () => setMember(null)
-    );
-    return unsubscribe;
-  }, [id, uid]);
-
-  useEffect(() => {
-    const unsubscribe = onSnapshot(
+      // The whole members collection, which the Members card needs anyway —
+      // and the viewer's own row is in it, so a second listener on
+      // members/{uid} was a live subscription to a document already arriving
+      // here.
       collection(getClientDb(), "challenges", id, "members"),
       (snap) =>
         setMembers(
