@@ -5,9 +5,9 @@ import {
   useActiveChallengeCheckins,
   type ActiveChallengeActivity,
 } from "@/hooks/use-active-challenge-checkins";
+import { useHabitDate } from "@/hooks/use-habit-date";
 import { useUserTimezone } from "@/hooks/use-user-timezone";
 import { liveChallenges } from "@/lib/cycles";
-import { todayYmd } from "@/lib/dates";
 import type { ActivitySnapshot, Challenge } from "@/lib/types";
 
 export interface ActivityValue extends ActiveChallengeActivity {
@@ -86,12 +86,12 @@ export function ActivityProvider({
     useActiveChallengeCheckins(uid, initial);
   const timezone = useUserTimezone(uid, initial?.timezone);
 
-  // Deliberately not memoised on [timezone]: the habit date changes with the
-  // clock, not with any value React can depend on, so caching it against its
-  // inputs would pin a tab left open overnight to yesterday. Recomputing it
-  // per provider render is both correct and still eight fewer calls than
-  // before.
-  const today = todayYmd(timezone);
+  // Not memoised on [timezone], and not merely recomputed per render either:
+  // the habit date changes with the clock, which is not a value React can
+  // depend on, and an installed PWA can go a whole night without re-rendering.
+  // useHabitDate refreshes it on resume and on a slow tick — see the hook for
+  // what a stale date did to a check-in.
+  const today = useHabitDate(timezone);
 
   const checkinYmdsByChallenge = useMemo(
     () =>
