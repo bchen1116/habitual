@@ -1,0 +1,118 @@
+"use client";
+
+import Link from "next/link";
+import { skipsUsed, totalRequired, challengeState } from "@/lib/progress";
+import type { Challenge, ChallengeMember } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+
+export function MembersCard({
+  challenge,
+  members,
+  allCheckins,
+  today,
+  selfUid,
+  isCreator,
+  removingUid,
+  onRemove,
+}: {
+  challenge: Challenge;
+  members: ({ uid: string } & ChallengeMember)[];
+  allCheckins: { uid: string; localDate: string }[];
+  today: string;
+  selfUid: string;
+  isCreator: boolean;
+  removingUid: string | null;
+  onRemove: (uid: string) => void;
+}) {
+  const state = challengeState(challenge, today);
+
+  // Per-member, not shared: a member who joined after the challenge started
+  // has a smaller total (and a later skips-used floor) than one who's been
+  // in since day one — see effectiveStart in lib/progress.ts.
+  const rows = members.map((m) => {
+    const ymds = allCheckins
+      .filter((c) => c.uid === m.uid)
+      .map((c) => c.localDate)
+      .filter((d) => d >= challenge.startDate && d <= challenge.endDate);
+    const used = skipsUsed(challenge, ymds, today, m.joinedDate);
+    return {
+      ...m,
+      completed: m.outcome !== null ? m.completedCount : ymds.length,
+      total: totalRequired(challenge, m.joinedDate),
+      onTrack: used <= challenge.skipDays,
+    };
+  });
+  const onTrackCount = rows.filter((r) => r.onTrack).length;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle>Members</CardTitle>
+        {state === "active" && (
+          <CardDescription>
+            {onTrackCount} of {rows.length} on track
+          </CardDescription>
+        )}
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {rows.map((row) => (
+          <div key={row.uid} className="flex items-center gap-3">
+            <Link
+              href={`/u/${row.uid}`}
+              className="flex-1 truncate text-sm hover:underline"
+            >
+              <span className={row.uid === selfUid ? "font-semibold" : ""}>
+                {row.displayName}
+                {row.uid === selfUid ? " (you)" : ""}
+              </span>
+              {row.username && (
+                <span className="ml-1 text-xs text-muted-foreground">
+                  @{row.username}
+                </span>
+              )}
+            </Link>
+            {row.outcome === "succeeded" && (
+              <span className="text-xs font-bold text-foreground">Succeeded ✓</span>
+            )}
+            {row.outcome === "failed" && (
+              <span className="text-xs font-medium text-destructive">Failed ✗</span>
+            )}
+            {row.outcome === null && (
+              <>
+                <div className="h-1.5 w-24 overflow-hidden rounded-full bg-secondary">
+                  <div
+                    className="h-full rounded-full bg-foreground"
+                    style={{
+                      width: `${row.total > 0 ? Math.min(100, (row.completed / row.total) * 100) : 0}%`,
+                    }}
+                  />
+                </div>
+                <span className="w-10 text-right text-xs text-muted-foreground">
+                  {row.completed}/{row.total}
+                </span>
+              </>
+            )}
+            {isCreator && row.uid !== selfUid && state === "active" && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-destructive hover:text-destructive"
+                disabled={removingUid === row.uid}
+                onClick={() => onRemove(row.uid)}
+              >
+                {removingUid === row.uid ? "Removing…" : "Remove"}
+              </Button>
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
