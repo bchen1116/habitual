@@ -14,6 +14,7 @@ import {
   setAutoRepeat,
   setChallengeVisibility,
 } from "@/lib/challenges";
+import { useHabitDate } from "@/hooks/use-habit-date";
 import { useUserTimezone } from "@/hooks/use-user-timezone";
 import {
   challengeState,
@@ -26,7 +27,7 @@ import {
   weeklyWindows,
 } from "@/lib/progress";
 import Link from "next/link";
-import { addDaysYmd, daysBetweenInclusive, formatYmd, todayYmd } from "@/lib/dates";
+import { addDaysYmd, daysBetweenInclusive, formatYmd } from "@/lib/dates";
 import { formatAmount } from "@/lib/currency";
 import { canEarnBadges, skipAllowance } from "@/lib/badges";
 import { repeatDurationDays } from "@/lib/duration";
@@ -178,7 +179,12 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   const checkinYmds = allCheckins
     .filter((c) => c.uid === uid)
     .map((c) => c.localDate);
-  const today = todayYmd(timezone);
+  // Live, not computed once at render: this page owns its own listeners
+  // rather than reading the shell's, so nothing else would refresh the date
+  // for it. Someone sitting on a habit page across 3am — or resuming the
+  // installed app on it the next morning — would otherwise rate and check in
+  // against yesterday. See useHabitDate.
+  const today = useHabitDate(timezone);
   // Hook, so it has to run unconditionally — ahead of the loading/not-found
   // early returns below, which is why it takes a possibly-null challenge.
   const {

@@ -6,6 +6,7 @@ import {
   DAY_CUTOFF_HOUR,
   formatYmd,
   isBeforeDayCutoff,
+  todayYmd,
 } from "@/lib/dates";
 import { saveRating } from "@/lib/reflections";
 import type { Challenge } from "@/lib/types";
@@ -58,14 +59,27 @@ export function CheckinDialog({
 
   function submit() {
     onError(null);
-    checkIn(challenge, uid, today, note).catch(() => {
-      onError("Check-in failed — it may be past the allowed window. Please try again.");
+    // Read from the clock here rather than trusting the `today` prop, which
+    // was captured when the row rendered. Two things can have moved since: a
+    // sheet opened at 02:59 and confirmed at 03:01 belongs to the new habit
+    // day, and an installed app resumed the morning after it was last awake
+    // is holding yesterday's date until something refreshes it. Both wrote to
+    // the wrong document; see useHabitDate.
+    const localDate = todayYmd(timezone);
+    checkIn(challenge, uid, localDate, note).catch(() => {
+      onError(
+        "Check-in didn't save. If you've already checked in for today it's " +
+          "still recorded — otherwise check your connection and try again."
+      );
     });
     if (rating !== null) {
       // Swallowed on purpose: the check-in above is the thing that matters,
       // and reporting "your rating didn't save" over the top of a successful
       // check-in would read as the check-in having failed.
-      saveRating(challenge.id, uid, today, rating).catch((err) =>
+      //
+      // Same date as the check-in, necessarily — a rating filed against a
+      // different day than the session it rates is worse than no rating.
+      saveRating(challenge.id, uid, localDate, rating).catch((err) =>
         console.error("rating save failed:", err)
       );
     }
