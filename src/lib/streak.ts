@@ -172,24 +172,3 @@ export function longestStreak(
   return best;
 }
 
-/** The largest best-ever streak across a set of challenges. */
-export function maxLongestStreak(
-  challenges: readonly Challenge[],
-  checkinsByChallenge: Readonly<Record<string, readonly string[]>>,
-  today: string,
-  joinedDateByChallenge: Readonly<Record<string, string | undefined>> = {}
-): number {
-  return challenges.reduce(
-    (max, c) =>
-      Math.max(
-        max,
-        longestStreak(
-          c,
-          checkinsByChallenge[c.id] ?? [],
-          today,
-          joinedDateByChallenge[c.id]
-        )
-      ),
-    0
-  );
-}

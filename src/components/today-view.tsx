@@ -5,8 +5,6 @@ import Link from "next/link";
 import { formatInTimeZone } from "date-fns-tz";
 import { useActivity } from "@/components/activity-provider";
 import { useMaxChainStreak } from "@/hooks/use-chain-streak";
-import { liveChallenges } from "@/lib/cycles";
-import { todayYmd } from "@/lib/dates";
 import { challengeState, habitWeek, progressSummary } from "@/lib/progress";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -34,16 +32,17 @@ export function TodayView({
   photoURL: string | null;
 }) {
   const {
-    challenges,
     checkinsByChallenge,
     joinedDateByChallenge,
     loading,
     error: loadError,
     timezone,
+    today,
+    checkinYmdsByChallenge,
+    activeChallenges,
   } = useActivity();
   const [error, setError] = useState<string | null>(null);
 
-  const today = todayYmd(timezone);
   const hour = Number(formatInTimeZone(new Date(), timezone, "H"));
   const firstName = (displayName ?? "").trim().split(/\s+/)[0] || "there";
   const dateLabel = formatInTimeZone(new Date(), timezone, "EEEE '·' MMM d");
@@ -51,13 +50,6 @@ export function TodayView({
   // One entry per habit, and nothing that has already ended: every cycle of a
   // repeating habit is its own challenge doc, and `status` stays "active"
   // until the nightly job grades it (see lib/cycles.ts).
-  const activeChallenges = liveChallenges(challenges ?? [], today);
-  const checkinYmdsByChallenge = Object.fromEntries(
-    Object.entries(checkinsByChallenge).map(([id, records]) => [
-      id,
-      records.map((r) => r.localDate),
-    ])
-  );
   const heroStreak = useMaxChainStreak(
     activeChallenges,
     uid,

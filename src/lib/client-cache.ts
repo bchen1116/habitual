@@ -66,7 +66,7 @@ export function cachedPromise<T>(key: string, load: () => Promise<T>): Promise<T
   return promise;
 }
 
-export function invalidatePrefix(prefix: string): void {
+function invalidatePrefix(prefix: string): void {
   for (const key of [...store.keys()]) {
     if (key.startsWith(prefix)) store.delete(key);
   }

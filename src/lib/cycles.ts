@@ -1,9 +1,33 @@
+/**
+ * What belongs in a list of someone's habits, given that a habit and a
+ * challenge are not the same thing.
+ *
+ * Every cycle of a repeating habit is its own `challenges/{id}` document —
+ * that's what lets each one settle its own stake and freeze its own results.
+ * But "Morning run" is one habit to the person doing it, and two of them side
+ * by side on Today is a list that has stopped describing their life. Cycles
+ * overlap in the query for real reasons: auto-repeat builds the successor a
+ * day before the predecessor ends (it has to, or the streak breaks), and
+ * manual Repeat can be pressed any time after an end date, both while the old
+ * cycle is still `status: "active"` and waiting to be graded.
+ *
+ * So a chain collapses to whichever of its cycles is the one you'd actually
+ * act on today.
+ *
+ * The other half is `status`, which is a poor answer to "is this running?".
+ * It only turns from "active" to "adjudicated" when the nightly job grades
+ * the challenge, and that job deliberately waits 39 hours past the end date
+ * for the last timezone on earth to finish its final day. A habit that ended
+ * yesterday is therefore still stored as active, with nothing left to check
+ * into — listing it under Active is just wrong. The end date decides.
+ */
+
 import { daysBetweenInclusive } from "@/lib/dates";
 import { challengeState } from "@/lib/progress";
 import type { Challenge } from "@/lib/types";
 
 /** Whole weeks a cycle spans — the arithmetic both repeat writers use. */
-export function cycleWeeks(challenge: Challenge): number {
+function cycleWeeks(challenge: Challenge): number {
   return Math.floor(
     daysBetweenInclusive(challenge.startDate, challenge.endDate) / 7
   );
@@ -37,30 +61,6 @@ export function chainWeekOffsets(cycles: readonly Challenge[]): number[] {
   }
   return offsets;
 }
-
-/**
- * What belongs in a list of someone's habits, given that a habit and a
- * challenge are not the same thing.
- *
- * Every cycle of a repeating habit is its own `challenges/{id}` document —
- * that's what lets each one settle its own stake and freeze its own results.
- * But "Morning run" is one habit to the person doing it, and two of them side
- * by side on Today is a list that has stopped describing their life. Cycles
- * overlap in the query for real reasons: auto-repeat builds the successor a
- * day before the predecessor ends (it has to, or the streak breaks), and
- * manual Repeat can be pressed any time after an end date, both while the old
- * cycle is still `status: "active"` and waiting to be graded.
- *
- * So a chain collapses to whichever of its cycles is the one you'd actually
- * act on today.
- *
- * The other half is `status`, which is a poor answer to "is this running?".
- * It only turns from "active" to "adjudicated" when the nightly job grades
- * the challenge, and that job deliberately waits 39 hours past the end date
- * for the last timezone on earth to finish its final day. A habit that ended
- * yesterday is therefore still stored as active, with nothing left to check
- * into — listing it under Active is just wrong. The end date decides.
- */
 
 /** Backstop against a corrupted/cyclic repeatedFromId chain, not a product limit. */
 const MAX_CHAIN_DEPTH = 500;
