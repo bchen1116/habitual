@@ -316,9 +316,11 @@ export async function backfillCheckIn(
  * one-per-day; rules verify the ID shape, the server timestamp, and that
  * localDate is within ±1 day of server time.
  *
- * Note: an offline check-in that syncs more than a day later will be
- * rejected by that ±1-day rule — accepted trade-off (docs/02) to prevent
- * backfilling missed days.
+ * Note: an offline check-in that syncs more than a day later is rejected by
+ * that ±1-day rule. That used to be the only thing standing between a client
+ * and a rewritten history; now it just means the day has to be logged
+ * deliberately instead, through backfillCheckIn above, which is bounded and
+ * leaves a mark.
  */
 export async function checkIn(
   challenge: Challenge,

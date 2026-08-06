@@ -157,9 +157,10 @@ export type MissReason =
  *   (firestore.rules). How a session felt, and why one was missed, is nobody
  *   else's business — group-visible ratings would be performed rather than
  *   honest, and "I was too depressed to run" is not a group broadcast.
- * - *Revisable.* Check-ins are immutable (`allow update, delete: if false`) so
- *   nobody can backfill a missed day. A rating carries no such risk, and a
- *   mistyped one you could never correct would be a trap.
+ * - *Revisable.* Check-ins are immutable (`allow update, delete: if false`):
+ *   a missed day can be logged late, but a recorded one can never be erased
+ *   or rewritten. A rating carries no such risk, and a mistyped one you could
+ *   never correct would be a trap.
  *
  * Nothing here is read by adjudication, streaks, or the leaderboard, and that
  * is a design rule rather than an accident: the moment a self-reported number
