@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  backfillCheckIn,
   cancelChallenge,
   deleteChallenge,
   removeMember,
@@ -18,6 +19,7 @@ import { addDaysYmd, daysBetweenInclusive, formatYmd } from "@/lib/dates";
 import { canEarnBadges, skipAllowance } from "@/lib/badges";
 import { repeatDurationDays } from "@/lib/duration";
 import { chainWeekOffsets } from "@/lib/cycles";
+import { canBackfill } from "@/lib/backfill";
 import { challengePermissions } from "@/lib/challenge-permissions";
 import { useChainStreak } from "@/hooks/use-chain-streak";
 import { useChallengeDoc } from "@/hooks/use-challenge-doc";
@@ -29,7 +31,11 @@ import { MissReasonDialog } from "@/components/miss-reason-dialog";
 import { RateSessionDialog } from "@/components/rate-session-dialog";
 import { RepeatChallengeDialog } from "@/components/repeat-challenge-dialog";
 import { SessionRatingsCard } from "@/components/session-ratings-card";
-import { HistoryCard, missDateLabel } from "@/components/challenge/history-card";
+import {
+  HistoryCard,
+  missTargetLabel,
+  type MissTarget,
+} from "@/components/challenge/history-card";
 import { MembersCard } from "@/components/challenge/members-card";
 import { ChallengeStatusCards } from "@/components/challenge/status-cards";
 import { ChallengeSettingsCard } from "@/components/challenge/settings-card";
@@ -65,8 +71,8 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   const [togglingJoin, setTogglingJoin] = useState(false);
   const [togglingVisibility, setTogglingVisibility] = useState(false);
   const [togglingAutoRepeat, setTogglingAutoRepeat] = useState(false);
-  /** yyyymmdd of the missed day/window currently being explained, if any. */
-  const [missDate, setMissDate] = useState<string | null>(null);
+  /** The missed day or window currently open in the dialog, if any. */
+  const [missTarget, setMissTarget] = useState<MissTarget | null>(null);
 
   const checkinYmds = allCheckins
     .filter((c) => c.uid === uid)
@@ -236,6 +242,22 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
     } finally {
       setTogglingAutoRepeat(false);
     }
+  }
+
+  /**
+   * Log a missed day. Optimistic and not awaited, like the live check-in:
+   * the local cache updates the page's listener at once, so the cell fills
+   * immediately, and a rules rejection reverts it and surfaces here.
+   */
+  function handleBackfill(ymd: string) {
+    if (!challenge) return;
+    setError(null);
+    backfillCheckIn(challenge, uid, ymd).catch(() => {
+      setError(
+        "Couldn't log that day. It may already be recorded, or this habit may " +
+          "have been graded since you opened the page."
+      );
+    });
   }
 
   async function handleToggleVisibility(next: "public" | "private") {
@@ -413,7 +435,10 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
                 nearer question: what's left in the week you're actually in. */}
             {currentWeek && (
               <div className="mt-1">
-                <HabitWeekStrip week={currentWeek} />
+                <HabitWeekStrip
+                  week={currentWeek}
+                  onSelectMissedDay={(ymd) => setMissTarget({ ymd, kind: "day" })}
+                />
               </div>
             )}
             {/* Spent automatically at grading — but an allowance that silently
@@ -494,7 +519,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
           memberJoinedDate={member?.joinedDate}
           pastCycles={pastCycles}
           reflectionsByDate={reflectionsByDate}
-          onSelectMiss={setMissDate}
+          onSelectMiss={setMissTarget}
         />
       )}
 
@@ -505,10 +530,24 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
       <MissReasonDialog
         challengeId={id}
         uid={uid}
-        date={missDate}
-        dateLabel={missDateLabel(challenge, missDate)}
-        existing={missDate ? reflectionsByDate.get(missDate) : undefined}
-        onClose={() => setMissDate(null)}
+        date={missTarget?.ymd ?? null}
+        dateLabel={missTargetLabel(missTarget)}
+        existing={missTarget ? reflectionsByDate.get(missTarget.ymd) : undefined}
+        // Only a single day can be logged. A weekly window names a span, not
+        // an occasion — "I did week 2" isn't a thing anyone did.
+        onBackfill={
+          missTarget?.kind === "day" &&
+          canBackfill(
+            challenge,
+            missTarget.ymd,
+            today,
+            checkinYmds,
+            member?.joinedDate
+          )
+            ? () => handleBackfill(missTarget.ymd)
+            : undefined
+        }
+        onClose={() => setMissTarget(null)}
         onError={setError}
       />
 

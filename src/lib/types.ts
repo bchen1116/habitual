@@ -86,6 +86,20 @@ export interface CheckIn {
   localDate: string; // yyyymmdd
   completedAt: Timestamp | null;
   note: string | null;
+  /**
+   * Set when the day was logged after the fact rather than on the day (see
+   * lib/backfill.ts). Absent means logged live, which is every check-in
+   * written before backfilling existed.
+   *
+   * Recorded rather than inferred, and kept even though nothing currently
+   * branches on it, because this is the one field that distinguishes "did it
+   * and tapped the button" from "said so later" — and check-ins decide who
+   * forfeits a stake. Without it, the honour-system escape hatch would be
+   * indistinguishable from the real thing in the only record that exists, and
+   * a decision to stop counting backfills toward money could never be applied
+   * retroactively.
+   */
+  backfilledAt?: Timestamp | null;
 }
 
 /**

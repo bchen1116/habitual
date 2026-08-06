@@ -16,20 +16,35 @@ import {
 
 
 /**
- * What the miss dialog calls the thing being explained. Weekly habits miss a
- * *window*, not a day — the reflection is keyed on the window's start date,
- * so the label has to name the week rather than that one date, or it would
- * look like the app blamed you for a Monday.
+ * What was missed: one day, or a whole weekly window.
+ *
+ * Carried explicitly rather than inferred from the habit's frequency, which
+ * is what the label used to do. That inference held only while this list was
+ * the sole way to select something — a weekly habit could then only ever
+ * select a window. The week strip breaks it: it shows real days for weekly
+ * habits too, so "weekly habit ⇒ this date is a window start" stops being
+ * true, and a day picked there would be labelled as a week and, worse,
+ * logged as one.
  */
-export function missDateLabel(challenge: Challenge, ymd: string | null): string {
-  if (!ymd) return "";
-  if (challenge.frequency.type === "daily") return formatYmd(ymd, "EEE, MMM d");
-  return `${formatYmd(ymd)} – ${formatYmd(addDaysYmd(ymd, 6))}`;
+export interface MissTarget {
+  ymd: string;
+  kind: "day" | "window";
+}
+
+/**
+ * What the miss dialog calls the thing being explained. A window is named by
+ * its span rather than its first date, or it would look like the app blamed
+ * you for a Monday.
+ */
+export function missTargetLabel(target: MissTarget | null): string {
+  if (!target) return "";
+  if (target.kind === "day") return formatYmd(target.ymd, "EEE, MMM d");
+  return `${formatYmd(target.ymd)} – ${formatYmd(addDaysYmd(target.ymd, 6))}`;
 }
 
 interface HistoryReflectionProps {
   reflectionsByDate: Map<string, Reflection>;
-  onSelectMiss: (ymd: string) => void;
+  onSelectMiss: (target: MissTarget) => void;
 }
 
 /**
@@ -139,7 +154,7 @@ function DailyHistoryGrid({
           <button
             key={entry.ymd}
             type="button"
-            onClick={() => onSelectMiss(entry.ymd)}
+            onClick={() => onSelectMiss({ ymd: entry.ymd, kind: "day" })}
             title={`${formatYmd(entry.ymd)}: missed${explained ? " — reason noted" : ""}`}
             aria-label={`${formatYmd(entry.ymd)}: missed. ${
               explained ? "Reason noted — edit it." : "Note what got in the way."
@@ -276,7 +291,7 @@ function WeeklyWindowList({
           <button
             key={w.index}
             type="button"
-            onClick={() => onSelectMiss(w.start)}
+            onClick={() => onSelectMiss({ ymd: w.start, kind: "window" })}
             title={proratedNote}
             aria-label={`Week ${w.index}, ${w.count} of ${w.target}. ${
               proratedNote ? proratedNote + " " : ""

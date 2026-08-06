@@ -26,6 +26,12 @@ interface MissReasonDialogProps {
   /** Human label for what was missed — "Mon, Jul 13", "Week 2 · Jul 7 – Jul 13". */
   dateLabel: string;
   existing: Reflection | undefined;
+  /**
+   * Log this day as done after the fact. Omitted when the day isn't eligible
+   * (see canBackfill) — a cycle already graded, a date outside it, a day
+   * already logged — so the offer only ever appears where it can succeed.
+   */
+  onBackfill?: () => void;
   onClose: () => void;
   onError: (message: string | null) => void;
 }
@@ -38,9 +44,15 @@ interface MissReasonDialogProps {
  * costs nothing on the days things go fine — it fires only on a miss — and
  * it's the moment people are actually reflective rather than defensive.
  *
- * Nothing recorded here affects the streak, the stake, or the leaderboard.
- * That's stated in the sheet too, because with real money on the line the
- * unspoken assumption would otherwise be that this is an appeal.
+ * The reason itself affects nothing — not the streak, not the stake, not the
+ * leaderboard — and the sheet says so, because with real money on the line
+ * the unspoken assumption would otherwise be that it's an appeal.
+ *
+ * `onBackfill` is the one thing here that *does* change all three, which is
+ * why it's a separate confirm step rather than another button in the same
+ * row. The two live together because they're the two honest answers to a day
+ * that was missed — "I did it and forgot to say" and "here's what happened" —
+ * and a day only ever gets one tap to offer both.
  */
 export function MissReasonDialog({
   challengeId,
@@ -48,11 +60,13 @@ export function MissReasonDialog({
   date,
   dateLabel,
   existing,
+  onBackfill,
   onClose,
   onError,
 }: MissReasonDialogProps) {
   const [reason, setReason] = useState<MissReason | null>(null);
   const [note, setNote] = useState("");
+  const [confirmingBackfill, setConfirmingBackfill] = useState(false);
 
   // Reset to whatever is on record each time a different day is opened —
   // without the date in the deps, reopening on a second day would show the
@@ -60,6 +74,9 @@ export function MissReasonDialog({
   useEffect(() => {
     setReason(existing?.missReason ?? null);
     setNote(existing?.missNote ?? "");
+    // Reopening on another day must never land mid-confirmation, or a tap
+    // meant for one date would log a different one.
+    setConfirmingBackfill(false);
   }, [date, existing?.missReason, existing?.missNote]);
 
   const recorded = Boolean(existing?.missReason);
@@ -81,6 +98,37 @@ export function MissReasonDialog({
     onClose();
   }
 
+  if (confirmingBackfill && onBackfill) {
+    return (
+      <Dialog open={date !== null} onOpenChange={(next) => !next && onClose()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Log {dateLabel} as done?</DialogTitle>
+            <DialogDescription>
+              Only if you actually did it. This counts exactly like checking in
+              on the day — toward your streak, and toward whether your stake is
+              safe — and it&apos;s recorded as logged later rather than on the
+              day. Check-ins can&apos;t be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setConfirmingBackfill(false)}>
+              Back
+            </Button>
+            <Button
+              onClick={() => {
+                onBackfill();
+                onClose();
+              }}
+            >
+              Yes, I did it
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
     <Dialog open={date !== null} onOpenChange={(next) => !next && onClose()}>
       <DialogContent>
@@ -91,6 +139,22 @@ export function MissReasonDialog({
             your stake.
           </DialogDescription>
         </DialogHeader>
+
+        {onBackfill && (
+          <div className="rounded-xl border-2 border-input p-3">
+            <p className="text-sm">
+              Did you actually do this and forget to log it?
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2"
+              onClick={() => setConfirmingBackfill(true)}
+            >
+              I did this — log it
+            </Button>
+          </div>
+        )}
 
         <div className="flex flex-wrap gap-1.5">
           {MISS_REASONS.map((option) => {

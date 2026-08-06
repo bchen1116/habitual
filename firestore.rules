@@ -8,6 +8,52 @@ service cloud.firestore {
       return ts.year() * 10000 + ts.month() * 100 + ts.day();
     }
 
+    /**
+     * Two ways a check-in can be written, and they are not equivalent.
+     *
+     * Both require the doc ID to be "<localDate>_<uid>" for the caller and
+     * completedAt to be the server's own time, so neither can be dated by a
+     * client clock. What differs is how far back the date may reach.
+     *
+     * LIVE — the ordinary check-in: within ±1 day of the server date, the
+     * tolerance every timezone needs, and carrying no backfilledAt (a live
+     * check-in claiming to be a backfill would be a contradiction).
+     *
+     * BACKFILL — a day that was missed, logged after the fact. Bounded on
+     * every side, because check-ins are what adjudication counts and a
+     * backfilled day moves money exactly like a live one: the cycle must
+     * still be active, so a settled result can never be edited after the
+     * money has moved; the date must lie inside the cycle's own start..end;
+     * and it must be marked with the server's time, so the record can always
+     * tell "did it and tapped" from "said so later".
+     *
+     * Membership *start* is not checked here — that would need the member doc,
+     * a second read on every check-in. lib/backfill.ts refuses it client-side,
+     * and the worst a bypass buys is a day inside a cycle the caller was
+     * already a member of.
+     */
+    function checkinWritable(cid, checkinId) {
+      let c = get(/databases/$(database)/documents/challenges/$(cid)).data;
+      let d = request.resource.data;
+      return request.auth != null
+             && request.auth.uid == d.uid
+             && request.auth.uid in c.memberIds
+             && checkinId == d.localDate + '_' + request.auth.uid
+             && d.completedAt == request.time
+             && int(d.localDate) <= dateInt(request.time + duration.value(1, 'd'))
+             && (
+                  (
+                    !("backfilledAt" in d)
+                    && int(d.localDate) >= dateInt(request.time - duration.value(1, 'd'))
+                  ) || (
+                    d.backfilledAt == request.time
+                    && c.status == 'active'
+                    && d.localDate >= c.startDate
+                    && d.localDate <= c.endDate
+                  )
+                );
+    }
+
     match /users/{uid} {
       allow read: if request.auth != null && request.auth.uid == uid;
       // "username" is excluded from client writes on purpose: uniqueness is
@@ -121,16 +167,9 @@ service cloud.firestore {
       match /checkins/{checkinId} {
         allow read: if request.auth != null
                     && request.auth.uid in get(/databases/$(database)/documents/challenges/$(cid)).data.memberIds;
-        // Anti-backfill: the doc ID must be "<localDate>_<uid>" for the
-        // caller, completedAt must be the server's time, and localDate must
-        // be within ±1 day of the server date (covers every timezone).
-        allow create: if request.auth != null
-                      && request.auth.uid == request.resource.data.uid
-                      && request.auth.uid in get(/databases/$(database)/documents/challenges/$(cid)).data.memberIds
-                      && checkinId == request.resource.data.localDate + '_' + request.auth.uid
-                      && request.resource.data.completedAt == request.time
-                      && int(request.resource.data.localDate) >= dateInt(request.time - duration.value(1, 'd'))
-                      && int(request.resource.data.localDate) <= dateInt(request.time + duration.value(1, 'd'));
+        allow create: if checkinWritable(cid, checkinId);
+        // Still immutable once written: a backfill can add a day that was
+        // missed, never erase or rewrite one that was recorded.
         allow update, delete: if false;
       }
 
