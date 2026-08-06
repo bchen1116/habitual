@@ -11,12 +11,25 @@ import {
   setJoinClosed,
   setAutoRepeat,
   setChallengeVisibility,
+  setSpare,
 } from "@/lib/challenges";
 import { useHabitDate } from "@/hooks/use-habit-date";
 import { useUserTimezone } from "@/hooks/use-user-timezone";
-import { challengeState, habitWeek, progressSummary } from "@/lib/progress";
+import {
+  challengeState,
+  habitWeek,
+  progressSummary,
+  weeklyWindows,
+} from "@/lib/progress";
 import { addDaysYmd, daysBetweenInclusive, formatYmd } from "@/lib/dates";
 import { canEarnBadges, skipAllowance } from "@/lib/badges";
+import {
+  challengeTakesSpares,
+  spareRoom,
+  sparesByWindow,
+  totalSparesApplied,
+  unprotectedMisses,
+} from "@/lib/spares";
 import { repeatDurationDays } from "@/lib/duration";
 import { chainWeekOffsets } from "@/lib/cycles";
 import { canBackfill } from "@/lib/backfill";
@@ -27,7 +40,10 @@ import { usePastCycles } from "@/hooks/use-past-cycles";
 import { CheckinDialog } from "@/components/checkin-dialog";
 import { EditChallengeDialog } from "@/components/edit-challenge-dialog";
 import { HabitWeekStrip } from "@/components/habit-week-strip";
-import { MissReasonDialog } from "@/components/miss-reason-dialog";
+import {
+  MissReasonDialog,
+  type SpareOffer,
+} from "@/components/miss-reason-dialog";
 import { RateSessionDialog } from "@/components/rate-session-dialog";
 import { RepeatChallengeDialog } from "@/components/repeat-challenge-dialog";
 import { SessionRatingsCard } from "@/components/session-ratings-card";
@@ -39,6 +55,7 @@ import {
 import { MembersCard } from "@/components/challenge/members-card";
 import { ChallengeStatusCards } from "@/components/challenge/status-cards";
 import { ChallengeSettingsCard } from "@/components/challenge/settings-card";
+import { SpareAllowance } from "@/components/challenge/spare-allowance";
 import { InviteDialog } from "@/components/invite-dialog";
 import { StakesCard } from "@/components/stakes-card";
 import { Badge } from "@/components/ui/badge";
@@ -62,6 +79,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
     member,
     joinRequests,
     reflections,
+    spares,
   } = useChallengeDoc(id, uid);
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
@@ -112,6 +130,8 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
     () => new Map(reflections.map((r) => [r.localDate, r])),
     [reflections]
   );
+  const spareCoverage = useMemo(() => sparesByWindow(spares), [spares]);
+  const sparesApplied = useMemo(() => totalSparesApplied(spares), [spares]);
 
   if (challenge === undefined) {
     return <div className="h-64 animate-pulse rounded-xl bg-muted" />;
@@ -139,15 +159,46 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
     today,
     member?.joinedDate
   );
-  // Badges are spent automatically, so the only job here is to make sure the
-  // number someone is judged against is never a surprise.
+  // Spares are spent deliberately now, so this screen carries two numbers
+  // rather than one: what's protecting the stake (allowance.total) and what's
+  // still in the bank to spend (allowance.available).
   const allowance = skipAllowance(
     challenge,
     checkinYmds,
     today,
     member?.joinedDate,
-    member?.badgesCarried
+    member?.badgesCarried,
+    sparesApplied
   );
+  const atRisk = unprotectedMisses(
+    summary.skipsUsed,
+    allowance.base,
+    allowance.applied
+  );
+  const takesSpares = challengeTakesSpares(challenge);
+  // What the miss sheet can offer for the week it currently has open. Built
+  // here rather than inside the dialog so every bound on spending a spare —
+  // this week's remaining shortfall, and the balance across the whole habit —
+  // is decided in the same place as the numbers it's decided from.
+  let spareOffer: SpareOffer | undefined;
+  if (takesSpares && missTarget?.kind === "window") {
+    const windowStart = missTarget.ymd;
+    const window = weeklyWindows(
+      challenge,
+      checkinYmds,
+      today,
+      member?.joinedDate
+    ).find((w) => w.start === windowStart);
+    if (window) {
+      const appliedHere = spareCoverage.get(windowStart) ?? 0;
+      spareOffer = {
+        applied: appliedHere,
+        room: spareRoom(window, appliedHere),
+        available: allowance.available,
+        onSet: (count) => handleSetSpare(windowStart, count),
+      };
+    }
+  }
   const {
     isCreator,
     canCancel,
@@ -258,6 +309,25 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
           "have been graded since you opened the page."
       );
     });
+  }
+
+  /**
+   * Spend banked spares on one missed week, or take them back with 0.
+   *
+   * Awaited, unlike a check-in or a backfill: this one goes through the
+   * server, so there's no local cache write to make the change appear
+   * optimistically — the listener only updates once the round trip lands, and
+   * pretending otherwise would flash a coverage mark that might not stick.
+   */
+  async function handleSetSpare(windowStart: string, count: number) {
+    setError(null);
+    try {
+      await setSpare(id, windowStart, count);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Couldn't update that spare."
+      );
+    }
   }
 
   async function handleToggleVisibility(next: "public" | "private") {
@@ -411,7 +481,11 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
             </CardTitle>
             <CardDescription>
               {state === "active" &&
-                `${summary.daysRemaining} day${summary.daysRemaining === 1 ? "" : "s"} remaining · ${summary.skipsUsed} of ${allowance.total} skips used`}
+                // "N of M skips used" broke the moment spares stopped being
+                // spent automatically: an uncovered miss now reads "1 of 0",
+                // because the allowance is what's actually protecting you
+                // rather than everything you could protect yourself with.
+                `${summary.daysRemaining} day${summary.daysRemaining === 1 ? "" : "s"} remaining · ${summary.skipsUsed} miss${summary.skipsUsed === 1 ? "" : "es"} · ${allowance.total} allowed`}
               {state === "ended" && "Ended — results land in the next day or two"}
               {state === "adjudicated" &&
                 `${formatYmd(challenge.startDate)} – ${formatYmd(challenge.endDate)}`}
@@ -441,29 +515,12 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
                 />
               </div>
             )}
-            {/* Spent automatically at grading — but an allowance that silently
-                grew would be as confusing as one that silently shrank, so the
-                arithmetic is spelled out rather than folded into one number.
-                Once, though: this used to announce the earned subtotal,
-                itemise the three sources, and then announce the total again,
-                which is three sentences for one row of arithmetic the card's
-                own "N of M skips used" already tops and tails. */}
             {canEarnBadges(challenge) && (
-              <p className="text-xs text-muted-foreground">
-                {allowance.earned + allowance.carried > 0 ? (
-                  <>
-                    <span className="font-medium text-foreground">
-                      ◆ {allowance.total} skip{allowance.total === 1 ? "" : "s"}
-                    </span>{" "}
-                    — {allowance.base} from the habit
-                    {allowance.carried > 0 && `, ${allowance.carried} carried over`}
-                    {allowance.earned > 0 && `, ${allowance.earned} from full weeks`}.
-                    Used automatically if you miss.
-                  </>
-                ) : (
-                  <>Complete a full week to earn a spare skip.</>
-                )}
-              </p>
+              <SpareAllowance
+                allowance={allowance}
+                atRisk={atRisk}
+                canSpend={takesSpares}
+              />
             )}
             {summary.canCheckInToday && (
               <div>
@@ -518,6 +575,8 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
           today={today}
           memberJoinedDate={member?.joinedDate}
           pastCycles={pastCycles}
+          sparesByWindow={spareCoverage}
+          spareAvailable={takesSpares && allowance.available > 0}
           reflectionsByDate={reflectionsByDate}
           onSelectMiss={setMissTarget}
         />
@@ -547,6 +606,10 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
             ? () => handleBackfill(missTarget.ymd)
             : undefined
         }
+        // The mirror image: only a whole week can take a spare. Spares are
+        // earned per week kept and spent per week missed, and a daily habit
+        // can't earn one in the first place (see canEarnBadges).
+        spare={spareOffer}
         onClose={() => setMissTarget(null)}
         onError={setError}
       />

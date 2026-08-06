@@ -18,10 +18,20 @@ import type { Challenge } from "@/lib/types";
  * for "Read 3×": the effort that earned it was that habit's, and letting them
  * pool would turn an easy habit into a subsidy for a hard one.
  *
- * They **stack**, and they are spent automatically — each one raises the miss
- * allowance by 1 at adjudication. No redeem button: a badge you have to
- * remember to spend before a nightly job you can't see is a trap, not a
- * reward.
+ * They **stack, carry across repeats, and are spent deliberately.** Each one
+ * sits in the balance (`badgesCarried` on the member doc) until it is applied
+ * to a specific missed week — see lib/spares.ts — and only an applied spare
+ * raises the miss allowance. Nothing is consumed on your behalf.
+ *
+ * That is a reversal. Spares used to be spent automatically, on the reasoning
+ * that a reward you must remember to claim before a nightly job you can't see
+ * is a trap. The trap is real and is answered rather than ignored: a spare can
+ * be applied at any point up to grading — including the day or two after a
+ * cycle ends, while adjudication's buffer is still running — an unapplied one
+ * is never lost but rolls into the next cycle, and the habit page says plainly
+ * when misses have gone past the allowance and spares are sitting unused.
+ * What automatic spending cost was the thing the deliberate version buys: the
+ * choice of whether to burn a week you earned on a week you didn't.
  */
 
 /** Weekly target at or above this is "every day" in practice — no slack to earn. */
@@ -75,30 +85,68 @@ export function badgesEarnedIn(
 }
 
 export interface SkipAllowance {
-  /** The habit's own skipDays, as configured. */
+  /** The habit's own skipDays, as configured. Always in force. */
   base: number;
-  /** Badges carried in from earlier cycles of this same habit. */
+  /** Unspent spares carried in from earlier cycles of this same habit. */
   carried: number;
-  /** Badges earned in this cycle so far. */
+  /** Spares earned in this cycle so far. */
   earned: number;
-  /** What adjudication actually compares misses against. */
+  /** Spares deliberately applied to missed weeks of this cycle. */
+  applied: number;
+  /** Spares still in the bank: carried + earned − applied. */
+  available: number;
+  /** What adjudication compares misses against: base + applied. */
   total: number;
 }
 
 /**
- * `carried` comes from the member doc — repeatChallengeAdmin rolls each
- * cycle's total forward, which is what makes a badge usable "in a future
- * event" without the adjudicator having to walk the whole repeat chain.
+ * `carried` comes from the member doc — repeatChallengeAdmin and the
+ * auto-repeat job roll each cycle's *unspent* balance forward, which is what
+ * makes a spare usable in a future cycle without the adjudicator having to
+ * walk the whole repeat chain.
+ *
+ * `total` is deliberately `base + applied` and not `base + available`: an
+ * unapplied spare is a balance, not an allowance. It protects nothing until
+ * it's spent, and a screen that counted it would be promising cover the
+ * adjudicator won't give.
  */
 export function skipAllowance(
   challenge: Challenge,
   checkinYmds: readonly string[],
   today: string,
   memberJoinedDate?: string,
-  badgesCarried = 0
+  badgesCarried = 0,
+  sparesApplied = 0
 ): SkipAllowance {
   const base = challenge.skipDays ?? 0;
   const carried = Math.max(0, badgesCarried);
   const earned = badgesEarnedIn(challenge, checkinYmds, today, memberJoinedDate);
-  return { base, carried, earned, total: base + carried + earned };
+  const applied = Math.max(0, sparesApplied);
+  return {
+    base,
+    carried,
+    earned,
+    applied,
+    available: Math.max(0, carried + earned - applied),
+    total: base + applied,
+  };
+}
+
+/**
+ * How many applied spares a cycle actually burns.
+ *
+ * Applying a spare authorises its use; grading decides whether it was needed.
+ * A spare committed to a week that was later salvaged — by backfilling a day
+ * inside it — is never consumed, and rolls forward like any other unspent one.
+ * Without this clamp, a member who applied three spares and ended up needing
+ * one would have paid for all three.
+ *
+ * Mirrored in functions/src/badges.ts, which is the copy that decides money.
+ */
+export function sparesConsumed(
+  missed: number,
+  base: number,
+  applied: number
+): number {
+  return Math.min(applied, Math.max(0, missed - base));
 }

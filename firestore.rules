@@ -173,6 +173,25 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
+      // Spare skips committed to a week that was missed.
+      //
+      // Readable by every member for the same reason check-ins are: in a pool
+      // habit, whether someone's bad week is covered decides who forfeits to
+      // whom, and a group can't verify a result it can't see.
+      //
+      // Written server-side only, and this one genuinely cannot be otherwise.
+      // The balance a spare is drawn against is the sum of everything earned
+      // across every earlier cycle of the habit less everything spent there;
+      // rules can read a fixed number of documents by path but cannot
+      // aggregate a collection, let alone a chain of them. Any rule permissive
+      // enough to let a client write here would let it mint spares, and a
+      // spare is worth the stake. See lib/server/spares-admin.ts.
+      match /spares/{spareId} {
+        allow read: if request.auth != null
+                    && request.auth.uid in get(/databases/$(database)/documents/challenges/$(cid)).data.memberIds;
+        allow write: if false;
+      }
+
       // Private per-day reflections: a 1-10 rating of how the session went,
       // and — for a day that was missed — what got in the way.
       //

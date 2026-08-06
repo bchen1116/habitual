@@ -282,6 +282,30 @@ export async function repeatChallenge(
 }
 
 /**
+ * Commit spare skips to one missed week of a habit, or take them back with
+ * `count` 0.
+ *
+ * Server-routed, unlike a check-in or a backfill: the balance being spent
+ * spans every earlier cycle of the habit, and security rules can't add up
+ * documents. See lib/server/spares-admin.ts for the bounds it enforces.
+ */
+export async function setSpare(
+  challengeId: string,
+  windowStart: string,
+  count: number
+): Promise<void> {
+  const response = await fetch(`/api/challenges/${challengeId}/spares`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ windowStart, count }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.error ?? "Couldn't update that spare");
+  }
+}
+
+/**
  * Log a day that was missed, after the fact.
  *
  * Same document, same shape and the same one-per-day doc ID as a live

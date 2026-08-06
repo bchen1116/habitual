@@ -47,6 +47,9 @@ interface HistoryReflectionProps {
   onSelectMiss: (target: MissTarget) => void;
 }
 
+/** windowStart → spares covering it, for the current cycle only. */
+type SpareCoverage = ReadonlyMap<string, number>;
+
 /**
  * How much history stays on screen before it has to be asked for. Eight weeks
  * is deliberately above the old 4-week maximum duration, so every habit that
@@ -202,6 +205,7 @@ function WeeklyWindowList({
   today,
   memberJoinedDate,
   pastCycles,
+  sparesByWindow,
   reflectionsByDate,
   onSelectMiss,
 }: {
@@ -210,6 +214,7 @@ function WeeklyWindowList({
   today: string;
   memberJoinedDate?: string;
   pastCycles: PastCycle[];
+  sparesByWindow: SpareCoverage;
 } & HistoryReflectionProps) {
   const [showAll, setShowAll] = useState(false);
   // Earlier cycles first. Week numbers already run continuously across them
@@ -246,6 +251,10 @@ function WeeklyWindowList({
         // A weekly habit misses a window, not a day, so the reflection for one
         // is keyed on the window's start date.
         const explained = Boolean(reflectionsByDate.get(w.start)?.missReason);
+        const spares = w.settled ? 0 : (sparesByWindow.get(w.start) ?? 0);
+        // Covered weeks stop reading as failures — that's what spending the
+        // spare bought. A shortfall bigger than the spares on it still does.
+        const covered = spares > 0 && spares >= w.target - w.count;
         // Without this, a prorated week reads as "2/2" beside its neighbours'
         // "5/5" with nothing to explain the different denominator — which
         // looks like a bug rather than the fairness adjustment it is.
@@ -260,21 +269,37 @@ function WeeklyWindowList({
             )}
           </span>
         );
+        const failing = w.state === "past-incomplete" && !covered;
         const count = (
           <span
             className={
               w.state === "complete"
                 ? "font-bold text-foreground"
-                : w.state === "past-incomplete"
+                : failing
                   ? "font-medium text-destructive"
-                  : "text-muted-foreground"
+                  : w.state === "past-incomplete"
+                    ? "font-medium text-foreground"
+                    : "text-muted-foreground"
             }
           >
             {w.count}/{w.target}
           </span>
         );
+        const spareMark = spares > 0 && (
+          <span
+            className="shrink-0 font-medium text-foreground"
+            title={`${spares} spare skip${spares === 1 ? "" : "s"} applied to this week`}
+          >
+            ◆ {spares}
+          </span>
+        );
 
-        if (w.state !== "past-incomplete" || w.settled) {
+        // A week with spares on it stays tappable even once they cover it —
+        // otherwise a spare applied to a week later salvaged by a backfill
+        // would be stranded on a row that no longer opened, with no way to
+        // take it back.
+        const tappable = !w.settled && (w.state === "past-incomplete" || spares > 0);
+        if (!tappable) {
           return (
             <div
               key={w.index}
@@ -282,7 +307,10 @@ function WeeklyWindowList({
               className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
             >
               {weekLabel}
-              {count}
+              <span className="flex shrink-0 items-center gap-1.5">
+                {spareMark}
+                {count}
+              </span>
             </div>
           );
         }
@@ -295,10 +323,16 @@ function WeeklyWindowList({
             title={proratedNote}
             aria-label={`Week ${w.index}, ${w.count} of ${w.target}. ${
               proratedNote ? proratedNote + " " : ""
-            }${explained ? "Reason noted — edit it." : "Note what got in the way."}`}
+            }${spares > 0 ? `Covered by ${spares} spare skip${spares === 1 ? "" : "s"}. ` : ""}${
+              explained ? "Reason noted — edit it." : "Note what got in the way."
+            }`}
             className={
               "flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" +
-              (explained ? " border-destructive" : " border-destructive/50")
+              (!failing
+                ? " border-input"
+                : explained
+                  ? " border-destructive"
+                  : " border-destructive/50")
             }
           >
             {weekLabel}
@@ -306,14 +340,21 @@ function WeeklyWindowList({
                 doesn't read as a control — this is the one shape a list row
                 can take that everyone already knows means "opens something". */}
             <span className="flex shrink-0 items-center gap-1.5">
+              {spareMark}
               {count}
               {explained && (
                 <span
                   aria-hidden
-                  className="h-1.5 w-1.5 rounded-full bg-destructive"
+                  className={
+                    "h-1.5 w-1.5 rounded-full " +
+                    (failing ? "bg-destructive" : "bg-muted-foreground")
+                  }
                 />
               )}
-              <span aria-hidden className="text-destructive">
+              <span
+                aria-hidden
+                className={failing ? "text-destructive" : "text-muted-foreground"}
+              >
                 ›
               </span>
             </span>
@@ -353,6 +394,8 @@ export function HistoryCard({
   today,
   memberJoinedDate,
   pastCycles,
+  sparesByWindow,
+  spareAvailable,
   reflectionsByDate,
   onSelectMiss,
 }: {
@@ -364,6 +407,10 @@ export function HistoryCard({
   today: string;
   memberJoinedDate?: string;
   pastCycles: PastCycle[];
+  /** Spares on this cycle's weeks, keyed on window start. */
+  sparesByWindow: SpareCoverage;
+  /** Whether there's a spare left to offer — changes what a tap is *for*. */
+  spareAvailable: boolean;
 } & HistoryReflectionProps) {
   const daily = challenge.frequency.type === "daily";
   const tappable = hasTappableMiss(challenge, checkinYmds, today, memberJoinedDate);
@@ -372,11 +419,22 @@ export function HistoryCard({
     <Card>
       <CardHeader className="pb-3">
         <CardTitle>History</CardTitle>
-        {/* Only offered when there's something to accept it. */}
+        {/* Only offered when there's something to accept it. And when a spare
+            is available, that's the more useful half of what the tap does —
+            one changes the result, the other is a private note. */}
         {tappable && (
           <CardDescription>
-            Tap a missed {daily ? "day" : "week"} to note what got in the way —
-            just for you, and it won&apos;t change the result.
+            {!daily && spareAvailable ? (
+              <>
+                Tap a missed week to spend a spare skip on it, or to note what
+                got in the way.
+              </>
+            ) : (
+              <>
+                Tap a missed {daily ? "day" : "week"} to note what got in the way
+                — just for you, and it won&apos;t change the result.
+              </>
+            )}
           </CardDescription>
         )}
       </CardHeader>
@@ -400,6 +458,7 @@ export function HistoryCard({
             today={today}
             memberJoinedDate={memberJoinedDate}
             pastCycles={pastCycles}
+            sparesByWindow={sparesByWindow}
             reflectionsByDate={reflectionsByDate}
             onSelectMiss={onSelectMiss}
           />
