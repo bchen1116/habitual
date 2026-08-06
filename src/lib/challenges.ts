@@ -282,6 +282,36 @@ export async function repeatChallenge(
 }
 
 /**
+ * Log a day that was missed, after the fact.
+ *
+ * Same document, same shape and the same one-per-day doc ID as a live
+ * check-in — it *is* a check-in, and everything downstream (streaks,
+ * progress, adjudication) treats it as one. The difference is `backfilledAt`,
+ * which marks it as claimed later rather than tapped on the day; see the
+ * field's note in lib/types.ts for why that mark is kept.
+ *
+ * The caller is expected to have checked `canBackfill` first. The rules
+ * enforce the same bounds independently, so a UI that offers this in the
+ * wrong place fails safely rather than writing something it shouldn't.
+ */
+export async function backfillCheckIn(
+  challenge: Challenge,
+  uid: string,
+  localDate: string
+): Promise<void> {
+  const db = getClientDb();
+  const ref = doc(db, "challenges", challenge.id, "checkins", `${localDate}_${uid}`);
+  await setDoc(ref, {
+    uid,
+    localDate,
+    completedAt: serverTimestamp(),
+    backfilledAt: serverTimestamp(),
+    note: null,
+  });
+  invalidateAfterCheckin(challenge.id);
+}
+
+/**
  * Check in for a local date. The doc ID (`<localDate>_<uid>`) enforces
  * one-per-day; rules verify the ID shape, the server timestamp, and that
  * localDate is within ±1 day of server time.

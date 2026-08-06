@@ -24,11 +24,18 @@ export function HabitWeekStrip({
   tone = "ink",
   dense = false,
   className,
+  onSelectMissedDay,
 }: {
   week: HabitWeek;
   tone?: "ink" | "volt";
   dense?: boolean;
   className?: string;
+  /**
+   * Makes missed days tappable, for logging one after the fact. Omitted
+   * everywhere the day can't be acted on — Today's rows, and any habit whose
+   * cycle has been graded — so the strip stays a read-out unless it isn't.
+   */
+  onSelectMissedDay?: (ymd: string) => void;
 }) {
   const complete = week.count >= week.target;
   // Hitting the target has never stopped anyone checking in — the only gate is
@@ -68,14 +75,36 @@ export function HabitWeekStrip({
         </span>
       </div>
 
-      <div aria-hidden className={cn("flex gap-1.5", dense ? "mt-2" : "mt-2.5")}>
-        {week.days.map((day) => (
+      {/* Not aria-hidden when the cells are controls: a decorative strip can be
+          skipped, but a row of buttons cannot. Without a handler it stays
+          decorative and hidden, as it was. */}
+      <div
+        aria-hidden={onSelectMissedDay ? undefined : true}
+        className={cn("flex gap-1.5", dense ? "mt-2" : "mt-2.5")}
+      >
+        {week.days.map((day) => {
+          const tappable = Boolean(onSelectMissedDay) && day.state === "missed";
+          const Cell = tappable ? "button" : "div";
+          return (
           <div key={day.ymd} className="flex flex-1 flex-col items-center gap-1">
-            <div
-              title={`${formatYmd(day.ymd)}: ${day.state}`}
+            <Cell
+              type={tappable ? "button" : undefined}
+              onClick={tappable ? () => onSelectMissedDay?.(day.ymd) : undefined}
+              title={
+                tappable
+                  ? `${formatYmd(day.ymd)}: missed — tap to log it`
+                  : `${formatYmd(day.ymd)}: ${day.state}`
+              }
+              aria-label={
+                tappable
+                  ? `${formatYmd(day.ymd)}: missed. Log it as done.`
+                  : undefined
+              }
               className={cn(
                 "w-full rounded-md",
                 dense ? "h-7" : "h-9",
+                tappable &&
+                  "ring-1 ring-inset ring-destructive/50 transition-colors hover:bg-destructive/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 day.state === "done" && (tone === "volt" ? "bg-primary" : "bg-foreground"),
                 day.state === "missed" && "bg-destructive/15",
                 day.state === "today" && "border-2 border-primary bg-secondary",
@@ -96,7 +125,8 @@ export function HabitWeekStrip({
               {day.letter}
             </span>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* The bars are decorative; this is the version a screen reader gets. */}
