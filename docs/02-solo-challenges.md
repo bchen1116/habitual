@@ -91,11 +91,15 @@ match /challenges/{cid} {
 
   match /checkins/{checkinId} {                # NOT {cid} — must not shadow the outer challenge-ID binding
     allow read: if request.auth.uid in get(/databases/$(database)/documents/challenges/$(cid)).data.memberIds;
-    // Anti-backfill: the doc ID must be "<localDate>_<uid>" for the caller,
-    // completedAt must be the server's time, and localDate must be within
-    // ±1 day of the server date (the tolerance covers every timezone).
-    // Without these checks a client could hand-craft writes for past days
-    // and erase misses — and money rides on this.
+    // The doc ID must be "<localDate>_<uid>" for the caller and completedAt
+    // must be the server's time, so no write can be dated by a client clock.
+    // A live check-in must also fall within ±1 day of the server date (the
+    // tolerance covers every timezone). Money rides on this.
+    //
+    // SUPERSEDED in a later step: a missed day can now be logged deliberately
+    // after the fact, bounded to a cycle that is still active and marked with
+    // backfilledAt. See firestore.rules (checkinWritable) and lib/backfill.ts
+    // for the rules as they actually stand.
     allow create: if request.auth.uid == request.resource.data.uid
                   && checkinId == request.resource.data.localDate + '_' + request.auth.uid
                   && request.resource.data.completedAt == request.time
