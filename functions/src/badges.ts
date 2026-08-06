@@ -90,20 +90,63 @@ export function badgesEarnedIn(
 /**
  * What a member's misses are actually compared against.
  *
- * `badgesCarried` is the running total rolled forward by repeatChallengeAdmin,
- * which is what lets a badge earned in one cycle be spent in a later one
- * without the adjudicator walking the whole repeat chain. Badges never leave
- * the habit that earned them.
+ * `badgesCarried` is the *unspent* balance rolled forward by
+ * repeatChallengeAdmin and the auto-repeat job, which is what lets a spare
+ * earned in one cycle be spent in a later one without the adjudicator walking
+ * the whole repeat chain. Spares never leave the habit that earned them.
+ *
+ * `total` is `base + applied`, not `base + available`. Spares are no longer
+ * spent on a member's behalf: one protects a week only once it has been
+ * deliberately committed to it (challenges/{cid}/spares — see
+ * src/lib/spares.ts). A balance sitting unapplied is still theirs and rolls
+ * forward, but it covers nothing here.
+ *
+ * Mirrors skipAllowance() in src/lib/badges.ts. This copy decides the money;
+ * that one makes the promise the member sees.
  */
 export function effectiveSkipDays(
   challenge: BadgeChallenge & { skipDays: number },
   checkinYmds: readonly string[],
   today: string,
   memberJoinedDate?: string,
-  badgesCarried = 0
-): { base: number; carried: number; earned: number; total: number } {
+  badgesCarried = 0,
+  sparesApplied = 0
+): {
+  base: number;
+  carried: number;
+  earned: number;
+  applied: number;
+  available: number;
+  total: number;
+} {
   const base = challenge.skipDays ?? 0;
   const carried = Math.max(0, badgesCarried);
   const earned = badgesEarnedIn(challenge, checkinYmds, today, memberJoinedDate);
-  return { base, carried, earned, total: base + carried + earned };
+  const applied = Math.max(0, sparesApplied);
+  return {
+    base,
+    carried,
+    earned,
+    applied,
+    available: Math.max(0, carried + earned - applied),
+    total: base + applied,
+  };
+}
+
+/**
+ * How many applied spares a cycle actually burns.
+ *
+ * Applying a spare authorises its use; grading decides whether it was needed.
+ * A spare committed to a week later salvaged by a backfill is never consumed
+ * and rolls forward unspent, which is also what stops an over-eager
+ * application from costing more than the misses it was aimed at.
+ *
+ * Mirrors sparesConsumed() in src/lib/badges.ts.
+ */
+export function sparesConsumed(
+  missed: number,
+  base: number,
+  applied: number
+): number {
+  return Math.min(applied, Math.max(0, missed - base));
 }

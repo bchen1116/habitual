@@ -196,10 +196,11 @@ async function writeSuccessor(
 ): Promise<void> {
   const db = getFirestore();
   const oldRef = db.collection("challenges").doc(oldId);
-  const [snap, memberDocs, checkinDocs] = await Promise.all([
+  const [snap, memberDocs, checkinDocs, spareDocs] = await Promise.all([
     oldRef.get(),
     oldRef.collection("members").get(),
     oldRef.collection("checkins").get(),
+    oldRef.collection("spares").get(),
   ]);
   const data = snap.data()!;
 
@@ -215,6 +216,16 @@ async function writeSuccessor(
     const list = oldCheckinsByUid.get(uid) ?? [];
     list.push(localDate);
     oldCheckinsByUid.set(uid, list);
+  }
+
+  // Deducted for the same reason the earnings are added early: the successor
+  // should open showing what is actually left. Every spare applied by now is
+  // assumed spent, which is the pessimistic reading — adjudication recomputes
+  // it against the final misses and hands back any that weren't needed.
+  const oldSparesByUid = new Map<string, number>();
+  for (const doc of spareDocs.docs) {
+    const { uid, count } = doc.data() as { uid: string; count: number };
+    oldSparesByUid.set(uid, (oldSparesByUid.get(uid) ?? 0) + Math.max(0, count));
   }
 
   const newStartDate = addDaysYmd(data.endDate, 1);
@@ -263,21 +274,25 @@ async function writeSuccessor(
       joinedAt: FieldValue.serverTimestamp(),
       joinedDate: newStartDate,
       // Everything banked before this cycle, plus every full week it has
-      // already completed. Adjudication overwrites this with the settled
-      // total once it runs (see adjudicate.ts), which can only ever add the
-      // final week.
-      badgesCarried:
+      // already completed, less every spare it has already committed.
+      // Adjudication overwrites this with the settled balance once it runs
+      // (see adjudicate.ts), which can only ever add the final week or return
+      // an applied spare the final misses didn't need.
+      badgesCarried: Math.max(
+        0,
         ((member.badgesCarried as number | undefined) ?? 0) +
-        badgesEarnedIn(
-          data as BadgeChallenge,
-          oldCheckinsByUid.get(memberDoc.id) ?? [],
-          // The run date. This job fires a day *ahead* of the end date, so
-          // the final week is still open and its badge is deliberately not
-          // carried yet — that is the "can only ever add the final week"
-          // correction the comment above describes, now made literal.
-          dateToYmdUTC(now),
-          member.joinedDate as string | undefined
-        ),
+          badgesEarnedIn(
+            data as BadgeChallenge,
+            oldCheckinsByUid.get(memberDoc.id) ?? [],
+            // The run date. This job fires a day *ahead* of the end date, so
+            // the final week is still open and its badge is deliberately not
+            // carried yet — that is the "can only ever add the final week"
+            // correction the comment above describes, now made literal.
+            dateToYmdUTC(now),
+            member.joinedDate as string | undefined
+          ) -
+          (oldSparesByUid.get(memberDoc.id) ?? 0)
+      ),
       charityName: member.charityName ?? null,
       outcome: null,
       completedCount: 0,

@@ -804,9 +804,10 @@ export async function repeatChallengeAdmin(
   // past the end date — and Repeat is normally pressed the moment the habit
   // ends, well before that. A 4-week habit with perfect attendance would
   // hand over 0 of the 4 skips it had just earned.
-  const [memberDocs, checkinDocs] = await Promise.all([
+  const [memberDocs, checkinDocs, spareDocs] = await Promise.all([
     oldRef.collection("members").get(),
     oldRef.collection("checkins").get(),
+    oldRef.collection("spares").get(),
   ]);
   const oldCheckinsByUid = new Map<string, string[]>();
   for (const doc of checkinDocs.docs) {
@@ -817,6 +818,21 @@ export async function repeatChallengeAdmin(
     const list = oldCheckinsByUid.get(memberUid) ?? [];
     list.push(localDate);
     oldCheckinsByUid.set(memberUid, list);
+  }
+  // Spares committed to the cycle being repeated. Only the unspent balance
+  // moves forward, which is the whole point of applying one deliberately —
+  // and it's why this can't just copy `badgesCarried`, on either side of
+  // adjudication.
+  const oldSparesByUid = new Map<string, number>();
+  for (const doc of spareDocs.docs) {
+    const { uid: memberUid, count } = doc.data() as {
+      uid: string;
+      count: number;
+    };
+    oldSparesByUid.set(
+      memberUid,
+      (oldSparesByUid.get(memberUid) ?? 0) + Math.max(0, count)
+    );
   }
   const oldChallenge = { id: challengeId, ...data } as Challenge;
   // Once adjudication has run, the member doc's badgesCarried IS the settled
@@ -869,22 +885,32 @@ export async function repeatChallengeAdmin(
       // Everyone carried over starts the new cycle together, regardless of
       // when they joined the previous one.
       joinedDate: newStartDate,
-      // Badges follow the habit, not the cycle: "a badge in one habit cannot
+      // Spares follow the habit, not the cycle: "a badge in one habit cannot
       // be applied to another habit". Everything banked before this cycle,
       // plus everything this cycle earned — counted here from its check-ins
-      // rather than read from a field adjudication hasn't written yet. That
-      // keeps the adjudicator from ever having to walk the repeat chain: one
-      // running total moves forward one link at a time.
-      badgesCarried:
-        ((member.badgesCarried as number | undefined) ?? 0) +
-        (settled
-          ? 0
-          : badgesEarnedIn(
+      // rather than read from a field adjudication hasn't written yet — less
+      // everything it spent. That keeps the adjudicator from ever having to
+      // walk the repeat chain: one balance moves forward one link at a time.
+      //
+      // The applied spares are subtracted on both sides of `settled`. Before
+      // grading they're the pessimistic reading (adjudication hands back any
+      // the final misses didn't need); after it, `badgesCarried` is already
+      // net of what was actually spent, so subtracting again here would
+      // charge for them twice — which is why the deduction, unlike the
+      // earnings, is inside the settled branch too.
+      badgesCarried: Math.max(
+        0,
+        settled
+          ? ((member.badgesCarried as number | undefined) ?? 0)
+          : ((member.badgesCarried as number | undefined) ?? 0) +
+            badgesEarnedIn(
               oldChallenge,
               oldCheckinsByUid.get(memberDoc.id) ?? [],
               today,
               member.joinedDate as string | undefined
-            )),
+            ) -
+            (oldSparesByUid.get(memberDoc.id) ?? 0)
+      ),
       charityName: member.charityName ?? null,
       outcome: null,
       completedCount: 0,

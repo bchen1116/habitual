@@ -32,8 +32,99 @@ interface MissReasonDialogProps {
    * already logged — so the offer only ever appears where it can succeed.
    */
   onBackfill?: () => void;
+  /**
+   * Spend a banked spare skip on this week, or take one back. Omitted for
+   * anything that can't take one — a day, a week still running, a habit that
+   * doesn't earn spares, a graded cycle.
+   */
+  spare?: SpareOffer;
   onClose: () => void;
   onError: (message: string | null) => void;
+}
+
+export interface SpareOffer {
+  /** Spares already on this week. */
+  applied: number;
+  /** How many more this week's shortfall could take. */
+  room: number;
+  /** Spares left in the bank for this habit. */
+  available: number;
+  /** Sets this week's total; 0 takes them all back. */
+  onSet: (count: number) => void;
+}
+
+/**
+ * Spending a spare, inside the sheet a missed week already opens.
+ *
+ * No confirm step, unlike the backfill above it, and the difference is the
+ * point: a backfill is a claim about what you did and cannot be undone, while
+ * a spare is a resource you own and can take straight back while the cycle is
+ * still running. A confirmation on a reversible action is just a tax.
+ */
+function SpareSection({ offer }: { offer: SpareOffer }) {
+  const { applied, room, available } = offer;
+  const plural = (n: number) => (n === 1 ? "" : "s");
+
+  if (applied > 0) {
+    return (
+      <div className="rounded-xl border-2 border-input p-3">
+        <p className="text-sm">
+          <span className="font-medium">
+            ◆ {applied} spare{plural(applied)}
+          </span>{" "}
+          covering this week. {available} left banked.
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {room > 0 && available > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => offer.onSet(applied + 1)}
+            >
+              Use another
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={() => offer.onSet(0)}>
+            Take {applied === 1 ? "it" : "them"} back
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (room === 0) return null;
+
+  return (
+    <div className="rounded-xl border-2 border-input p-3">
+      <p className="text-sm">
+        {available > 0 ? (
+          <>
+            You have{" "}
+            <span className="font-medium">
+              ◆ {available} spare skip{plural(available)}
+            </span>{" "}
+            banked. Spending one covers this week so it doesn&apos;t count
+            against your stake.
+          </>
+        ) : (
+          <>
+            No spare skips banked yet — keep a whole week to earn one. They roll
+            into the next cycle of this habit until you use them.
+          </>
+        )}
+      </p>
+      {available > 0 && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-2"
+          onClick={() => offer.onSet(1)}
+        >
+          Use a spare on this week
+        </Button>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -48,11 +139,13 @@ interface MissReasonDialogProps {
  * leaderboard — and the sheet says so, because with real money on the line
  * the unspoken assumption would otherwise be that it's an appeal.
  *
- * `onBackfill` is the one thing here that *does* change all three, which is
- * why it's a separate confirm step rather than another button in the same
- * row. The two live together because they're the two honest answers to a day
- * that was missed — "I did it and forgot to say" and "here's what happened" —
- * and a day only ever gets one tap to offer both.
+ * `onBackfill` and `spare` are the two things here that *do* change all three,
+ * and they're the two honest answers to something missed: "I did it and forgot
+ * to say" for a day, and "I've earned the right to skip one" for a week. They
+ * live in the same sheet because a miss only ever gets one tap, and it has to
+ * offer everything that tap could mean. They never appear together — a day
+ * can't take a spare and a week can't be backfilled — so the sheet shows at
+ * most one of them.
  */
 export function MissReasonDialog({
   challengeId,
@@ -61,6 +154,7 @@ export function MissReasonDialog({
   dateLabel,
   existing,
   onBackfill,
+  spare,
   onClose,
   onError,
 }: MissReasonDialogProps) {
@@ -135,8 +229,8 @@ export function MissReasonDialog({
         <DialogHeader>
           <DialogTitle>What got in the way?</DialogTitle>
           <DialogDescription>
-            {dateLabel} · private to you, and it doesn&apos;t change your streak or
-            your stake.
+            {dateLabel} · your answer below is private, and it doesn&apos;t change
+            your streak or your stake.
           </DialogDescription>
         </DialogHeader>
 
@@ -155,6 +249,8 @@ export function MissReasonDialog({
             </Button>
           </div>
         )}
+
+        {spare && <SpareSection offer={spare} />}
 
         <div className="flex flex-wrap gap-1.5">
           {MISS_REASONS.map((option) => {

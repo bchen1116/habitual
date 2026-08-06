@@ -2,7 +2,7 @@ import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { addDaysYmd, dateToYmdUTC, daysBetweenInclusive } from "./dates";
 import { sendPushToMany } from "./notifications";
-import { effectiveSkipDays } from "./badges";
+import { effectiveSkipDays, sparesConsumed } from "./badges";
 
 interface ChallengeData {
   name: string;
@@ -33,10 +33,18 @@ interface MemberData {
   // Function has no shared package with the Next app).
   joinedDate?: string;
   /**
-   * Badges rolled forward from earlier cycles of this habit — see
-   * repeatChallengeAdmin. Absent on members predating badges; treat as 0.
+   * The unspent spare balance rolled forward from earlier cycles of this
+   * habit — see repeatChallengeAdmin. Absent on members predating badges;
+   * treat as 0.
    */
   badgesCarried?: number;
+}
+
+/** challenges/{cid}/spares/{windowStart}_{uid} — see src/lib/spares.ts. */
+interface SpareData {
+  uid: string;
+  windowStart: string;
+  count: number;
 }
 
 interface MemberOutcome {
@@ -55,7 +63,10 @@ interface MemberOutcome {
  * money-determining half of that fairness fix, without which a late joiner
  * would be charged for every day before they were even a member.
  */
-function effectiveStart(challenge: ChallengeData, memberJoinedDate?: string): string {
+function effectiveStart(
+  challenge: Pick<ChallengeData, "startDate">,
+  memberJoinedDate?: string
+): string {
   return memberJoinedDate && memberJoinedDate > challenge.startDate
     ? memberJoinedDate
     : challenge.startDate;
@@ -99,7 +110,11 @@ export function windowRequirement(
  * front-loading week one doesn't satisfy later ones.
  */
 export function computeMissed(
-  challenge: ChallengeData,
+  // Structural rather than the whole ChallengeData: this reads three fields,
+  // and narrowing it lets spare-nudge.ts call it with the same shape the
+  // badge functions take instead of inventing a stake amount to satisfy a
+  // type.
+  challenge: Pick<ChallengeData, "frequency" | "startDate" | "endDate">,
   checkinYmds: readonly string[],
   memberJoinedDate?: string
 ): { missed: number; completed: number } {
@@ -185,6 +200,7 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
 
         const membersSnap = await t.get(challengeDoc.ref.collection("members"));
         const checkinsSnap = await t.get(challengeDoc.ref.collection("checkins"));
+        const sparesSnap = await t.get(challengeDoc.ref.collection("spares"));
 
         const checkinsByUid = new Map<string, string[]>();
         for (const doc of checkinsSnap.docs) {
@@ -197,6 +213,17 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
           checkinsByUid.set(uid, list);
         }
 
+        // Spares the member deliberately committed to this cycle's missed
+        // weeks. Summed rather than matched to windows: the outcome compares
+        // totals (`missed <= base + applied`), and sparesConsumed already
+        // stops more being burnt than the misses called for — so which week
+        // each one names matters to the history, not to the arithmetic.
+        const sparesByUid = new Map<string, number>();
+        for (const doc of sparesSnap.docs) {
+          const { uid, count } = doc.data() as SpareData;
+          sparesByUid.set(uid, (sparesByUid.get(uid) ?? 0) + Math.max(0, count));
+        }
+
         const adjudicatedAt = Timestamp.fromDate(now);
         const outcomes: MemberOutcome[] = [];
         const memberUpdates: {
@@ -204,7 +231,16 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
           missed: number;
           completed: number;
           succeeded: boolean;
-          allowance: { base: number; carried: number; earned: number; total: number };
+          allowance: {
+            base: number;
+            carried: number;
+            earned: number;
+            applied: number;
+            available: number;
+            total: number;
+          };
+          /** Applied spares this result actually burnt. */
+          spent: number;
         }[] = [];
         for (const memberDoc of membersSnap.docs) {
           const member = memberDoc.data() as MemberData;
@@ -215,9 +251,12 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
             ymds,
             member.joinedDate
           );
-          // Badges are spare skips, earned a week at a time and spent
-          // automatically. Nothing to redeem: a reward you must remember to
-          // claim before a nightly job you cannot see is a trap, not a reward.
+          // Spare skips are earned a week at a time and spent deliberately:
+          // only the ones committed to a missed week of this cycle count
+          // toward the allowance. Whatever is left in the balance is not lost
+          // — it rolls onto the successor below, and stays there until it is
+          // used.
+          //
           // The run date as `today`. The 39-hour buffer above guarantees it is
           // past endDate, so every window of this challenge has closed and the
           // "week must be over" rule inside can't withhold anything here — it
@@ -228,9 +267,11 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
             ymds,
             cutoffToday,
             member.joinedDate,
-            member.badgesCarried
+            member.badgesCarried,
+            sparesByUid.get(uid) ?? 0
           );
           const succeeded = missed <= allowance.total;
+          const spent = sparesConsumed(missed, allowance.base, allowance.applied);
           outcomes.push({
             uid,
             displayName: member.displayName,
@@ -246,6 +287,7 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
             completed,
             succeeded,
             allowance,
+            spent,
           });
         }
 
@@ -276,10 +318,13 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
         }
 
         // Auto-repeat builds the successor a day before this cycle ends, so
-        // the badges it copied forward were the pre-grading total. Now that
-        // the final weeks are graded, correct it — otherwise a habit that
-        // repeats itself quietly loses every badge earned in its last cycle,
-        // which is the one people are most likely to have been counting on.
+        // the balance it copied forward was the pre-grading one. Now that the
+        // final weeks are graded, correct it — otherwise a habit that repeats
+        // itself quietly loses every spare earned in its last cycle, which is
+        // the one people are most likely to have been counting on. The
+        // correction runs in both directions: the final week may have earned
+        // one, and applied spares that grading turned out not to need are
+        // handed back here rather than burnt.
         //
         // Only members the successor actually has: someone who joined this
         // cycle after the successor was built isn't in it, and writing a
@@ -295,9 +340,14 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
         }
 
         for (const update of memberUpdates) {
+          // Everything banked, plus everything this cycle earned, less only
+          // what this cycle actually spent — which is what makes a spare last
+          // "until you use it" rather than until the cycle happens to end.
+          const balance =
+            update.allowance.carried + update.allowance.earned - update.spent;
           if (successorRef && successorMemberIds.has(update.ref.id)) {
             t.update(successorRef.collection("members").doc(update.ref.id), {
-              badgesCarried: update.allowance.carried + update.allowance.earned,
+              badgesCarried: balance,
             });
           }
           t.update(update.ref, {
@@ -307,9 +357,10 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
             // Frozen alongside the outcome so a result can always be explained
             // later, even if the badge rules change underneath it.
             badgesEarned: update.allowance.earned,
+            badgesSpent: update.spent,
             skipsAllowed: update.allowance.total,
             // What a repeat of this habit starts with (repeatChallengeAdmin).
-            badgesCarried: update.allowance.carried + update.allowance.earned,
+            badgesCarried: balance,
             adjudicatedAt,
           });
         }

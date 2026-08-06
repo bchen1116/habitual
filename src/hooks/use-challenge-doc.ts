@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { collection, doc, onSnapshot } from "firebase/firestore";
+import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
 import { getClientDb } from "@/lib/firebase/client";
 import { myReflectionsQuery } from "@/lib/reflections";
 import type {
@@ -9,6 +9,7 @@ import type {
   ChallengeMember,
   JoinRequest,
   Reflection,
+  SpareApplication,
 } from "@/lib/types";
 
 export interface ChallengeDoc {
@@ -28,6 +29,12 @@ export interface ChallengeDoc {
   joinRequests: ({ uid: string } & JoinRequest)[] | null;
   /** The viewer's own reflections only; the read rule is uid-scoped. */
   reflections: Reflection[];
+  /**
+   * The viewer's own spare-skip applications for this cycle. Every member can
+   * read every member's — in a pool habit, who is covered decides who pays —
+   * but this page only ever renders its own, so it only asks for its own.
+   */
+  spares: SpareApplication[];
 }
 
 /**
@@ -57,6 +64,7 @@ export function useChallengeDoc(id: string, uid: string): ChallengeDoc {
     ({ uid: string } & JoinRequest)[] | null
   >(null);
   const [reflections, setReflections] = useState<Reflection[]>([]);
+  const [spares, setSpares] = useState<SpareApplication[]>([]);
 
   useEffect(() => {
     const unsubscribe = onSnapshot(
@@ -94,6 +102,22 @@ export function useChallengeDoc(id: string, uid: string): ChallengeDoc {
       myReflectionsQuery(getClientDb(), id, uid),
       (snap) => setReflections(snap.docs.map((d) => d.data() as Reflection)),
       (err) => console.error("reflections query failed:", err)
+    );
+    return unsubscribe;
+  }, [id, uid]);
+
+  // Own applications only. The read rule allows any member's, deliberately —
+  // in a pool habit, who is covered decides who pays — but nothing on this
+  // page renders anyone else's, and an unfiltered listen would cost a
+  // document per member per week for a card that shows one member's.
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      query(
+        collection(getClientDb(), "challenges", id, "spares"),
+        where("uid", "==", uid)
+      ),
+      (snap) => setSpares(snap.docs.map((d) => d.data() as SpareApplication)),
+      (err) => console.error("spares query failed:", err)
     );
     return unsubscribe;
   }, [id, uid]);
@@ -152,5 +176,6 @@ export function useChallengeDoc(id: string, uid: string): ChallengeDoc {
     member: members?.find((m) => m.uid === uid) ?? null,
     joinRequests,
     reflections,
+    spares,
   };
 }

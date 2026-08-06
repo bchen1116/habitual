@@ -198,16 +198,52 @@ export interface ChallengeMember {
    */
   joinedDate?: string;
   /**
-   * Spare skips earned by completing whole weeks, banked against this habit
-   * (see lib/badges.ts). Rolled forward by repeatChallengeAdmin so they can be
-   * spent in a later cycle of the same habit, never another one. Absent on
-   * members predating badges; treat as 0.
+   * The **unspent** spare-skip balance this cycle opened with: everything
+   * earned in earlier cycles of this habit, less everything actually spent
+   * there (see lib/badges.ts). Rolled forward by repeatChallengeAdmin and by
+   * the auto-repeat job, then corrected by adjudication once the final week is
+   * graded. Absent on members predating badges; treat as 0.
+   *
+   * It used to be the *gross* running total, because nothing ever consumed a
+   * badge — they raised the allowance automatically and were carried forward
+   * whole regardless. Now that spares are spent deliberately, "banked" has to
+   * mean "still yours". Old values need no migration: with nothing ever
+   * deducted, every stored total already was the unspent balance.
    */
   badgesCarried?: number;
   /** Badges earned in this cycle, frozen at adjudication. */
   badgesEarned?: number;
-  /** skipDays + badges, frozen at adjudication so a result stays explainable. */
+  /**
+   * skipDays + spares applied to this cycle, frozen at adjudication so a
+   * result stays explainable.
+   */
   skipsAllowed?: number;
+  /** Spares this cycle actually consumed, frozen at adjudication. */
+  badgesSpent?: number;
+}
+
+/**
+ * challenges/{cid}/spares/{windowStart}_{uid} — spare skips the member has
+ * deliberately committed to one missed week of this cycle.
+ *
+ * Spares are *earned* by keeping a whole week (lib/badges.ts) and they follow
+ * the habit across repeats, but they are no longer spent on the member's
+ * behalf. Nothing here is written by the client: the balance a spare is drawn
+ * against spans the whole repeat chain, and security rules cannot aggregate,
+ * so every application goes through the server (lib/server/spares-admin.ts).
+ *
+ * Keyed on the window it covers rather than being a bare counter, because a
+ * spare that names the week it saved can be shown in the history, taken back
+ * while the cycle is still running, and bounded by that week's actual
+ * shortfall — a counter could be none of those things.
+ */
+export interface SpareApplication {
+  uid: string;
+  /** yyyymmdd — the first day of the 7-day window this covers. */
+  windowStart: string;
+  /** Spares committed to this window; at least 1, never above its shortfall. */
+  count: number;
+  appliedAt: Timestamp | null;
 }
 
 /** challenges/{cid}/joinRequests/{uid} — pending approval on an invite-only group. */

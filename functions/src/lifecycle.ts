@@ -1,6 +1,8 @@
 import { getFirestore } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { sendPush } from "./notifications";
+import { addDaysYmd } from "./dates";
+import { spareNudgeBody, spareShortfall } from "./spare-nudge";
 import {
   currentWindow,
   needsCheckinToday,
@@ -111,6 +113,28 @@ export async function sendDailyLifecycleNotifications(now: Date): Promise<void> 
               await sendPush(userDoc.id, {
                 title: "Last day!",
                 body: `Final check-in for "${challenge.name}" — don't lose your stake now.`,
+                targetUrl: `/challenges/${challengeDoc.id}`,
+                category: "challengeLifecycle",
+              });
+            }
+          }
+
+          // The morning after a cycle ends, while it waits out the
+          // adjudication buffer: the last moment a banked spare can still
+          // save the stake, and the first at which the shortfall is final.
+          // See spare-nudge.ts — it returns null unless spending the balance
+          // would actually change the outcome, which is nearly always.
+          if (addDaysYmd(challenge.endDate, 1) === today) {
+            const shortfall = await spareShortfall(
+              challengeDoc.ref,
+              challenge as Parameters<typeof spareShortfall>[1],
+              userDoc.id,
+              today
+            );
+            if (shortfall) {
+              await sendPush(userDoc.id, {
+                title: "A spare skip can still save this",
+                body: spareNudgeBody(challenge.name, shortfall),
                 targetUrl: `/challenges/${challengeDoc.id}`,
                 category: "challengeLifecycle",
               });
