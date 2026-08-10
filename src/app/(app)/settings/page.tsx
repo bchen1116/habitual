@@ -6,6 +6,7 @@ import { LeaderboardPrivacy } from "@/components/leaderboard-privacy";
 import { ProfileEditor } from "@/components/profile-editor";
 import { SignOutButton } from "@/components/sign-out-button";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { TimeOffSettings } from "@/components/time-off-settings";
 import {
   Card,
   CardContent,
@@ -47,6 +48,19 @@ export default async function SettingsPage() {
           </CardHeader>
           <CardContent>
             <LeaderboardPrivacy uid={user.uid} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Time off</CardTitle>
+            <CardDescription>
+              Holidays, illness, anything you know is coming — booked ahead, so
+              no habit counts those days against you.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <TimeOffSettings uid={user.uid} />
           </CardContent>
         </Card>
 

@@ -75,14 +75,19 @@ function hasTappableMiss(
   challenge: Challenge,
   checkinYmds: string[],
   today: string,
-  joinedDate?: string
+  joinedDate?: string,
+  away?: ReadonlySet<string>
 ): boolean {
   if (challenge.frequency.type === "daily") {
-    return dailyHistory(challenge, new Set(checkinYmds), today, joinedDate).some(
-      (e) => e.state === "missed"
-    );
+    return dailyHistory(
+      challenge,
+      new Set(checkinYmds),
+      today,
+      joinedDate,
+      away
+    ).some((e) => e.state === "missed");
   }
-  return weeklyWindows(challenge, checkinYmds, today, joinedDate).some(
+  return weeklyWindows(challenge, checkinYmds, today, joinedDate, away).some(
     (w) => w.state === "past-incomplete"
   );
 }
@@ -92,6 +97,7 @@ function DailyHistoryGrid({
   checkinYmds,
   today,
   memberJoinedDate,
+  away,
   pastCycles,
   reflectionsByDate,
   onSelectMiss,
@@ -100,6 +106,7 @@ function DailyHistoryGrid({
   checkinYmds: string[];
   today: string;
   memberJoinedDate?: string;
+  away?: ReadonlySet<string>;
   pastCycles: PastCycle[];
 } & HistoryReflectionProps) {
   const [showAll, setShowAll] = useState(false);
@@ -109,13 +116,21 @@ function DailyHistoryGrid({
   // tapping a day here would file the note against the wrong challenge.
   const all = [
     ...pastCycles.flatMap((c) =>
-      dailyHistory(c.challenge, new Set(c.checkinYmds), today, c.joinedDate).map(
-        (e) => ({ ...e, settled: true })
-      )
+      dailyHistory(
+        c.challenge,
+        new Set(c.checkinYmds),
+        today,
+        c.joinedDate,
+        c.away
+      ).map((e) => ({ ...e, settled: true }))
     ),
-    ...dailyHistory(challenge, new Set(checkinYmds), today, memberJoinedDate).map(
-      (e) => ({ ...e, settled: false })
-    ),
+    ...dailyHistory(
+      challenge,
+      new Set(checkinYmds),
+      today,
+      memberJoinedDate,
+      away
+    ).map((e) => ({ ...e, settled: false })),
   ];
   const { start, end } = recentWindow(
     all.length,
@@ -139,13 +154,23 @@ function DailyHistoryGrid({
               ? "bg-destructive/15 text-destructive"
               : entry.state === "today"
                 ? "border-2 border-primary text-foreground"
-                : "bg-secondary text-muted-foreground");
+                : // A skipped day is drawn as an outline rather than a fill:
+                  // it's a hole in the record by arrangement, and the one
+                  // thing it must never read as is either a day kept or a day
+                  // dropped.
+                  entry.state === "skipped"
+                  ? "border border-dashed border-muted-foreground/50 text-muted-foreground"
+                  : "bg-secondary text-muted-foreground");
 
         if (entry.state !== "missed" || entry.settled) {
           return (
             <div
               key={entry.ymd}
-              title={`${formatYmd(entry.ymd)}: ${entry.state}`}
+              title={
+                entry.state === "skipped"
+                  ? `${formatYmd(entry.ymd)}: time off — nothing was due`
+                  : `${formatYmd(entry.ymd)}: ${entry.state}`
+              }
               className={cellClass}
             >
               {formatYmd(entry.ymd, "d")}
@@ -204,6 +229,7 @@ function WeeklyWindowList({
   checkinYmds,
   today,
   memberJoinedDate,
+  away,
   pastCycles,
   sparesByWindow,
   reflectionsByDate,
@@ -213,6 +239,7 @@ function WeeklyWindowList({
   checkinYmds: string[];
   today: string;
   memberJoinedDate?: string;
+  away?: ReadonlySet<string>;
   pastCycles: PastCycle[];
   sparesByWindow: SpareCoverage;
 } & HistoryReflectionProps) {
@@ -224,17 +251,25 @@ function WeeklyWindowList({
   // challenge, since reflections live per-cycle.
   const all = [
     ...pastCycles.flatMap((c) =>
-      weeklyWindows(c.challenge, c.checkinYmds, today, c.joinedDate).map((w) => ({
+      weeklyWindows(
+        c.challenge,
+        c.checkinYmds,
+        today,
+        c.joinedDate,
+        c.away
+      ).map((w) => ({
         ...w,
         settled: true,
         fullTarget: c.challenge.frequency.target,
       }))
     ),
-    ...weeklyWindows(challenge, checkinYmds, today, memberJoinedDate).map((w) => ({
-      ...w,
-      settled: false,
-      fullTarget: challenge.frequency.target,
-    })),
+    ...weeklyWindows(challenge, checkinYmds, today, memberJoinedDate, away).map(
+      (w) => ({
+        ...w,
+        settled: false,
+        fullTarget: challenge.frequency.target,
+      })
+    ),
   ];
   const { start, end } = recentWindow(
     all.length,
@@ -255,6 +290,7 @@ function WeeklyWindowList({
         // Covered weeks stop reading as failures — that's what spending the
         // spare bought. A shortfall bigger than the spares on it still does.
         const covered = spares > 0 && spares >= w.target - w.count;
+        const skipped = w.state === "skipped";
         // Without this, a prorated week reads as "2/2" beside its neighbours'
         // "5/5" with nothing to explain the different denominator — which
         // looks like a bug rather than the fairness adjustment it is.
@@ -264,8 +300,14 @@ function WeeklyWindowList({
         const weekLabel = (
           <span className="min-w-0">
             Week {w.index} · {formatYmd(w.start)} – {formatYmd(w.end)}
-            {w.prorated && (
+            {w.prorated && !skipped && w.awayDays === 0 && (
               <span className="text-muted-foreground"> · joined mid-week</span>
+            )}
+            {!skipped && w.awayDays > 0 && (
+              <span className="text-muted-foreground">
+                {" "}
+                · {w.awayDays} day{w.awayDays === 1 ? "" : "s"} off
+              </span>
             )}
           </span>
         );
@@ -282,7 +324,9 @@ function WeeklyWindowList({
                     : "text-muted-foreground"
             }
           >
-            {w.count}/{w.target}
+            {/* "0/0" is arithmetically right and says nothing. A week that
+                asked for nothing should say so. */}
+            {skipped ? "Time off" : `${w.count}/${w.target}`}
           </span>
         );
         const spareMark = spares > 0 && (
@@ -304,7 +348,12 @@ function WeeklyWindowList({
             <div
               key={w.index}
               title={proratedNote}
-              className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
+              className={
+                "flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm " +
+                (skipped
+                  ? "border border-dashed text-muted-foreground"
+                  : "border")
+              }
             >
               {weekLabel}
               <span className="flex shrink-0 items-center gap-1.5">
@@ -393,6 +442,7 @@ export function HistoryCard({
   checkinYmds,
   today,
   memberJoinedDate,
+  away,
   pastCycles,
   sparesByWindow,
   spareAvailable,
@@ -406,6 +456,8 @@ export function HistoryCard({
   checkinYmds: string[];
   today: string;
   memberJoinedDate?: string;
+  /** Days this cycle excuses — see lib/away.ts. */
+  away?: ReadonlySet<string>;
   pastCycles: PastCycle[];
   /** Spares on this cycle's weeks, keyed on window start. */
   sparesByWindow: SpareCoverage;
@@ -413,7 +465,13 @@ export function HistoryCard({
   spareAvailable: boolean;
 } & HistoryReflectionProps) {
   const daily = challenge.frequency.type === "daily";
-  const tappable = hasTappableMiss(challenge, checkinYmds, today, memberJoinedDate);
+  const tappable = hasTappableMiss(
+    challenge,
+    checkinYmds,
+    today,
+    memberJoinedDate,
+    away
+  );
 
   return (
     <Card>
@@ -445,6 +503,7 @@ export function HistoryCard({
             checkinYmds={checkinYmds}
             today={today}
             memberJoinedDate={memberJoinedDate}
+            away={away}
             pastCycles={pastCycles}
             reflectionsByDate={reflectionsByDate}
             onSelectMiss={onSelectMiss}
@@ -457,6 +516,7 @@ export function HistoryCard({
             checkinYmds={checkinYmds}
             today={today}
             memberJoinedDate={memberJoinedDate}
+            away={away}
             pastCycles={pastCycles}
             sparesByWindow={sparesByWindow}
             reflectionsByDate={reflectionsByDate}

@@ -3,6 +3,7 @@ import * as logger from "firebase-functions/logger";
 import { addDaysYmd, dateToYmdUTC, daysBetweenInclusive } from "./dates";
 import { repeatDurationDays } from "./duration";
 import { badgesEarnedIn, type BadgeChallenge } from "./badges";
+import { awayDaysFor, type AwayRange } from "./away";
 import { sendPushToMany } from "./notifications";
 
 /**
@@ -204,6 +205,30 @@ async function writeSuccessor(
   ]);
   const data = snap.data()!;
 
+  // Declared time off, so a week someone was away doesn't get counted as a
+  // full week kept and quietly earn them a spare on the way out.
+  const awayByUid = new Map<string, Set<string>>();
+  if (memberDocs.docs.length > 0) {
+    const userSnaps = await db.getAll(
+      ...memberDocs.docs.map((doc) => db.collection("users").doc(doc.id))
+    );
+    for (const userSnap of userSnaps) {
+      const ranges =
+        (userSnap.data()?.awayRanges as AwayRange[] | undefined) ?? [];
+      const joinedDate = memberDocs.docs
+        .find((d) => d.id === userSnap.id)
+        ?.data()?.joinedDate as string | undefined;
+      awayByUid.set(
+        userSnap.id,
+        awayDaysFor(
+          data as { startDate: string; endDate: string },
+          ranges,
+          joinedDate
+        )
+      );
+    }
+  }
+
   // Counted here rather than read off the member doc: `badgesCarried` is only
   // written by adjudication, which hasn't run yet — this executes a day
   // *before* the cycle ends. Every week already completed is already earned
@@ -289,7 +314,8 @@ async function writeSuccessor(
             // carried yet — that is the "can only ever add the final week"
             // correction the comment above describes, now made literal.
             dateToYmdUTC(now),
-            member.joinedDate as string | undefined
+            member.joinedDate as string | undefined,
+            awayByUid.get(memberDoc.id)
           ) -
           (oldSparesByUid.get(memberDoc.id) ?? 0)
       ),

@@ -71,10 +71,16 @@ export function useChainStreak(
   checkinYmds: readonly string[],
   today: string,
   /** This member's own joinedDate — prorates a weekly window they joined into. */
-  joinedDate?: string
+  joinedDate?: string,
+  /**
+   * Days this cycle excused. Only the *local* run needs it: the carry is
+   * built by walkChain, which reads each ancestor's own ranges through the
+   * chain reader — an ancestor's budget is its own, not this cycle's.
+   */
+  away?: ReadonlySet<string>
 ): ChainStreak {
   const local = challenge
-    ? streakRun(challenge, checkinYmds, today, joinedDate)
+    ? streakRun(challenge, checkinYmds, today, joinedDate, away)
     : null;
   // Keyed on the challenge and its parent link alone: a carry is built purely
   // from *ended* cycles, so today's date and today's check-ins can't move it.
@@ -145,7 +151,9 @@ export function useMaxChainStreak(
   uid: string,
   checkinYmdsByChallenge: Readonly<Record<string, readonly string[]>>,
   today: string,
-  joinedDateByChallenge: Readonly<Record<string, string | undefined>> = {}
+  joinedDateByChallenge: Readonly<Record<string, string | undefined>> = {},
+  /** Per-habit excused days, already budgeted — see ActivityProvider. */
+  awayByChallenge: Readonly<Record<string, ReadonlySet<string>>> = {}
 ): ChainStreak {
   // Memoised because it walks every check-in date the viewer has, and it did
   // so on every render of every consumer. That only became worth doing once
@@ -176,10 +184,10 @@ export function useMaxChainStreak(
           (c) =>
             `${c.id}:${c.repeatedFromId ?? ""}:${c.streakResetAt ?? ""}:${
               joinedDateByChallenge[c.id] ?? ""
-            }`
+            }:${[...(awayByChallenge[c.id] ?? [])].join("|")}`
         )
         .join(","),
-    [challenges, joinedDateByChallenge]
+    [challenges, joinedDateByChallenge, awayByChallenge]
   );
 
   const cacheKey = chainStreakKey("current", uid, today, chainKey, checkinsKey);
@@ -199,7 +207,8 @@ export function useMaxChainStreak(
       c,
       checkinYmdsByChallenge[c.id] ?? [],
       today,
-      joinedDateByChallenge[c.id]
+      joinedDateByChallenge[c.id],
+      awayByChallenge[c.id]
     );
     return run.streak > best.streak
       ? { streak: run.streak, weeks: Math.floor(run.spanDays / 7) }
@@ -222,7 +231,13 @@ export function useMaxChainStreak(
     Promise.all(
       challenges.map(async (c): Promise<StreakSpan> => {
         const ymds = checkinYmdsByChallenge[c.id] ?? [];
-        const local = streakRun(c, ymds, today, joinedDateByChallenge[c.id]);
+        const local = streakRun(
+          c,
+          ymds,
+          today,
+          joinedDateByChallenge[c.id],
+          awayByChallenge[c.id]
+        );
         const carry = chainEligible(c, local.reachesFloor)
           ? await walkChain(db, c, uid)
           : { streak: 0, spanDays: 0 };

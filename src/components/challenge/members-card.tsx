@@ -49,7 +49,10 @@ export function MembersCard({
       onTrack: used <= challenge.skipDays,
     };
   });
-  const onTrackCount = rows.filter((r) => r.onTrack).length;
+  // Someone sitting the cycle out isn't off track, and isn't on it either —
+  // counting them either way would misdescribe the group.
+  const graded = rows.filter((r) => r.outcome !== "stepped-out");
+  const onTrackCount = graded.filter((r) => r.onTrack).length;
 
   return (
     <Card>
@@ -57,7 +60,7 @@ export function MembersCard({
         <CardTitle>Members</CardTitle>
         {state === "active" && (
           <CardDescription>
-            {onTrackCount} of {rows.length} on track
+            {onTrackCount} of {graded.length} on track
           </CardDescription>
         )}
       </CardHeader>
@@ -83,6 +86,14 @@ export function MembersCard({
             )}
             {row.outcome === "failed" && (
               <span className="text-xs font-medium text-destructive">Failed ✗</span>
+            )}
+            {row.outcome === "stepped-out" && (
+              <span
+                className="text-xs text-muted-foreground"
+                title="Booked enough of this cycle off to sit it out — no stake either way"
+              >
+                Away
+              </span>
             )}
             {row.outcome === null && (
               <>

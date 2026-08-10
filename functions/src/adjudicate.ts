@@ -1,6 +1,12 @@
 import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { addDaysYmd, dateToYmdUTC, daysBetweenInclusive } from "./dates";
+import {
+  countAwayBetween,
+  cycleTimeOff,
+  type AwayRange,
+  type CycleTimeOff,
+} from "./away";
 import { sendPushToMany } from "./notifications";
 import { effectiveSkipDays, sparesConsumed } from "./badges";
 
@@ -73,17 +79,38 @@ function effectiveStart(
 }
 
 /**
- * How many check-ins one 7-day window demands of one member: nothing if it
- * concluded before they joined, the full target if it began on or after they
- * joined, and otherwise prorated by the days they actually had.
+ * Days of one 7-day window a member was actually available for: on or after
+ * their own start, and not declared away. The two exclusions are one idea —
+ * days that were never theirs to use — and collapsing them is what let time
+ * off be added without a second proration rule to disagree with this one.
+ */
+export function windowDaysAvailable(
+  windowStart: string,
+  windowEnd: string,
+  memberStart: string,
+  away?: ReadonlySet<string>
+): number {
+  if (windowEnd < memberStart) return 0;
+  const from = windowStart >= memberStart ? windowStart : memberStart;
+  const days =
+    daysBetweenInclusive(from, windowEnd) - countAwayBetween(from, windowEnd, away);
+  return Math.max(0, days);
+}
+
+/**
+ * How many check-ins one 7-day window demands of one member: the full target
+ * if they had all seven days of it, nothing if they had none (it closed before
+ * they joined, or they were away for all of it), and otherwise prorated by the
+ * days they actually had.
  *
  * The `daysAvailable` cap is the point. Only one check-in can exist per
  * member per day (the doc id is `${localDate}_${uid}`), so without it a
  * 5×/week habit joined on a Saturday would owe 5 check-ins across 2 days —
  * a shortfall this function would charge, and one large enough to fail the
  * challenge and move real money, for something no amount of effort could
- * have prevented. `ceil` keeps the prorated figure demanding, and it never
- * reaches 0, so joining late is not a way to buy a free week either.
+ * have prevented. `ceil` keeps the prorated figure demanding, and it only
+ * reaches 0 when there was genuinely no day to use, so joining late is not a
+ * way to buy a free week either.
  *
  * Mirrors windowRequirement() in src/lib/progress.ts (this Cloud Function
  * shares no package with the Next app). The two must agree — this copy
@@ -93,11 +120,17 @@ export function windowRequirement(
   target: number,
   windowStart: string,
   windowEnd: string,
-  memberStart: string
+  memberStart: string,
+  away?: ReadonlySet<string>
 ): number {
-  if (windowEnd < memberStart) return 0;
-  if (windowStart >= memberStart) return target;
-  const daysAvailable = daysBetweenInclusive(memberStart, windowEnd);
+  const daysAvailable = windowDaysAvailable(
+    windowStart,
+    windowEnd,
+    memberStart,
+    away
+  );
+  if (daysAvailable <= 0) return 0;
+  if (daysAvailable >= 7) return target;
   return Math.min(daysAvailable, Math.ceil((target * daysAvailable) / 7));
 }
 
@@ -116,18 +149,27 @@ export function computeMissed(
   // type.
   challenge: Pick<ChallengeData, "frequency" | "startDate" | "endDate">,
   checkinYmds: readonly string[],
-  memberJoinedDate?: string
+  memberJoinedDate?: string,
+  away?: ReadonlySet<string>
 ): { missed: number; completed: number } {
   const start = effectiveStart(challenge, memberJoinedDate);
+  // Away days leave the accounting on both sides — see src/lib/progress.ts.
+  // A check-in banked on a declared day off is welcome and keeps the streak
+  // alive, but it can't offset a miss on a day that was actually asked for.
   const inRange = checkinYmds.filter(
-    (d) => d >= challenge.startDate && d <= challenge.endDate
+    (d) => d >= challenge.startDate && d <= challenge.endDate && !away?.has(d)
   );
   if (start > challenge.endDate) return { missed: 0, completed: inRange.length };
 
   if (challenge.frequency.type === "daily") {
-    const days = daysBetweenInclusive(start, challenge.endDate);
+    const days =
+      daysBetweenInclusive(start, challenge.endDate) -
+      countAwayBetween(start, challenge.endDate, away);
     const completedSinceStart = inRange.filter((d) => d >= start).length;
-    return { missed: days - completedSinceStart, completed: inRange.length };
+    return {
+      missed: Math.max(0, days - completedSinceStart),
+      completed: inRange.length,
+    };
   }
 
   const days = daysBetweenInclusive(challenge.startDate, challenge.endDate);
@@ -138,7 +180,13 @@ export function computeMissed(
     const windowStart = addDaysYmd(challenge.startDate, w * 7);
     const windowEnd = addDaysYmd(windowStart, 6);
     if (windowEnd < start) continue;
-    const required = windowRequirement(target, windowStart, windowEnd, start);
+    const required = windowRequirement(
+      target,
+      windowStart,
+      windowEnd,
+      start,
+      away
+    );
     const count = inRange.filter((d) => d >= windowStart && d <= windowEnd).length;
     missed += Math.max(0, required - count);
   }
@@ -224,6 +272,35 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
           sparesByUid.set(uid, (sparesByUid.get(uid) ?? 0) + Math.max(0, count));
         }
 
+        // Declared time off, read from each member's profile. One getAll for
+        // the whole challenge rather than a read per member, and it happens
+        // here — with the other reads — because a transaction admits no read
+        // after its first write.
+        //
+        // Read now rather than snapshotted when the range was declared: the
+        // advance-notice rule (lib/server/away-admin.ts) is what makes that
+        // safe. A range can't be added once it has started and can't be
+        // removed once it has, so what this sees for any day already past is
+        // exactly what was declared before that day began.
+        const memberUids = membersSnap.docs.map((doc) => doc.id);
+        const timeOffByUid = new Map<string, CycleTimeOff>();
+        if (memberUids.length > 0) {
+          const userSnaps = await t.getAll(
+            ...memberUids.map((uid) => db.collection("users").doc(uid))
+          );
+          for (const snap of userSnaps) {
+            const ranges =
+              (snap.data()?.awayRanges as AwayRange[] | undefined) ?? [];
+            const joinedDate = membersSnap.docs
+              .find((d) => d.id === snap.id)
+              ?.data()?.joinedDate as string | undefined;
+            timeOffByUid.set(
+              snap.id,
+              cycleTimeOff(challenge, ranges, joinedDate)
+            );
+          }
+        }
+
         const adjudicatedAt = Timestamp.fromDate(now);
         const outcomes: MemberOutcome[] = [];
         const memberUpdates: {
@@ -241,15 +318,20 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
           };
           /** Applied spares this result actually burnt. */
           spent: number;
+          /** Booked so much of this cycle off that they sat it out. */
+          steppedOut: boolean;
         }[] = [];
         for (const memberDoc of membersSnap.docs) {
           const member = memberDoc.data() as MemberData;
           const uid = memberDoc.id;
           const ymds = checkinsByUid.get(uid) ?? [];
+          const timeOff = timeOffByUid.get(uid);
+          const away = timeOff?.days;
           const { missed, completed } = computeMissed(
             challenge,
             ymds,
-            member.joinedDate
+            member.joinedDate,
+            away
           );
           // Spare skips are earned a week at a time and spent deliberately:
           // only the ones committed to a missed week of this cycle count
@@ -268,17 +350,32 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
             cutoffToday,
             member.joinedDate,
             member.badgesCarried,
-            sparesByUid.get(uid) ?? 0
+            sparesByUid.get(uid) ?? 0,
+            away
           );
           const succeeded = missed <= allowance.total;
           const spent = sparesConsumed(missed, allowance.base, allowance.applied);
-          outcomes.push({
-            uid,
-            displayName: member.displayName,
-            username: member.username ?? null,
-            charityName: member.charityName ?? null,
-            succeeded,
-          });
+          const steppedOut = timeOff?.steppedOut === true;
+          // Someone who sat this cycle out is not in `outcomes`, and that
+          // single omission is the whole of what stepping out means for money:
+          // outcomes is what the ledger is built from below, so they neither
+          // forfeit nor take a share of a pool. Skipping the push rather than
+          // filtering later keeps it impossible to reintroduce them by adding
+          // a branch that forgets.
+          //
+          // It has to be an omission rather than a `succeeded: true`: in pool
+          // mode a winner divides the losers' stakes, so "succeeded" would pay
+          // them for a cycle they were absent from — which is the exact
+          // unfairness the step-out threshold exists to prevent.
+          if (!steppedOut) {
+            outcomes.push({
+              uid,
+              displayName: member.displayName,
+              username: member.username ?? null,
+              charityName: member.charityName ?? null,
+              succeeded,
+            });
+          }
           // Deferred to after the venmo reads below — transactions require
           // every read to happen before the first write.
           memberUpdates.push({
@@ -288,6 +385,7 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
             succeeded,
             allowance,
             spent,
+            steppedOut,
           });
         }
 
@@ -351,7 +449,15 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
             });
           }
           t.update(update.ref, {
-            outcome: update.succeeded ? "succeeded" : "failed",
+            // "stepped-out" rather than null: null is a cycle still running,
+            // and a member row that reverts to looking un-graded once results
+            // are in reads as a bug rather than as an arrangement.
+            outcome: update.steppedOut
+              ? "stepped-out"
+              : update.succeeded
+                ? "succeeded"
+                : "failed",
+            steppedOut: update.steppedOut,
             completedCount: update.completed,
             skipsUsed: Math.min(update.missed, update.allowance.total),
             // Frozen alongside the outcome so a result can always be explained
@@ -423,7 +529,11 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
         // an early return above this point would re-process forever.
         t.update(challengeDoc.ref, { status: "adjudicated", adjudicatedAt });
 
-        notifyMemberUids = outcomes.map((o) => o.uid);
+        // Every member, not just the graded ones: someone who sat the cycle
+        // out is still in the habit and still wants to know it finished. They
+        // are absent from `outcomes` because that list builds the ledger, and
+        // reusing it here would have quietly made "no stake" mean "no news".
+        notifyMemberUids = memberUpdates.map((u) => u.ref.id);
         notifiedChallengeName = challenge.name;
       });
       processed++;

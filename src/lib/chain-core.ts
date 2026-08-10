@@ -1,6 +1,7 @@
 import { addDaysYmd } from "@/lib/dates";
+import { awayDaysFor } from "@/lib/away";
 import { longestStreak, streakRun } from "@/lib/streak";
-import type { Challenge } from "@/lib/types";
+import type { AwayRange, Challenge } from "@/lib/types";
 
 // Backstop against a corrupted/cyclic repeatedFromId chain, not a product limit.
 const MAX_CHAIN_DEPTH = 500;
@@ -26,6 +27,14 @@ export interface ChainReader {
    * particular cycle late.
    */
   getJoinedDate(challengeId: string, uid: string): Promise<string | undefined>;
+  /**
+   * The user's declared time off (users/{uid}.awayRanges). One list for the
+   * whole walk — it's a property of the person, not of a cycle — which each
+   * cycle then budgets for itself (see awayDaysFor). Readers are expected to
+   * memoize it; the walk asks once per cycle rather than threading it, so a
+   * reader that didn't would turn a chain walk into N user-doc reads.
+   */
+  getAwayRanges(uid: string): Promise<AwayRange[]>;
 }
 
 /**
@@ -65,15 +74,20 @@ export async function walkChainWith(
     // Independent of each other, so one round trip rather than two. The walk
     // itself stays sequential by nature — whether to look at the next ancestor
     // depends on how this one turned out.
-    const [ymds, joinedDate] = await Promise.all([
+    const [ymds, joinedDate, awayRanges] = await Promise.all([
       reader.getCheckinYmds(ancestor.id, uid),
       reader.getJoinedDate(ancestor.id, uid),
+      reader.getAwayRanges(uid),
     ]);
     const run = streakRun(
       ancestor,
       ymds,
       addDaysYmd(ancestor.endDate, 1),
-      joinedDate
+      joinedDate,
+      // Budgeted against this ancestor's own length, not the chain's: each
+      // cycle allows its own share, so a fortnight off doesn't void a short
+      // ancestor just because a later cycle was long enough to absorb it.
+      awayDaysFor(ancestor, awayRanges, joinedDate)
     );
     streak += run.streak;
     spanDays += run.spanDays;
@@ -137,13 +151,16 @@ export async function chainLongestStreakWith(
   today: string
 ): Promise<number> {
   const cycles = await collectChainCycles(reader, challenge);
+  const awayRanges = await reader.getAwayRanges(uid);
   if (cycles.length === 1) {
+    const joined = await reader.getJoinedDate(challenge.id, uid);
     const ymds = await reader.getCheckinYmds(challenge.id, uid);
     return longestStreak(
       challenge,
       ymds,
       today,
-      await reader.getJoinedDate(challenge.id, uid)
+      joined,
+      awayDaysFor(challenge, awayRanges, joined)
     );
   }
 
@@ -157,6 +174,16 @@ export async function chainLongestStreakWith(
     }))
   );
   const allYmds = perCycle.flatMap((c) => c.ymds);
+  // The union of each cycle's OWN honoured days, not the spanning challenge's.
+  // Budgeting against the synthetic span would hand a three-cycle chain 25% of
+  // twelve weeks to spend anywhere in it, including entirely inside one cycle
+  // that was only ever entitled to a quarter of four.
+  const away = new Set<string>();
+  cycles.forEach((cycle, i) => {
+    for (const ymd of awayDaysFor(cycle, awayRanges, perCycle[i].joined)) {
+      away.add(ymd);
+    }
+  });
   // The earliest point they were actually in this habit. A chain can reach
   // back past someone's own membership (the Admin SDK reads cycles they were
   // never part of), and the spanning challenge below starts at the oldest
@@ -193,5 +220,5 @@ export async function chainLongestStreakWith(
     // streakResetAt floors the *live* streak only.
     streakResetAt: null,
   };
-  return longestStreak(spanning, allYmds, today, joinedDate);
+  return longestStreak(spanning, allYmds, today, joinedDate, away);
 }

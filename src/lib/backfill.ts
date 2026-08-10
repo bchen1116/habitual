@@ -27,6 +27,8 @@ import type { Challenge } from "@/lib/types";
  * - **Not a day already logged.** Check-ins are create-only in the rules, so
  *   this would fail at the server anyway; catching it here means the UI never
  *   offers an action that cannot succeed.
+ * - **Not a day you declared off.** Nothing was missed, so there is nothing
+ *   to repair.
  *
  * The equivalent constraints exist in firestore.rules, which is what actually
  * enforces them — this predicate exists so the interface only ever offers
@@ -37,10 +39,15 @@ export function canBackfill(
   ymd: string,
   today: string,
   checkedInYmds: readonly string[] | ReadonlySet<string>,
-  memberJoinedDate?: string
+  memberJoinedDate?: string,
+  away?: ReadonlySet<string>
 ): boolean {
   if (challenge.status !== "active") return false;
   if (ymd < effectiveStart(challenge, memberJoinedDate)) return false;
+  // A day declared off was never missed, so there's nothing to log after the
+  // fact. Checking in live on one is still allowed — see progressSummary —
+  // but a backfill exists to repair a miss, and this isn't one.
+  if (away?.has(ymd)) return false;
   if (ymd > challenge.endDate) return false;
   if (ymd >= today) return false;
 

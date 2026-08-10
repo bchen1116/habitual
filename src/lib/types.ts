@@ -11,6 +11,27 @@ export type ChallengeStatus = "active" | "cancelled" | "adjudicated";
  */
 export type LeaderboardVisibility = "friends" | "hidden";
 
+/**
+ * users/{uid}.awayRanges — dates the user declared off, in advance.
+ *
+ * On the user rather than on each habit because a holiday is one fact about a
+ * person, not one per habit they're in: re-entering the same fortnight on
+ * eight habits is a chore nobody does, and half-entering it is worse than not
+ * offering it. Each habit then honours what it can afford (see lib/away.ts).
+ *
+ * Server-written only, like `username` — the value of a range depends on when
+ * it was declared, and rules can't compare an array element against the
+ * user's own local date.
+ */
+export interface AwayRange {
+  /** yyyymmdd, inclusive. Always strictly after the day it was declared. */
+  start: string;
+  /** yyyymmdd, inclusive. */
+  end: string;
+  /** Optional, purely for the user's own recall — "Japan", "surgery". */
+  label?: string | null;
+}
+
 export interface Challenge {
   id: string;
   name: string;
@@ -129,6 +150,11 @@ export interface ActivitySnapshot {
   joinedDateByChallenge: Record<string, string | undefined>;
   /** users/{uid}.timezone, so the first render already knows what "today" is. */
   timezone: string | null;
+  /**
+   * users/{uid}.awayRanges, for the same reason: without it the first paint
+   * would show days as missed that the very next render marks skipped.
+   */
+  awayRanges: AwayRange[];
 }
 
 /**
@@ -179,7 +205,14 @@ export interface Reflection {
   updatedAt?: Timestamp | null;
 }
 
-export type MemberOutcome = "succeeded" | "failed" | null;
+/**
+ * "stepped-out": booked so much of the cycle off that they sat it out — no
+ * result, and no ledger entry either way (see lib/away.ts). Distinct from
+ * null, which means the cycle hasn't been graded yet: a member row that went
+ * back to looking un-graded once results landed would read as a bug rather
+ * than as the arrangement it is.
+ */
+export type MemberOutcome = "succeeded" | "failed" | "stepped-out" | null;
 
 export interface ChallengeMember {
   displayName: string;
@@ -220,6 +253,12 @@ export interface ChallengeMember {
   skipsAllowed?: number;
   /** Spares this cycle actually consumed, frozen at adjudication. */
   badgesSpent?: number;
+  /**
+   * Whether booked time off took them out of this cycle entirely. Frozen at
+   * adjudication alongside the outcome, so a settled result stays explainable
+   * even after the ranges that caused it have rolled into the past.
+   */
+  steppedOut?: boolean;
 }
 
 /**

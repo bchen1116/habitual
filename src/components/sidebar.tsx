@@ -21,8 +21,14 @@ const NAV_ITEMS = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { joinedDateByChallenge, uid, today, checkinYmdsByChallenge, activeChallenges } =
-    useActivity();
+  const {
+    joinedDateByChallenge,
+    uid,
+    today,
+    checkinYmdsByChallenge,
+    activeChallenges,
+    awayByChallenge,
+  } = useActivity();
 
   // The same collapsed, still-running set the Today hero uses, so the two
   // streak figures can't disagree (lib/cycles.ts).
@@ -31,7 +37,8 @@ export function Sidebar() {
     uid,
     checkinYmdsByChallenge,
     today,
-    joinedDateByChallenge
+    joinedDateByChallenge,
+    awayByChallenge
   );
   // Chain-aware, like the Progress page's tile: a repeated habit's best-ever
   // run spans its earlier cycles rather than restarting with each one.

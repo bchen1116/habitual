@@ -1,4 +1,5 @@
 import { computeMissed } from "./adjudicate";
+import { cycleTimeOff, type AwayRange } from "./away";
 import { canEarnBadges, effectiveSkipDays, type BadgeChallenge } from "./badges";
 
 /**
@@ -52,7 +53,9 @@ export async function spareShortfall(
   challengeRef: FirebaseFirestore.DocumentReference,
   challenge: BadgeChallenge & { skipDays: number },
   uid: string,
-  today: string
+  today: string,
+  /** The user doc, already read by the caller's pass over push-enabled users. */
+  awayRanges: readonly AwayRange[] | undefined
 ): Promise<SpareShortfall | null> {
   if (!canEarnBadges(challenge)) return null;
 
@@ -74,18 +77,28 @@ export async function spareShortfall(
   );
 
   const joinedDate = member.joinedDate as string | undefined;
+  // Without this the push would count a booked holiday as a fortnight of
+  // misses and tell someone their stake was gone over weeks they had already
+  // been excused — the most alarming possible way to be wrong.
+  const timeOff = cycleTimeOff(challenge, awayRanges, joinedDate);
+  // And someone who booked enough off to sit the cycle out has no stake to
+  // save, so urging them to spend a spare on it would be selling insurance
+  // against a risk they don't carry.
+  if (timeOff.steppedOut) return null;
+  const away = timeOff.days;
   const allowance = effectiveSkipDays(
     challenge,
     ymds,
     today,
     joinedDate,
     carried,
-    applied
+    applied,
+    away
   );
   if (allowance.available <= 0) return null;
 
   return shortfallFrom(
-    computeMissed(challenge, ymds, joinedDate).missed,
+    computeMissed(challenge, ymds, joinedDate, away).missed,
     allowance
   );
 }

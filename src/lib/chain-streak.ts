@@ -17,7 +17,7 @@ import {
   type ChainReader,
 } from "@/lib/chain-core";
 import { cachedPromise } from "@/lib/client-cache";
-import type { Challenge } from "@/lib/types";
+import type { AwayRange, Challenge } from "@/lib/types";
 
 /**
  * Client-side chain reader. Every read here is one-time (`getDoc`/`getDocs`),
@@ -86,6 +86,21 @@ function clientChainReader(db: Firestore): ChainReader {
         }
       });
     },
+    async getAwayRanges(uid) {
+      // One entry for the whole walk, not one per cycle — the ranges belong to
+      // the user, and a chain walk asks for them once per ancestor.
+      return cachedPromise(`away:${uid}`, async () => {
+        try {
+          const snap = await getDoc(doc(db, "users", uid));
+          return (snap.data()?.awayRanges as AwayRange[] | undefined) ?? [];
+        } catch {
+          // Empty rather than throwing: an unreadable profile means the walk
+          // treats every day as required, which is the strict reading and
+          // never invents time off that wasn't declared.
+          return [];
+        }
+      });
+    },
   };
 }
 
@@ -117,6 +132,13 @@ export interface PastCycle {
   challenge: Challenge;
   checkinYmds: string[];
   joinedDate?: string;
+  /**
+   * Days this cycle excused, budgeted against its own length. Carried on the
+   * cycle rather than recomputed by whoever renders it, so a settled cycle's
+   * skipped days can't be redrawn against a different budget than the one
+   * that actually applied to it.
+   */
+  away?: ReadonlySet<string>;
 }
 
 /**

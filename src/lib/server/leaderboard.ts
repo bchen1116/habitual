@@ -8,9 +8,14 @@ import {
   type ChainReader,
 } from "@/lib/chain-core";
 import { streakRun } from "@/lib/streak";
+import { awayDaysFor } from "@/lib/away";
 import { badgesEarnedIn } from "@/lib/badges";
 import { yyyymmddUTC } from "@/lib/server/challenge-admin";
-import type { Challenge, LeaderboardVisibility } from "@/lib/types";
+import type {
+  AwayRange,
+  Challenge,
+  LeaderboardVisibility,
+} from "@/lib/types";
 
 /**
  * Leaderboard ranking of everyone the viewer shares (or has shared) a habit
@@ -95,6 +100,10 @@ export function adminChainReader(db: Firestore): ChainReader {
         .get();
       return snap.data()?.joinedDate as string | undefined;
     },
+    async getAwayRanges(uid) {
+      const snap = await db.collection("users").doc(uid).get();
+      return (snap.data()?.awayRanges as AwayRange[] | undefined) ?? [];
+    },
   };
 }
 
@@ -169,6 +178,10 @@ export function memoizedChainReader(
       memo(`k:${cid}:${uid}`, () => inner.getCheckinYmds(cid, uid)),
     getJoinedDate: (cid, uid) =>
       memo(`j:${cid}:${uid}`, () => inner.getJoinedDate(cid, uid)),
+    // Keyed on the user alone, not on a cycle: a chain walk asks per ancestor
+    // and a shared board asks per peer, so without the memo this would be one
+    // user-doc read per cycle per member.
+    getAwayRanges: (uid) => memo(`a:${uid}`, () => inner.getAwayRanges(uid)),
   };
   seedTables.set(reader, cache);
   return reader;
@@ -228,13 +241,18 @@ export async function computeStreaks(
   // this replaces cost one full round trip of latency per habit.
   const perChallenge = await Promise.all(
     challenges.map(async (challenge) => {
-      const [ymds, joinedDate] = await Promise.all([
+      const [ymds, joinedDate, awayRanges] = await Promise.all([
         reader.getCheckinYmds(challenge.id, uid),
         // Their own start, so a habit they joined mid-week ranks the same way
         // it reads on their own dashboard.
         reader.getJoinedDate(challenge.id, uid),
+        reader.getAwayRanges(uid),
       ]);
-      const run = streakRun(challenge, ymds, today, joinedDate);
+      // Same reason as joinedDate: the board has to rank people by the same
+      // streak their own hero shows them, and a run that survives a declared
+      // holiday on the dashboard has to survive it here too.
+      const away = awayDaysFor(challenge, awayRanges, joinedDate);
+      const run = streakRun(challenge, ymds, today, joinedDate, away);
       // Chain-aware, so this matches the number the user's own hero shows.
       const carry =
         run.reachesFloor && !challenge.streakResetAt && challenge.repeatedFromId
@@ -244,7 +262,7 @@ export async function computeStreaks(
         chained: run.streak + carry.streak,
         weeks: Math.floor((run.spanDays + carry.spanDays) / 7),
         longest: await chainLongestStreakWith(reader, challenge, uid, today),
-        badges: badgesEarnedIn(challenge, ymds, today, joinedDate),
+        badges: badgesEarnedIn(challenge, ymds, today, joinedDate, away),
       };
     })
   );

@@ -45,12 +45,36 @@ function weekWindowBounds(challenge: Challenge): { start: string; end: string }[
 }
 
 /**
+ * Days of one 7-day window that a member was actually available for: on or
+ * after their own start, and not declared away (lib/away.ts).
+ *
+ * The two exclusions are one idea — days that were never theirs to use — and
+ * collapsing them is what let time off be added without a second, parallel
+ * proration rule that would inevitably have disagreed with this one.
+ */
+export function windowDaysAvailable(
+  windowStart: string,
+  windowEnd: string,
+  memberStart: string,
+  away?: ReadonlySet<string>
+): number {
+  if (windowEnd < memberStart) return 0;
+  const from = windowStart >= memberStart ? windowStart : memberStart;
+  let days = daysBetweenInclusive(from, windowEnd);
+  if (away && away.size > 0) {
+    for (let ymd = from; ymd <= windowEnd; ymd = addDaysYmd(ymd, 1)) {
+      if (away.has(ymd)) days--;
+    }
+  }
+  return Math.max(0, days);
+}
+
+/**
  * How many check-ins one 7-day window actually demands of one member.
  *
- * Windows that concluded before they joined are waived outright, and windows
- * that begin on or after their start owe the full target. The interesting
- * case is the window they land in the middle of, which is prorated by the
- * days they actually have.
+ * A window they had all seven days of owes the full target. One they had none
+ * of — it closed before they joined, or they were away for all of it — owes
+ * nothing. In between, it's prorated by the days they actually had.
  *
  * The `daysAvailable` cap is the part that matters most: only one check-in
  * can exist per member per day (the doc id is `${localDate}_${uid}`), so
@@ -59,7 +83,14 @@ function weekWindowBounds(challenge: Challenge): { start: string; end: string }[
  * effort could have prevented, and one that could fail the whole challenge
  * and move real money before the member had lived a single full week.
  * `ceil` keeps the prorated figure demanding rather than generous, and the
- * result is never 0, so joining mid-window is never a free pass either.
+ * result is only 0 when there was genuinely no day to use, so joining
+ * mid-window is never a free pass either.
+ *
+ * Note what proration means for time off on a weekly habit: a 3×/week week
+ * with one day away still asks for 3, because six days is ample for three
+ * sessions. Relief arrives only when the days left can't reasonably carry the
+ * target — which is the honest answer, and not one a "skip the whole week"
+ * rule could have given.
  *
  * Mirrored in functions/src/adjudicate.ts — that copy is the one that decides
  * money, this one is what the UI promises. They have to agree.
@@ -68,31 +99,62 @@ export function windowRequirement(
   target: number,
   windowStart: string,
   windowEnd: string,
-  memberStart: string
+  memberStart: string,
+  away?: ReadonlySet<string>
 ): number {
-  if (windowEnd < memberStart) return 0;
-  if (windowStart >= memberStart) return target;
-  const daysAvailable = daysBetweenInclusive(memberStart, windowEnd);
+  const daysAvailable = windowDaysAvailable(
+    windowStart,
+    windowEnd,
+    memberStart,
+    away
+  );
+  if (daysAvailable <= 0) return 0;
+  if (daysAvailable >= 7) return target;
   return Math.min(daysAvailable, Math.ceil((target * daysAvailable) / 7));
 }
 
 /** Total check-ins needed to fully complete the challenge, from a member's own effective start onward. */
-export function totalRequired(challenge: Challenge, memberJoinedDate?: string): number {
+export function totalRequired(
+  challenge: Challenge,
+  memberJoinedDate?: string,
+  away?: ReadonlySet<string>
+): number {
   const start = effectiveStart(challenge, memberJoinedDate);
   if (start > challenge.endDate) return 0;
   if (challenge.frequency.type === "daily") {
-    return daysBetweenInclusive(start, challenge.endDate);
+    const days = daysBetweenInclusive(start, challenge.endDate);
+    return days - countAwayBetween(start, challenge.endDate, away);
   }
   return weekWindowBounds(challenge).reduce(
     (sum, w) =>
-      sum + windowRequirement(challenge.frequency.target, w.start, w.end, start),
+      sum +
+      windowRequirement(challenge.frequency.target, w.start, w.end, start, away),
     0
   );
 }
 
+/** Away days inside an inclusive span. */
+function countAwayBetween(
+  from: string,
+  to: string,
+  away?: ReadonlySet<string>
+): number {
+  if (!away || away.size === 0) return 0;
+  let count = 0;
+  for (let ymd = from; ymd <= to; ymd = addDaysYmd(ymd, 1)) {
+    if (away.has(ymd)) count++;
+  }
+  return count;
+}
+
 export interface DayEntry {
   ymd: string;
-  state: "done" | "missed" | "today" | "future";
+  /**
+   * "skipped": declared away in advance, so it was never required — distinct
+   * from "missed" in every way that matters, and from "done" too, since
+   * nothing was asked and nothing was given.
+   */
+  state: "done" | "missed" | "today" | "future" | "skipped";
 }
 
 /** Per-day history for daily challenges, from a member's own effective start onward. */
@@ -100,7 +162,8 @@ export function dailyHistory(
   challenge: Challenge,
   checkinYmds: ReadonlySet<string>,
   today: string,
-  memberJoinedDate?: string
+  memberJoinedDate?: string,
+  away?: ReadonlySet<string>
 ): DayEntry[] {
   const start = effectiveStart(challenge, memberJoinedDate);
   if (start > challenge.endDate) return [];
@@ -108,7 +171,15 @@ export function dailyHistory(
   const entries: DayEntry[] = [];
   for (let i = 0; i < days; i++) {
     const ymd = addDaysYmd(start, i);
-    if (checkinYmds.has(ymd)) {
+    // Away wins over done, deliberately. Every counter on the habit page
+    // leaves away days out on both sides — they aren't in the denominator, so
+    // letting one into the numerator produces "9 of 8 check-ins". Doing the
+    // habit anyway is still recognised where recognition belongs: the streak
+    // reads the check-ins directly, so a day kept on holiday keeps the run
+    // alive rather than merely not breaking it.
+    if (away?.has(ymd)) {
+      entries.push({ ymd, state: "skipped" });
+    } else if (checkinYmds.has(ymd)) {
       entries.push({ ymd, state: "done" });
     } else if (ymd === today) {
       entries.push({ ymd, state: "today" });
@@ -128,9 +199,16 @@ export interface WindowEntry {
   count: number;
   /** This member's requirement for the window — prorated if they joined into it. */
   target: number;
-  /** True when `target` is below the challenge's, i.e. they joined mid-window. */
+  /**
+   * True when `target` is below the challenge's — they joined mid-window, or
+   * were away for part of it. Also what stops such a week earning a spare
+   * (lib/badges.ts), which is why one flag covers both causes: neither is a
+   * full week kept.
+   */
   prorated: boolean;
-  state: "complete" | "current" | "past-incomplete" | "future";
+  /** Days of this window declared away. 7 means the week asked nothing. */
+  awayDays: number;
+  state: "complete" | "current" | "past-incomplete" | "future" | "skipped";
 }
 
 /**
@@ -144,7 +222,8 @@ export function weeklyWindows(
   challenge: Challenge,
   checkinYmds: readonly string[],
   today: string,
-  memberJoinedDate?: string
+  memberJoinedDate?: string,
+  away?: ReadonlySet<string>
 ): WindowEntry[] {
   const start = effectiveStart(challenge, memberJoinedDate);
   const fullTarget = challenge.frequency.target;
@@ -154,10 +233,23 @@ export function weeklyWindows(
   const windows: WindowEntry[] = [];
   weekWindowBounds(challenge).forEach((bounds, w) => {
     if (bounds.end < start) return;
-    const target = windowRequirement(fullTarget, bounds.start, bounds.end, start);
-    const count = checkinYmds.filter((d) => d >= bounds.start && d <= bounds.end).length;
+    const target = windowRequirement(
+      fullTarget,
+      bounds.start,
+      bounds.end,
+      start,
+      away
+    );
+    const awayDays = countAwayBetween(bounds.start, bounds.end, away);
+    // Away days are out of the accounting on both sides — see dailyHistory.
+    const count = checkinYmds.filter(
+      (d) => d >= bounds.start && d <= bounds.end && !away?.has(d)
+    ).length;
     let state: WindowEntry["state"];
-    if (count >= target) state = "complete";
+    // A week that asked for nothing is neither passed nor failed, and calling
+    // it "complete" would put a tick beside a week nobody did anything in.
+    if (target === 0 && awayDays > 0) state = "skipped";
+    else if (count >= target) state = "complete";
     else if (today > bounds.end) state = "past-incomplete";
     else if (today >= bounds.start) state = "current";
     else state = "future";
@@ -168,6 +260,7 @@ export function weeklyWindows(
       count,
       target,
       prorated: target < fullTarget,
+      awayDays,
       state,
     });
   });
@@ -183,24 +276,31 @@ export function skipsUsed(
   challenge: Challenge,
   checkinYmds: readonly string[],
   today: string,
-  memberJoinedDate?: string
+  memberJoinedDate?: string,
+  away?: ReadonlySet<string>
 ): number {
   const start = effectiveStart(challenge, memberJoinedDate);
   if (challenge.frequency.type === "daily") {
     const lastCountable =
       today > challenge.endDate ? challenge.endDate : addDaysYmd(today, -1);
     if (lastCountable < start) return 0;
-    const elapsed = daysBetweenInclusive(start, lastCountable);
+    const elapsed =
+      daysBetweenInclusive(start, lastCountable) -
+      countAwayBetween(start, lastCountable, away);
+    // Only days that were required: a check-in banked while away is welcome
+    // but can't offset a miss on a day that was actually asked for.
     const done = checkinYmds.filter(
-      (d) => d >= start && d <= lastCountable
+      (d) => d >= start && d <= lastCountable && !away?.has(d)
     ).length;
     return Math.max(0, elapsed - done);
   }
   // Every window's `end` is <= challenge.endDate (weeklyWindows' loop bound),
   // so once today > endDate every non-"complete" window is already forced to
   // "past-incomplete" by weeklyWindows' own state logic — a plain
-  // "past-incomplete" filter already covers the ended-challenge case.
-  return weeklyWindows(challenge, checkinYmds, today, memberJoinedDate)
+  // "past-incomplete" filter already covers the ended-challenge case. A
+  // fully-away window is "skipped" rather than either, so it contributes
+  // nothing here without needing its own exclusion.
+  return weeklyWindows(challenge, checkinYmds, today, memberJoinedDate, away)
     .filter((w) => w.state === "past-incomplete")
     .reduce((sum, w) => sum + Math.max(0, w.target - w.count), 0);
 }
@@ -209,8 +309,13 @@ export interface HabitWeekDay {
   ymd: string;
   /** Narrow weekday initial for that actual date — F for a Friday, not a fixed grid. */
   letter: string;
-  /** "inactive": inside the window but before this member joined — never a miss. */
-  state: "done" | "missed" | "today" | "future" | "inactive";
+  /**
+   * "inactive": inside the window but before this member joined — never a
+   * miss. "skipped": declared away in advance — also never a miss, but a
+   * decision rather than an accident of when they joined, so it reads
+   * differently and is worth showing differently.
+   */
+  state: "done" | "missed" | "today" | "future" | "inactive" | "skipped";
 }
 
 export interface HabitWeek {
@@ -252,7 +357,8 @@ export function habitWeek(
   challenge: Challenge,
   checkinYmds: readonly string[],
   today: string,
-  memberJoinedDate?: string
+  memberJoinedDate?: string,
+  away?: ReadonlySet<string>
 ): HabitWeek | null {
   const bounds = weekWindowBounds(challenge);
   if (bounds.length === 0) return null;
@@ -271,8 +377,9 @@ export function habitWeek(
     const ymd = addDaysYmd(start, i);
     const letter = formatYmd(ymd, "EEEEE");
     let state: HabitWeekDay["state"];
-    if (done.has(ymd)) state = "done";
-    else if (ymd < memberStart) state = "inactive";
+    if (ymd < memberStart) state = "inactive";
+    else if (away?.has(ymd)) state = "skipped";
+    else if (done.has(ymd)) state = "done";
     else if (ymd === today) state = "today";
     else if (ymd < today) state = "missed";
     else state = "future";
@@ -280,11 +387,18 @@ export function habitWeek(
   }
 
   // Daily habits store frequency.target as 1 (see createChallengeAdmin), so
-  // their real requirement is "every day you're a member", not that number.
+  // their real requirement is "every day you're a member and not away", not
+  // that number.
   const target =
     challenge.frequency.type === "daily"
-      ? days.filter((d) => d.state !== "inactive").length
-      : windowRequirement(challenge.frequency.target, start, end, memberStart);
+      ? days.filter((d) => d.state !== "inactive" && d.state !== "skipped").length
+      : windowRequirement(
+          challenge.frequency.target,
+          start,
+          end,
+          memberStart,
+          away
+        );
 
   return {
     index: index + 1 + before,
@@ -339,7 +453,8 @@ export function progressSummary(
   challenge: Challenge,
   checkinYmds: readonly string[],
   timezone: string,
-  memberJoinedDate?: string
+  memberJoinedDate?: string,
+  away?: ReadonlySet<string>
 ): ProgressSummary {
   const today = todayYmd(timezone);
   const state = challengeState(challenge, today);
@@ -348,12 +463,17 @@ export function progressSummary(
   );
   const checkedInToday = inRange.includes(today);
   return {
-    completed: inRange.length,
-    total: totalRequired(challenge, memberJoinedDate),
-    skipsUsed: skipsUsed(challenge, inRange, today, memberJoinedDate),
+    // Away days out of the numerator as well as the denominator, or a habit
+    // kept through a holiday reports more check-ins than it asked for.
+    completed: inRange.filter((d) => !away?.has(d)).length,
+    total: totalRequired(challenge, memberJoinedDate, away),
+    skipsUsed: skipsUsed(challenge, inRange, today, memberJoinedDate, away),
     daysRemaining:
       state === "active" ? daysBetweenInclusive(today, challenge.endDate) : 0,
     checkedInToday,
+    // Checking in on a day you declared off is allowed and counts for the
+    // streak; it just isn't required. Blocking it would punish someone for
+    // keeping a habit up on holiday.
     canCheckInToday: state === "active" && !checkedInToday,
   };
 }
