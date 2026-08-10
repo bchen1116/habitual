@@ -4,7 +4,7 @@ import { useState } from "react";
 import { addDaysYmd, daysBetweenInclusive, formatYmd, todayYmd } from "@/lib/dates";
 import { useActivity } from "@/components/activity-provider";
 import { TimeOffImpact } from "@/components/time-off-impact";
-import { habitImpacts } from "@/lib/time-off-impact";
+import { groupImpacts, habitImpacts } from "@/lib/time-off-impact";
 import { useUserSettings } from "@/hooks/use-user-settings";
 import { addAwayRange, removeAwayRange } from "@/lib/away-client";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,8 @@ export function TimeOffSettings({ uid }: { uid: string }) {
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Which booked range is mid-confirmation, by start date. */
+  const [confirming, setConfirming] = useState<string | null>(null);
 
   async function handleAdd() {
     setBusy(true);
@@ -67,6 +69,7 @@ export function TimeOffSettings({ uid }: { uid: string }) {
     setError(null);
     try {
       await removeAwayRange(rangeStart);
+      setConfirming(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't remove that.");
     } finally {
@@ -85,13 +88,15 @@ export function TimeOffSettings({ uid }: { uid: string }) {
   /** The breakdown for one stretch, against the ranges that would then exist. */
   function impactsFor(range: { start: string; end: string }, extra = false) {
     const ranges = extra ? [...awayRanges, range] : awayRanges;
-    return habitImpacts(
-      challenges ?? [],
-      ranges,
-      range,
-      joinedDateByChallenge,
-      checkinYmdsByChallenge,
-      timezone
+    return groupImpacts(
+      habitImpacts(
+        challenges ?? [],
+        ranges,
+        range,
+        joinedDateByChallenge,
+        checkinYmdsByChallenge,
+        timezone
+      )
     );
   }
 
@@ -134,32 +139,66 @@ export function TimeOffSettings({ uid }: { uid: string }) {
                     <span className="text-muted-foreground"> · {range.label}</span>
                   )}
                 </span>
-                {started ? (
-                  // Fixed once it begins, the mirror of booking in advance:
-                  // removing it would make days already lived retroactively
-                  // required, and in a group that rewrites what everyone
-                  // else's result was measured against.
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {range.end < today ? "Past" : "In progress"}
-                  </span>
-                ) : (
+                <span className="flex shrink-0 items-center gap-2">
+                  {started && (
+                    <span className="text-xs text-muted-foreground">
+                      {range.end < today ? "Past" : "In progress"}
+                    </span>
+                  )}
+                  {/* Removable whether or not it has started. Deleting time
+                      off is the self-harming direction — it hands days back
+                      to the habit — so the only thing standing between you
+                      and it is knowing what it costs. */}
                   <Button
                     variant="ghost"
                     size="sm"
                     disabled={busy}
-                    onClick={() => handleRemove(range.start)}
+                    onClick={() =>
+                      started
+                        ? setConfirming(
+                            confirming === range.start ? null : range.start
+                          )
+                        : handleRemove(range.start)
+                    }
                   >
                     Remove
                   </Button>
-                )}
+                </span>
                 </div>
+                {confirming === range.start && (
+                  <div className="mt-2 rounded-xl border-2 border-input p-3">
+                    <p className="text-sm">
+                      These days go back to counting. Any you didn&apos;t check
+                      in become misses, and any habit you were sitting out{" "}
+                      {range.end < today ? "would have wanted" : "will want"}{" "}
+                      you back. Nothing that&apos;s already been graded changes.
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => handleRemove(range.start)}
+                      >
+                        {busy ? "Removing…" : "Remove it anyway"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setConfirming(null)}
+                      >
+                        Keep it
+                      </Button>
+                    </div>
+                  </div>
+                )}
                 {/* The same breakdown after booking as before it. Which
                     cycles a stretch covers changes as habits are created,
                     repeated and joined, so this is not a one-time
                     confirmation that can be shown once and forgotten. */}
                 {impacts.length > 0 && (
                   <div className="mt-2">
-                    <TimeOffImpact impacts={impacts} untouched={0} />
+                    <TimeOffImpact groups={impacts} untouched={0} />
                   </div>
                 )}
               </li>
@@ -208,12 +247,12 @@ export function TimeOffSettings({ uid }: { uid: string }) {
               {formatYmd(startYmd)} – {formatYmd(endYmd)}, habit by habit
             </p>
             <TimeOffImpact
-              impacts={preview}
+              groups={preview}
               untouched={
                 (challenges ?? []).filter(
                   (c) =>
                     c.status === "active" &&
-                    !preview.some((i) => i.challenge.id === c.id)
+                    !preview.some((g) => g.challengeId === c.id)
                 ).length
               }
             />
