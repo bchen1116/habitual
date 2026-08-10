@@ -64,7 +64,8 @@ export function streakRun(
   challenge: Challenge,
   checkinYmds: ReadonlySet<string> | readonly string[],
   asOf: string,
-  memberJoinedDate?: string
+  memberJoinedDate?: string,
+  away?: ReadonlySet<string>
 ): StreakRun {
   const checkins =
     checkinYmds instanceof Set ? checkinYmds : new Set(checkinYmds);
@@ -73,13 +74,28 @@ export function streakRun(
   if (challenge.frequency.type === "daily") {
     let cursor = checkins.has(asOf) ? asOf : addDaysYmd(asOf, -1);
     let streak = 0;
-    while (cursor >= floor && checkins.has(cursor)) {
+    let spanDays = 0;
+    // A day declared away is stepped over rather than counted or stopped at:
+    // it was never required, so it can't be a break, and nothing was done, so
+    // it isn't a day of the run either. It still costs calendar time, which
+    // is why `spanDays` stops tracking `streak` here — "12 days, 3 weeks
+    // unbroken" is the honest reading of a run that ran through a holiday.
+    while (cursor >= floor) {
+      if (away?.has(cursor)) {
+        spanDays++;
+        cursor = addDaysYmd(cursor, -1);
+        continue;
+      }
+      if (!checkins.has(cursor)) break;
       streak++;
+      spanDays++;
       cursor = addDaysYmd(cursor, -1);
     }
-    // Every day in a daily run is a consecutive calendar day, so the run's
-    // span and its count are the same number.
-    return { streak, reachesFloor: cursor < floor, spanDays: streak };
+    // Trailing away days belong to no run — a streak that "spans" the
+    // holiday you came back from, having done nothing before it, is a span
+    // measured from nothing.
+    if (streak === 0) spanDays = 0;
+    return { streak, reachesFloor: cursor < floor, spanDays };
   }
 
   // Floor the CHECKINS, not the windows: a reset can land mid-window (the
@@ -97,7 +113,8 @@ export function streakRun(
     challenge,
     flooredCheckins,
     asOf,
-    memberJoinedDate
+    memberJoinedDate,
+    away
   ).filter((w) => w.end >= floor);
   // The streak breaks at the most recent window that actually failed;
   // check-in days after it (complete windows and the still-undecided
@@ -136,7 +153,8 @@ export function longestStreak(
   challenge: Challenge,
   checkinYmds: ReadonlySet<string> | readonly string[],
   today: string,
-  memberJoinedDate?: string
+  memberJoinedDate?: string,
+  away?: ReadonlySet<string>
 ): number {
   const checkins =
     checkinYmds instanceof Set ? checkinYmds : new Set(checkinYmds);
@@ -144,7 +162,16 @@ export function longestStreak(
   if (challenge.frequency.type === "daily") {
     let best = 0;
     let run = 0;
-    for (const day of dailyHistory(challenge, checkins, today, memberJoinedDate)) {
+    // "skipped" is neither branch on purpose: a declared day off doesn't add
+    // to a run and doesn't end one, so the best run reaches straight through
+    // a holiday. Same for a "skipped" window below.
+    for (const day of dailyHistory(
+      challenge,
+      checkins,
+      today,
+      memberJoinedDate,
+      away
+    )) {
       if (day.state === "done") {
         run++;
         best = Math.max(best, run);
@@ -161,9 +188,11 @@ export function longestStreak(
   const sorted = Array.from(checkins);
   let best = 0;
   let run = 0;
-  for (const w of weeklyWindows(challenge, sorted, today, memberJoinedDate)) {
+  for (const w of weeklyWindows(challenge, sorted, today, memberJoinedDate, away)) {
     if (w.state === "complete" || w.state === "current") {
-      run += sorted.filter((d) => d >= w.start && d <= w.end).length;
+      run += sorted.filter(
+        (d) => d >= w.start && d <= w.end && !away?.has(d)
+      ).length;
       best = Math.max(best, run);
     } else if (w.state === "past-incomplete") {
       run = 0;

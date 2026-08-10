@@ -14,7 +14,7 @@ import {
   setSpare,
 } from "@/lib/challenges";
 import { useHabitDate } from "@/hooks/use-habit-date";
-import { useUserTimezone } from "@/hooks/use-user-timezone";
+import { useUserSettings } from "@/hooks/use-user-settings";
 import {
   challengeState,
   habitWeek,
@@ -33,6 +33,7 @@ import {
 import { repeatDurationDays } from "@/lib/duration";
 import { chainWeekOffsets } from "@/lib/cycles";
 import { canBackfill } from "@/lib/backfill";
+import { awayDaysFor, awaySummary } from "@/lib/away";
 import { challengePermissions } from "@/lib/challenge-permissions";
 import { useChainStreak } from "@/hooks/use-chain-streak";
 import { useChallengeDoc } from "@/hooks/use-challenge-doc";
@@ -70,7 +71,7 @@ import {
 
 export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   const router = useRouter();
-  const timezone = useUserTimezone(uid);
+  const { timezone, awayRanges } = useUserSettings(uid);
   const {
     challenge,
     allCheckins,
@@ -101,13 +102,31 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   // installed app on it the next morning — would otherwise rate and check in
   // against yesterday. See useHabitDate.
   const today = useHabitDate(timezone);
+  // One derivation for the whole page, memoised on the ranges rather than
+  // recomputed at each call site — the same discipline ActivityProvider
+  // applies for the shell, and for the same reason: a second derivation is a
+  // second chance to disagree about which days were excused.
+  const away = useMemo(
+    () =>
+      challenge
+        ? awayDaysFor(challenge, awayRanges, member?.joinedDate)
+        : undefined,
+    [challenge, awayRanges, member?.joinedDate]
+  );
   // Hook, so it has to run unconditionally — ahead of the loading/not-found
   // early returns below, which is why it takes a possibly-null challenge.
   const {
     streak: creatorStreak,
     weeks: creatorWeeks,
     pending: streakPending,
-  } = useChainStreak(challenge, uid, checkinYmds, today, member?.joinedDate);
+  } = useChainStreak(
+    challenge,
+    uid,
+    checkinYmds,
+    today,
+    member?.joinedDate,
+    away
+  );
   const rawPastCycles = usePastCycles(challenge, uid);
   // Week numbers come from the chain that's actually on screen, not from each
   // cycle's stored `weeksBefore` — see chainWeekOffsets. Every cycle in the
@@ -122,10 +141,11 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
       pastCycles: rawPastCycles.map((p, i) => ({
         ...p,
         challenge: { ...p.challenge, weeksBefore: offsets[i] },
+        away: awayDaysFor(p.challenge, awayRanges, p.joinedDate),
       })),
       weekChallenge: { ...challenge, weeksBefore: offsets[offsets.length - 1] },
     };
-  }, [challenge, rawPastCycles]);
+  }, [challenge, rawPastCycles, awayRanges]);
   const reflectionsByDate = useMemo(
     () => new Map(reflections.map((r) => [r.localDate, r])),
     [reflections]
@@ -150,14 +170,22 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   }
 
   const state = challengeState(challenge, today);
-  const summary = progressSummary(challenge, checkinYmds, timezone, member?.joinedDate);
+  const summary = progressSummary(
+    challenge,
+    checkinYmds,
+    timezone,
+    member?.joinedDate,
+    away
+  );
+  const timeOff = awaySummary(challenge, awayRanges, member?.joinedDate);
   // weekChallenge, not challenge: the strip prints "Week N of M", so it has to
   // agree with the History list underneath it about which week this is.
   const currentWeek = habitWeek(
     weekChallenge ?? challenge,
     checkinYmds,
     today,
-    member?.joinedDate
+    member?.joinedDate,
+    away
   );
   // Spares are spent deliberately now, so this screen carries two numbers
   // rather than one: what's protecting the stake (allowance.total) and what's
@@ -168,7 +196,8 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
     today,
     member?.joinedDate,
     member?.badgesCarried,
-    sparesApplied
+    sparesApplied,
+    away
   );
   const atRisk = unprotectedMisses(
     summary.skipsUsed,
@@ -187,7 +216,8 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
       challenge,
       checkinYmds,
       today,
-      member?.joinedDate
+      member?.joinedDate,
+      away
     ).find((w) => w.start === windowStart);
     if (window) {
       const appliedHere = spareCoverage.get(windowStart) ?? 0;
@@ -515,6 +545,22 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
                 />
               </div>
             )}
+            {timeOff.declared > 0 && (
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">
+                  {timeOff.honoured} day{timeOff.honoured === 1 ? "" : "s"} off
+                </span>{" "}
+                {timeOff.truncated ? (
+                  <>
+                    of the {timeOff.declared} you booked inside this habit&apos;s
+                    dates — it allows {timeOff.budget}, so the rest count as
+                    normal days.
+                  </>
+                ) : (
+                  <>booked — those days aren&apos;t counted or missed.</>
+                )}
+              </p>
+            )}
             {canEarnBadges(challenge) && (
               <SpareAllowance
                 allowance={allowance}
@@ -574,6 +620,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
           checkinYmds={checkinYmds}
           today={today}
           memberJoinedDate={member?.joinedDate}
+          away={away}
           pastCycles={pastCycles}
           sparesByWindow={spareCoverage}
           spareAvailable={takesSpares && allowance.available > 0}
@@ -601,7 +648,8 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
             missTarget.ymd,
             today,
             checkinYmds,
-            member?.joinedDate
+            member?.joinedDate,
+            away
           )
             ? () => handleBackfill(missTarget.ymd)
             : undefined

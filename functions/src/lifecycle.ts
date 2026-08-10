@@ -2,6 +2,7 @@ import { getFirestore } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { sendPush } from "./notifications";
 import { addDaysYmd } from "./dates";
+import { awayDaysFor, type AwayRange } from "./away";
 import { spareNudgeBody, spareShortfall } from "./spare-nudge";
 import {
   currentWindow,
@@ -129,7 +130,8 @@ export async function sendDailyLifecycleNotifications(now: Date): Promise<void> 
               challengeDoc.ref,
               challenge as Parameters<typeof spareShortfall>[1],
               userDoc.id,
-              today
+              today,
+              user.awayRanges as AwayRange[] | undefined
             );
             if (shortfall) {
               await sendPush(userDoc.id, {
@@ -201,11 +203,19 @@ async function sendCheckinReminder(
       .doc(userDoc.id)
       .get();
 
+    const joinedDate = memberSnap.data()?.joinedDate as string | undefined;
     const verdict = needsCheckinToday(
       challenge,
-      memberSnap.data()?.joinedDate as string | undefined,
+      joinedDate,
       today,
-      mine
+      mine,
+      // Already in hand from the pass over push-enabled users, so declared
+      // time off costs this loop no extra read.
+      awayDaysFor(
+        data as { startDate: string; endDate: string },
+        userDoc.data().awayRanges as AwayRange[] | undefined,
+        joinedDate
+      )
     );
     if (!verdict.needed) continue;
     outstanding.push({ name: challenge.name, urgent: verdict.urgent });

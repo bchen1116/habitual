@@ -6,9 +6,10 @@ import {
   type ActiveChallengeActivity,
 } from "@/hooks/use-active-challenge-checkins";
 import { useHabitDate } from "@/hooks/use-habit-date";
-import { useUserTimezone } from "@/hooks/use-user-timezone";
+import { useUserSettings } from "@/hooks/use-user-settings";
+import { awayDaysFor } from "@/lib/away";
 import { liveChallenges } from "@/lib/cycles";
-import type { ActivitySnapshot, Challenge } from "@/lib/types";
+import type { ActivitySnapshot, AwayRange, Challenge } from "@/lib/types";
 
 export interface ActivityValue extends ActiveChallengeActivity {
   /** users/{uid}.timezone, falling back to the browser's. */
@@ -42,6 +43,20 @@ export interface ActivityValue extends ActiveChallengeActivity {
    * and Progress cannot disagree about which habits are live.
    */
   activeChallenges: Challenge[];
+  /** The viewer's declared time off, unbudgeted — see lib/away.ts. */
+  awayRanges: AwayRange[];
+  /**
+   * Days each habit actually excuses, already budgeted against that habit's
+   * own length.
+   *
+   * Derived once, here, and this is the whole reason it's on the context: the
+   * same fact reached the same functions through several routes last time
+   * (`joinedDate`), and both bugs it caused were a call site that had the
+   * fact available and didn't pass it. A single map means a consumer either
+   * looks a habit up or doesn't — there is no second way to compute it and
+   * therefore no second answer.
+   */
+  awayByChallenge: Record<string, Set<string>>;
 }
 
 const ActivityContext = createContext<ActivityValue | null>(null);
@@ -84,7 +99,10 @@ export function ActivityProvider({
   // stable identity, so this genuinely holds.
   const { challenges, checkinsByChallenge, joinedDateByChallenge, loading, error } =
     useActiveChallengeCheckins(uid, initial);
-  const timezone = useUserTimezone(uid, initial?.timezone);
+  const { timezone, awayRanges } = useUserSettings(uid, {
+    timezone: initial?.timezone,
+    awayRanges: initial?.awayRanges,
+  });
 
   // Not memoised on [timezone], and not merely recomputed per render either:
   // the habit date changes with the clock, which is not a value React can
@@ -109,6 +127,22 @@ export function ActivityProvider({
     [challenges, today]
   );
 
+  // Every habit the viewer is in, not only the live ones: the Progress page
+  // and the history on a habit page both render cycles that have ended, and
+  // a settled cycle's skipped days are part of its record.
+  const awayByChallenge = useMemo(() => {
+    const byChallenge: Record<string, Set<string>> = {};
+    if (awayRanges.length === 0) return byChallenge;
+    for (const challenge of challenges ?? []) {
+      byChallenge[challenge.id] = awayDaysFor(
+        challenge,
+        awayRanges,
+        joinedDateByChallenge[challenge.id]
+      );
+    }
+    return byChallenge;
+  }, [challenges, awayRanges, joinedDateByChallenge]);
+
   const value = useMemo<ActivityValue>(
     () => ({
       challenges,
@@ -121,6 +155,8 @@ export function ActivityProvider({
       today,
       checkinYmdsByChallenge,
       activeChallenges,
+      awayRanges,
+      awayByChallenge,
     }),
     [
       challenges,
@@ -133,6 +169,8 @@ export function ActivityProvider({
       today,
       checkinYmdsByChallenge,
       activeChallenges,
+      awayRanges,
+      awayByChallenge,
     ]
   );
 

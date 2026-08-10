@@ -163,6 +163,19 @@ export async function getActiveChallengeActivity(
         perChallenge.map((c) => [c.id, c.joinedDate])
       ),
       timezone,
+      // Field-by-field like everything else here: a stored range is a plain
+      // {start, end, label} object with no Timestamp in it, but reading it
+      // through the same projection keeps that a checked property rather than
+      // an assumption the RSC boundary would fail on later.
+      awayRanges: (
+        (userSnap.data()?.awayRanges as
+          | { start: string; end: string; label?: string | null }[]
+          | undefined) ?? []
+      ).map((range) => ({
+        start: range.start,
+        end: range.end,
+        label: range.label ?? null,
+      })),
     };
   } catch (err) {
     console.error("activity prefetch failed; falling back to client fetch:", err);

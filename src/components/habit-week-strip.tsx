@@ -93,7 +93,9 @@ export function HabitWeekStrip({
               title={
                 tappable
                   ? `${formatYmd(day.ymd)}: missed — tap to log it`
-                  : `${formatYmd(day.ymd)}: ${day.state}`
+                  : day.state === "skipped"
+                    ? `${formatYmd(day.ymd)}: time off — nothing was due`
+                    : `${formatYmd(day.ymd)}: ${day.state}`
               }
               aria-label={
                 tappable
@@ -111,7 +113,12 @@ export function HabitWeekStrip({
                 day.state === "future" && "bg-secondary",
                 // Before this member joined: never red, because they weren't
                 // here to miss it — the same fairness the skip math applies.
-                day.state === "inactive" && "bg-secondary/50"
+                day.state === "inactive" && "bg-secondary/50",
+                // Declared time off. An outline rather than a fill, matching
+                // the history grid: a hole in the record by arrangement, which
+                // must read as neither kept nor dropped.
+                day.state === "skipped" &&
+                  "border border-dashed border-muted-foreground/50"
               )}
             />
             <span

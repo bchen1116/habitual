@@ -40,6 +40,7 @@ export function TodayView({
     today,
     checkinYmdsByChallenge,
     activeChallenges,
+    awayByChallenge,
   } = useActivity();
   const [error, setError] = useState<string | null>(null);
 
@@ -55,11 +56,19 @@ export function TodayView({
     uid,
     checkinYmdsByChallenge,
     today,
-    joinedDateByChallenge
+    joinedDateByChallenge,
+    awayByChallenge
   );
 
   const doneCount = activeChallenges.filter(
-    (c) => progressSummary(c, checkinYmdsByChallenge[c.id] ?? [], timezone).checkedInToday
+    (c) =>
+      progressSummary(
+        c,
+        checkinYmdsByChallenge[c.id] ?? [],
+        timezone,
+        joinedDateByChallenge[c.id],
+        awayByChallenge[c.id]
+      ).checkedInToday
   ).length;
   const actionableCount = activeChallenges.filter(
     (c) => challengeState(c, today) === "active"
@@ -73,8 +82,14 @@ export function TodayView({
   const outstandingToday = activeChallenges.filter((c) => {
     const ymds = checkinYmdsByChallenge[c.id] ?? [];
     const joinedDate = joinedDateByChallenge[c.id];
-    if (!progressSummary(c, ymds, timezone, joinedDate).canCheckInToday) return false;
-    const week = habitWeek(c, ymds, today, joinedDate);
+    const away = awayByChallenge[c.id];
+    if (!progressSummary(c, ymds, timezone, joinedDate, away).canCheckInToday) {
+      return false;
+    }
+    // A day you declared off isn't outstanding, so it can't be what the
+    // countdown is counting down for.
+    if (away?.has(today)) return false;
+    const week = habitWeek(c, ymds, today, joinedDate, away);
     if (week?.allowsExtras && week.count >= week.target) return false;
     return true;
   }).length;

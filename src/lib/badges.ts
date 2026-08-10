@@ -69,11 +69,22 @@ export function badgesEarnedIn(
   challenge: Challenge,
   checkinYmds: readonly string[],
   today: string,
-  memberJoinedDate?: string
+  memberJoinedDate?: string,
+  away?: ReadonlySet<string>
 ): number {
   if (!canEarnBadges(challenge)) return 0;
   const fullTarget = challenge.frequency.target;
-  return weeklyWindows(challenge, checkinYmds, today, memberJoinedDate).filter(
+  // A week partly or wholly declared off is `prorated` (or asks for nothing
+  // at all), so the existing full-target test already refuses it a spare —
+  // you don't bank a reward for a week you sat out. No extra rule needed,
+  // which is the point of routing time off through windowRequirement.
+  return weeklyWindows(
+    challenge,
+    checkinYmds,
+    today,
+    memberJoinedDate,
+    away
+  ).filter(
     (w) =>
       !w.prorated &&
       w.target === fullTarget &&
@@ -116,11 +127,18 @@ export function skipAllowance(
   today: string,
   memberJoinedDate?: string,
   badgesCarried = 0,
-  sparesApplied = 0
+  sparesApplied = 0,
+  away?: ReadonlySet<string>
 ): SkipAllowance {
   const base = challenge.skipDays ?? 0;
   const carried = Math.max(0, badgesCarried);
-  const earned = badgesEarnedIn(challenge, checkinYmds, today, memberJoinedDate);
+  const earned = badgesEarnedIn(
+    challenge,
+    checkinYmds,
+    today,
+    memberJoinedDate,
+    away
+  );
   const applied = Math.max(0, sparesApplied);
   return {
     base,

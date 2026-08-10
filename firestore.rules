@@ -61,10 +61,19 @@ service cloud.firestore {
       // which bypasses these rules entirely) against the usernames/{name}
       // claim collection below. Writing it here directly would let a
       // client squat a name without going through that check.
+      //
+      // "awayRanges" is excluded for the same shape of reason and a sharper
+      // one: declared time off reduces what a habit asks of you, so a client
+      // that could write it could excuse itself from a week it had already
+      // failed and keep a stake it had lost. The rule that prevents that —
+      // a range must start strictly after the user's own local today — is
+      // not expressible here: rules see only UTC, and they cannot walk an
+      // array to find which element was added. /api/account/away does both.
       allow create: if request.auth != null && request.auth.uid == uid
-                    && !("username" in request.resource.data);
+                    && !("username" in request.resource.data)
+                    && !("awayRanges" in request.resource.data);
       allow update: if request.auth != null && request.auth.uid == uid
-                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["username"]);
+                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["username", "awayRanges"]);
       allow delete: if false;
     }
 

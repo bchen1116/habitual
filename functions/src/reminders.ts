@@ -1,5 +1,5 @@
 import { addDaysYmd, daysBetweenInclusive } from "./dates";
-import { windowRequirement } from "./adjudicate";
+import { windowDaysAvailable, windowRequirement } from "./adjudicate";
 
 /**
  * "Anything still unchecked before your day ends" — the evening nudge.
@@ -56,7 +56,9 @@ export function needsCheckinToday(
   challenge: ReminderChallenge,
   memberJoinedDate: string | undefined,
   today: string,
-  checkinYmds: readonly string[]
+  checkinYmds: readonly string[],
+  /** Days declared off — nothing is asked of them, so nothing is nudged. */
+  away?: ReadonlySet<string>
 ): ReminderVerdict {
   const window = currentWindow(challenge, today);
   if (!window) return NOT_NEEDED;
@@ -69,6 +71,9 @@ export function needsCheckinToday(
       ? memberJoinedDate
       : challenge.startDate;
   if (today < memberStart) return NOT_NEEDED;
+  // Being reminded to keep a habit on a day you told the app you'd be away is
+  // the fastest way to get every notification switched off.
+  if (away?.has(today)) return NOT_NEEDED;
 
   if (challenge.frequency.type === "daily") {
     return { needed: true, urgent: true };
@@ -78,15 +83,18 @@ export function needsCheckinToday(
     challenge.frequency.target,
     window.start,
     window.end,
-    memberStart
+    memberStart,
+    away
   );
   const done = checkinYmds.filter(
-    (d) => d >= window.start && d <= window.end
+    (d) => d >= window.start && d <= window.end && !away?.has(d)
   ).length;
   const remaining = required - done;
   if (remaining <= 0) return NOT_NEEDED;
 
-  const daysLeft = daysBetweenInclusive(today, window.end);
+  // Days still available, not calendar days: on a 3×/week week with two days
+  // left and one of them away, one remaining check-in is urgent, not routine.
+  const daysLeft = windowDaysAvailable(today, window.end, memberStart, away);
   return { needed: true, urgent: remaining >= daysLeft };
 }
 

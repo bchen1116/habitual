@@ -54,7 +54,8 @@ export function badgesEarnedIn(
   challenge: BadgeChallenge,
   checkinYmds: readonly string[],
   today: string,
-  memberJoinedDate?: string
+  memberJoinedDate?: string,
+  away?: ReadonlySet<string>
 ): number {
   if (!canEarnBadges(challenge)) return 0;
   const fullTarget = challenge.frequency.target;
@@ -76,11 +77,15 @@ export function badgesEarnedIn(
       fullTarget,
       windowStart,
       windowEnd,
-      memberStart
+      memberStart,
+      away
     );
-    if (required !== fullTarget) continue; // waived or prorated — not a full week
+    // Waived, prorated by a late join, or shortened by declared time off —
+    // none of them is a full week kept, and none earns a spare. One test
+    // covers all three because they all reduce the same number.
+    if (required !== fullTarget) continue;
     const count = checkinYmds.filter(
-      (d) => d >= windowStart && d <= windowEnd
+      (d) => d >= windowStart && d <= windowEnd && !away?.has(d)
     ).length;
     if (count >= fullTarget) badges++;
   }
@@ -110,7 +115,8 @@ export function effectiveSkipDays(
   today: string,
   memberJoinedDate?: string,
   badgesCarried = 0,
-  sparesApplied = 0
+  sparesApplied = 0,
+  away?: ReadonlySet<string>
 ): {
   base: number;
   carried: number;
@@ -121,7 +127,13 @@ export function effectiveSkipDays(
 } {
   const base = challenge.skipDays ?? 0;
   const carried = Math.max(0, badgesCarried);
-  const earned = badgesEarnedIn(challenge, checkinYmds, today, memberJoinedDate);
+  const earned = badgesEarnedIn(
+    challenge,
+    checkinYmds,
+    today,
+    memberJoinedDate,
+    away
+  );
   const applied = Math.max(0, sparesApplied);
   return {
     base,
