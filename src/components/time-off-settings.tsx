@@ -4,7 +4,7 @@ import { useState } from "react";
 import { addDaysYmd, daysBetweenInclusive, formatYmd, todayYmd } from "@/lib/dates";
 import { useActivity } from "@/components/activity-provider";
 import { TimeOffImpact } from "@/components/time-off-impact";
-import { habitImpacts } from "@/lib/time-off-impact";
+import { groupImpacts, habitImpacts } from "@/lib/time-off-impact";
 import { useUserSettings } from "@/hooks/use-user-settings";
 import { addAwayRange, removeAwayRange } from "@/lib/away-client";
 import { Button } from "@/components/ui/button";
@@ -88,13 +88,15 @@ export function TimeOffSettings({ uid }: { uid: string }) {
   /** The breakdown for one stretch, against the ranges that would then exist. */
   function impactsFor(range: { start: string; end: string }, extra = false) {
     const ranges = extra ? [...awayRanges, range] : awayRanges;
-    return habitImpacts(
-      challenges ?? [],
-      ranges,
-      range,
-      joinedDateByChallenge,
-      checkinYmdsByChallenge,
-      timezone
+    return groupImpacts(
+      habitImpacts(
+        challenges ?? [],
+        ranges,
+        range,
+        joinedDateByChallenge,
+        checkinYmdsByChallenge,
+        timezone
+      )
     );
   }
 
@@ -196,7 +198,7 @@ export function TimeOffSettings({ uid }: { uid: string }) {
                     confirmation that can be shown once and forgotten. */}
                 {impacts.length > 0 && (
                   <div className="mt-2">
-                    <TimeOffImpact impacts={impacts} untouched={0} />
+                    <TimeOffImpact groups={impacts} untouched={0} />
                   </div>
                 )}
               </li>
@@ -245,12 +247,12 @@ export function TimeOffSettings({ uid }: { uid: string }) {
               {formatYmd(startYmd)} – {formatYmd(endYmd)}, habit by habit
             </p>
             <TimeOffImpact
-              impacts={preview}
+              groups={preview}
               untouched={
                 (challenges ?? []).filter(
                   (c) =>
                     c.status === "active" &&
-                    !preview.some((i) => i.challenge.id === c.id)
+                    !preview.some((g) => g.challengeId === c.id)
                 ).length
               }
             />
