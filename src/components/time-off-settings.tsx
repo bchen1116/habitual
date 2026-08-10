@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { addDaysYmd, daysBetweenInclusive, formatYmd, todayYmd } from "@/lib/dates";
-import { cycleTimeOff } from "@/lib/away";
 import { useActivity } from "@/components/activity-provider";
+import { TimeOffImpact } from "@/components/time-off-impact";
+import { habitImpacts } from "@/lib/time-off-impact";
 import { useUserSettings } from "@/hooks/use-user-settings";
 import { addAwayRange, removeAwayRange } from "@/lib/away-client";
 import { Button } from "@/components/ui/button";
@@ -33,7 +34,8 @@ const fromInput = (value: string) => value.replaceAll("-", "");
  */
 export function TimeOffSettings({ uid }: { uid: string }) {
   const { timezone, awayRanges } = useUserSettings(uid);
-  const { challenges, joinedDateByChallenge } = useActivity();
+  const { challenges, joinedDateByChallenge, checkinYmdsByChallenge } =
+    useActivity();
   const today = todayYmd(timezone);
   // Tomorrow, in the user's own timezone: the earliest the server will accept,
   // so the picker can't offer a date that would come back as an error.
@@ -80,22 +82,24 @@ export function TimeOffSettings({ uid }: { uid: string }) {
     endYmd >= startYmd &&
     startYmd >= earliest;
 
-  // Which habits this booking would take you out of, named before you commit
-  // rather than discovered on the habit page afterwards. Stepping out means
-  // no stake either way, which is a consequence nobody should meet by
-  // surprise — and it's the whole reason this control lives inside the app
+  /** The breakdown for one stretch, against the ranges that would then exist. */
+  function impactsFor(range: { start: string; end: string }, extra = false) {
+    const ranges = extra ? [...awayRanges, range] : awayRanges;
+    return habitImpacts(
+      challenges ?? [],
+      ranges,
+      range,
+      joinedDateByChallenge,
+      checkinYmdsByChallenge,
+      timezone
+    );
+  }
+
+  // Named before you commit rather than discovered on the habit page
+  // afterwards — which is the whole reason this control lives inside the app
   // shell, where the habit list is already in hand.
-  const wouldStepOutOf = valid
-    ? (challenges ?? []).filter(
-        (c) =>
-          c.status === "active" &&
-          c.endDate >= startYmd &&
-          cycleTimeOff(
-            c,
-            [...awayRanges, { start: startYmd, end: endYmd }],
-            joinedDateByChallenge[c.id]
-          ).steppedOut
-      )
+  const preview = valid
+    ? impactsFor({ start: startYmd, end: endYmd }, true)
     : [];
 
   return (
@@ -113,11 +117,13 @@ export function TimeOffSettings({ uid }: { uid: string }) {
           {awayRanges.map((range) => {
             const started = range.start <= today;
             const days = daysBetweenInclusive(range.start, range.end);
+            const impacts = impactsFor(range);
             return (
               <li
                 key={range.start}
-                className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm"
+                className="rounded-md border px-3 py-2 text-sm"
               >
+                <div className="flex items-center justify-between gap-3">
                 <span className="min-w-0">
                   {formatYmd(range.start)} – {formatYmd(range.end)}
                   <span className="text-muted-foreground">
@@ -145,6 +151,16 @@ export function TimeOffSettings({ uid }: { uid: string }) {
                   >
                     Remove
                   </Button>
+                )}
+                </div>
+                {/* The same breakdown after booking as before it. Which
+                    cycles a stretch covers changes as habits are created,
+                    repeated and joined, so this is not a one-time
+                    confirmation that can be shown once and forgotten. */}
+                {impacts.length > 0 && (
+                  <div className="mt-2">
+                    <TimeOffImpact impacts={impacts} untouched={0} />
+                  </div>
                 )}
               </li>
             );
@@ -186,16 +202,22 @@ export function TimeOffSettings({ uid }: { uid: string }) {
           maxLength={40}
           onChange={(e) => setLabel(e.target.value)}
         />
-        {wouldStepOutOf.length > 0 && (
-          <p className="rounded-xl border-2 border-input p-3 text-sm">
-            You&apos;d sit out{" "}
-            <span className="font-medium">
-              {wouldStepOutOf.map((c) => c.name).join(", ")}
-            </span>{" "}
-            for this — {wouldStepOutOf.length === 1 ? "it's" : "they're"} too
-            short to cover it. No result and no stake either way on{" "}
-            {wouldStepOutOf.length === 1 ? "that cycle" : "those cycles"}.
-          </p>
+        {valid && (
+          <div className="flex flex-col gap-2 rounded-xl border-2 border-input p-3">
+            <p className="text-xs font-medium">
+              {formatYmd(startYmd)} – {formatYmd(endYmd)}, habit by habit
+            </p>
+            <TimeOffImpact
+              impacts={preview}
+              untouched={
+                (challenges ?? []).filter(
+                  (c) =>
+                    c.status === "active" &&
+                    !preview.some((i) => i.challenge.id === c.id)
+                ).length
+              }
+            />
+          </div>
         )}
         <div className="flex items-center justify-between gap-3">
           <span className="text-xs text-muted-foreground">
