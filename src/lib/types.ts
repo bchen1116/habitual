@@ -205,7 +205,14 @@ export interface Reflection {
   updatedAt?: Timestamp | null;
 }
 
-export type MemberOutcome = "succeeded" | "failed" | null;
+/**
+ * "stepped-out": booked so much of the cycle off that they sat it out — no
+ * result, and no ledger entry either way (see lib/away.ts). Distinct from
+ * null, which means the cycle hasn't been graded yet: a member row that went
+ * back to looking un-graded once results landed would read as a bug rather
+ * than as the arrangement it is.
+ */
+export type MemberOutcome = "succeeded" | "failed" | "stepped-out" | null;
 
 export interface ChallengeMember {
   displayName: string;
@@ -246,6 +253,12 @@ export interface ChallengeMember {
   skipsAllowed?: number;
   /** Spares this cycle actually consumed, frozen at adjudication. */
   badgesSpent?: number;
+  /**
+   * Whether booked time off took them out of this cycle entirely. Frozen at
+   * adjudication alongside the outcome, so a settled result stays explainable
+   * even after the ranges that caused it have rolled into the past.
+   */
+  steppedOut?: boolean;
 }
 
 /**

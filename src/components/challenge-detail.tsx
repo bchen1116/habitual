@@ -545,19 +545,30 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
                 />
               </div>
             )}
-            {timeOff.declared > 0 && (
-              <p className="text-xs text-muted-foreground">
-                <span className="font-medium text-foreground">
-                  {timeOff.honoured} day{timeOff.honoured === 1 ? "" : "s"} off
-                </span>{" "}
-                {timeOff.truncated ? (
+            {timeOff.booked > 0 && (
+              <p
+                className={
+                  "text-xs " +
+                  (timeOff.steppedOut ? "text-foreground" : "text-muted-foreground")
+                }
+              >
+                {timeOff.steppedOut ? (
                   <>
-                    of the {timeOff.declared} you booked inside this habit&apos;s
-                    dates — it allows {timeOff.budget}, so the rest count as
-                    normal days.
+                    <span className="font-medium">
+                      You&apos;re out of this habit
+                    </span>{" "}
+                    from {formatYmd(timeOff.outFrom!)} to{" "}
+                    {formatYmd(timeOff.outTo!)}. That&apos;s past this
+                    habit&apos;s {timeOff.budget} days of cover, so you sit the
+                    cycle out — no result, and no stake either way.
                   </>
                 ) : (
-                  <>booked — those days aren&apos;t counted or missed.</>
+                  <>
+                    <span className="font-medium text-foreground">
+                      {timeOff.booked} day{timeOff.booked === 1 ? "" : "s"} off
+                    </span>{" "}
+                    booked — those days aren&apos;t counted or missed.
+                  </>
                 )}
               </p>
             )}

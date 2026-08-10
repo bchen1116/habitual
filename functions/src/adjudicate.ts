@@ -1,7 +1,12 @@
 import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { addDaysYmd, dateToYmdUTC, daysBetweenInclusive } from "./dates";
-import { awayDaysFor, countAwayBetween, type AwayRange } from "./away";
+import {
+  countAwayBetween,
+  cycleTimeOff,
+  type AwayRange,
+  type CycleTimeOff,
+} from "./away";
 import { sendPushToMany } from "./notifications";
 import { effectiveSkipDays, sparesConsumed } from "./badges";
 
@@ -278,7 +283,7 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
         // removed once it has, so what this sees for any day already past is
         // exactly what was declared before that day began.
         const memberUids = membersSnap.docs.map((doc) => doc.id);
-        const awayByUid = new Map<string, Set<string>>();
+        const timeOffByUid = new Map<string, CycleTimeOff>();
         if (memberUids.length > 0) {
           const userSnaps = await t.getAll(
             ...memberUids.map((uid) => db.collection("users").doc(uid))
@@ -289,9 +294,9 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
             const joinedDate = membersSnap.docs
               .find((d) => d.id === snap.id)
               ?.data()?.joinedDate as string | undefined;
-            awayByUid.set(
+            timeOffByUid.set(
               snap.id,
-              awayDaysFor(challenge, ranges, joinedDate)
+              cycleTimeOff(challenge, ranges, joinedDate)
             );
           }
         }
@@ -313,12 +318,15 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
           };
           /** Applied spares this result actually burnt. */
           spent: number;
+          /** Booked so much of this cycle off that they sat it out. */
+          steppedOut: boolean;
         }[] = [];
         for (const memberDoc of membersSnap.docs) {
           const member = memberDoc.data() as MemberData;
           const uid = memberDoc.id;
           const ymds = checkinsByUid.get(uid) ?? [];
-          const away = awayByUid.get(uid);
+          const timeOff = timeOffByUid.get(uid);
+          const away = timeOff?.days;
           const { missed, completed } = computeMissed(
             challenge,
             ymds,
@@ -347,13 +355,27 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
           );
           const succeeded = missed <= allowance.total;
           const spent = sparesConsumed(missed, allowance.base, allowance.applied);
-          outcomes.push({
-            uid,
-            displayName: member.displayName,
-            username: member.username ?? null,
-            charityName: member.charityName ?? null,
-            succeeded,
-          });
+          const steppedOut = timeOff?.steppedOut === true;
+          // Someone who sat this cycle out is not in `outcomes`, and that
+          // single omission is the whole of what stepping out means for money:
+          // outcomes is what the ledger is built from below, so they neither
+          // forfeit nor take a share of a pool. Skipping the push rather than
+          // filtering later keeps it impossible to reintroduce them by adding
+          // a branch that forgets.
+          //
+          // It has to be an omission rather than a `succeeded: true`: in pool
+          // mode a winner divides the losers' stakes, so "succeeded" would pay
+          // them for a cycle they were absent from — which is the exact
+          // unfairness the step-out threshold exists to prevent.
+          if (!steppedOut) {
+            outcomes.push({
+              uid,
+              displayName: member.displayName,
+              username: member.username ?? null,
+              charityName: member.charityName ?? null,
+              succeeded,
+            });
+          }
           // Deferred to after the venmo reads below — transactions require
           // every read to happen before the first write.
           memberUpdates.push({
@@ -363,6 +385,7 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
             succeeded,
             allowance,
             spent,
+            steppedOut,
           });
         }
 
@@ -426,7 +449,15 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
             });
           }
           t.update(update.ref, {
-            outcome: update.succeeded ? "succeeded" : "failed",
+            // "stepped-out" rather than null: null is a cycle still running,
+            // and a member row that reverts to looking un-graded once results
+            // are in reads as a bug rather than as an arrangement.
+            outcome: update.steppedOut
+              ? "stepped-out"
+              : update.succeeded
+                ? "succeeded"
+                : "failed",
+            steppedOut: update.steppedOut,
             completedCount: update.completed,
             skipsUsed: Math.min(update.missed, update.allowance.total),
             // Frozen alongside the outcome so a result can always be explained
@@ -498,7 +529,11 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
         // an early return above this point would re-process forever.
         t.update(challengeDoc.ref, { status: "adjudicated", adjudicatedAt });
 
-        notifyMemberUids = outcomes.map((o) => o.uid);
+        // Every member, not just the graded ones: someone who sat the cycle
+        // out is still in the habit and still wants to know it finished. They
+        // are absent from `outcomes` because that list builds the ledger, and
+        // reusing it here would have quietly made "no stake" mean "no news".
+        notifyMemberUids = memberUpdates.map((u) => u.ref.id);
         notifiedChallengeName = challenge.name;
       });
       processed++;

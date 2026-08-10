@@ -1,5 +1,5 @@
 import { computeMissed } from "./adjudicate";
-import { awayDaysFor, type AwayRange } from "./away";
+import { cycleTimeOff, type AwayRange } from "./away";
 import { canEarnBadges, effectiveSkipDays, type BadgeChallenge } from "./badges";
 
 /**
@@ -77,10 +77,15 @@ export async function spareShortfall(
   );
 
   const joinedDate = member.joinedDate as string | undefined;
-  // Without this the push would count a declared holiday as a fortnight of
+  // Without this the push would count a booked holiday as a fortnight of
   // misses and tell someone their stake was gone over weeks they had already
   // been excused — the most alarming possible way to be wrong.
-  const away = awayDaysFor(challenge, awayRanges, joinedDate);
+  const timeOff = cycleTimeOff(challenge, awayRanges, joinedDate);
+  // And someone who booked enough off to sit the cycle out has no stake to
+  // save, so urging them to spend a spare on it would be selling insurance
+  // against a risk they don't carry.
+  if (timeOff.steppedOut) return null;
+  const away = timeOff.days;
   const allowance = effectiveSkipDays(
     challenge,
     ymds,

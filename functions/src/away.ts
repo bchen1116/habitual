@@ -21,8 +21,8 @@ export interface AwayRange {
   end: string;
 }
 
-/** The most of any one cycle that time off can excuse. */
-export const AWAY_FRACTION = 0.25;
+/** The most of any one cycle that time off can excuse while you stay in it. */
+export const AWAY_FRACTION = 1 / 3;
 
 /** The most days this particular cycle will excuse, whatever was declared. */
 export function awayBudget(challenge: {
@@ -34,36 +34,78 @@ export function awayBudget(challenge: {
   );
 }
 
+export interface CycleTimeOff {
+  /** Days of this cycle that ask nothing of this member. */
+  days: Set<string>;
+  /**
+   * Whether the booking was long enough, relative to this cycle, that the
+   * member sits it out — no result, and no ledger entry either way.
+   */
+  steppedOut: boolean;
+  outFrom: string | null;
+  outTo: string | null;
+}
+
 /**
- * Days of this cycle that time off actually excuses, for one member.
+ * What one member's booked time off means for one cycle.
  *
- * Spent earliest-first when a declaration exceeds the budget, which is stable
- * (a given day's answer never changes as the cycle runs) and fails safe (a day
- * over budget is simply a day they were expected to show up).
+ * Within the budget the days are excused and the member stays in. Over it
+ * they step out: every booked day is excused and adjudication writes them no
+ * outcome and no ledger entry.
+ *
+ * Stepping out is the reason this isn't a simple cap. Truncating a booking to
+ * the budget demanded that someone show up for the tail of a holiday they had
+ * already declared, and the shorter the habit the more of the holiday it
+ * insisted on — the exact case the feature exists for. Grading someone who
+ * was present for one week of four against people who were there for all of
+ * it isn't an option either, and in a pool it would hand them a share of the
+ * others' money, so "out entirely" is the only honest third answer.
+ *
+ * Mirrors cycleTimeOff() in src/lib/away.ts. This copy decides the money.
  */
-export function awayDaysFor(
+export function cycleTimeOff(
   challenge: { startDate: string; endDate: string },
   ranges: readonly AwayRange[] | undefined,
   memberJoinedDate?: string
-): Set<string> {
-  const honoured = new Set<string>();
-  if (!ranges || ranges.length === 0) return honoured;
+): CycleTimeOff {
+  const none: CycleTimeOff = {
+    days: new Set<string>(),
+    steppedOut: false,
+    outFrom: null,
+    outTo: null,
+  };
+  if (!ranges || ranges.length === 0) return none;
 
   const start =
     memberJoinedDate && memberJoinedDate > challenge.startDate
       ? memberJoinedDate
       : challenge.startDate;
-  if (start > challenge.endDate) return honoured;
+  if (start > challenge.endDate) return none;
 
-  const budget = awayBudget(challenge);
-  if (budget <= 0) return honoured;
+  const inCycle = awayDaysInOrder(ranges).filter(
+    (ymd) => ymd >= start && ymd <= challenge.endDate
+  );
+  if (inCycle.length === 0) return none;
 
-  for (const ymd of awayDaysInOrder(ranges)) {
-    if (ymd < start || ymd > challenge.endDate) continue;
-    honoured.add(ymd);
-    if (honoured.size >= budget) break;
+  const days = new Set(inCycle);
+  if (inCycle.length <= awayBudget(challenge)) {
+    return { days, steppedOut: false, outFrom: null, outTo: null };
   }
-  return honoured;
+  return {
+    days,
+    steppedOut: true,
+    outFrom: inCycle[0],
+    outTo: inCycle[inCycle.length - 1],
+  };
+}
+
+/** Just the excused days — the shape the progress and badge functions take. */
+export function awayDaysFor(
+  challenge: { startDate: string; endDate: string },
+  ranges: readonly AwayRange[] | undefined,
+  memberJoinedDate?: string
+): Set<string> {
+  return cycleTimeOff(challenge, ranges, memberJoinedDate).days;
 }
 
 /** Every declared day, ascending and deduplicated, so overlaps cost their union. */

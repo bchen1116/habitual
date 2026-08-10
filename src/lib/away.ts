@@ -31,46 +31,115 @@ import type { AwayRange, Challenge } from "@/lib/types";
  *
  * **Never retroactive to a settled result.** Adjudication freezes the
  * outcome; nothing here recomputes one.
+ *
+ * Past the budget the habit lets go of you rather than clawing days back —
+ * see `cycleTimeOff`.
  */
 
-/** The most of any one cycle that time off can excuse. */
-export const AWAY_FRACTION = 0.25;
+/**
+ * The most of any one cycle that time off can excuse while you stay in it.
+ *
+ * A third: enough that an ordinary fortnight doesn't eject you from a
+ * six-week habit, and not so much that a habit can be mostly sat out while
+ * still being counted, ranked and staked.
+ */
+export const AWAY_FRACTION = 1 / 3;
+
+export interface CycleTimeOff {
+  /** Days of this cycle that ask nothing of this member. */
+  days: Set<string>;
+  /**
+   * Whether the booking was long enough, relative to this cycle, that the
+   * member sits it out rather than being partly excused.
+   */
+  steppedOut: boolean;
+  /** The first and last booked day inside the cycle, when stepped out. */
+  outFrom: string | null;
+  outTo: string | null;
+}
 
 /**
- * Days of this cycle that time off actually excuses, for one member.
+ * What one member's booked time off means for one cycle.
  *
  * Only days inside the cycle *and* on or after this member's own start — a
- * holiday declared before they joined a group excuses nothing, because those
+ * holiday booked before they joined a group excuses nothing, because those
  * days were never theirs to miss.
  *
- * The budget is spent earliest-first when a declaration exceeds it. That is a
- * choice, and the alternative (refusing the whole range, or spreading it) is
- * worse: refusing means one short habit blocks a holiday from applying to a
- * long one, and spreading makes which days count depend on days that haven't
- * happened yet. Earliest-first is stable — the answer for a given day never
- * changes as the cycle goes on — and it fails safe, because a day over budget
- * is simply a day you're expected to show up.
+ * Two outcomes, and which one you get depends on the habit's length rather
+ * than on anything you choose:
+ *
+ * **Within the budget: excused.** The days don't count, the member stays in
+ * the habit, and everything else about the cycle is unchanged.
+ *
+ * **Over the budget: stepped out.** The member sits the cycle out — every
+ * booked day is excused, and adjudication writes them no result and no ledger
+ * entry either way.
+ *
+ * The second case replaced truncation, which was wrong in exactly the
+ * situation this feature exists for. Truncating meant a fortnight booked
+ * against a three-week habit excused a week and then demanded you show up for
+ * the other seven days — days you had already said you would be away for, on
+ * a habit too short to absorb the trip. It failed safe in the arithmetic and
+ * absurd in practice: the shorter the habit, the more of your holiday it
+ * insisted on.
+ *
+ * Stepping out is deliberately all-or-nothing about the *stake* rather than
+ * pro-rata. A member present for one week of four cannot be graded against
+ * people who were there for all of it, and in a pool they certainly cannot
+ * take a share of their money for it — so the honest options were "in and
+ * liable" or "out entirely", and one booked day past a third is a clear
+ * enough line to put between them.
+ *
+ * The trade this accepts: someone who expects to fail a cycle could book
+ * their way out of the stake in advance. It costs them more than a third of
+ * the cycle, the streak, and any spare they'd have earned — and it has to be
+ * decided before the days arrive rather than after they've gone badly, which
+ * is the difference between opting out and wriggling out.
+ */
+export function cycleTimeOff(
+  challenge: Pick<Challenge, "startDate" | "endDate">,
+  ranges: readonly AwayRange[] | undefined,
+  memberJoinedDate?: string
+): CycleTimeOff {
+  const none: CycleTimeOff = {
+    days: new Set<string>(),
+    steppedOut: false,
+    outFrom: null,
+    outTo: null,
+  };
+  if (!ranges || ranges.length === 0) return none;
+
+  const start = effectiveStart(challenge as Challenge, memberJoinedDate);
+  if (start > challenge.endDate) return none;
+
+  const inCycle = awayDaysInOrder(ranges).filter(
+    (ymd) => ymd >= start && ymd <= challenge.endDate
+  );
+  if (inCycle.length === 0) return none;
+
+  const days = new Set(inCycle);
+  if (inCycle.length <= awayBudget(challenge)) {
+    return { days, steppedOut: false, outFrom: null, outTo: null };
+  }
+  return {
+    days,
+    steppedOut: true,
+    outFrom: inCycle[0],
+    outTo: inCycle[inCycle.length - 1],
+  };
+}
+
+/**
+ * Just the excused days — the shape every progress, streak and badge function
+ * takes. Whether the member also stepped out is a separate question, asked
+ * only by the places that decide money or draw the habit page.
  */
 export function awayDaysFor(
   challenge: Pick<Challenge, "startDate" | "endDate">,
   ranges: readonly AwayRange[] | undefined,
   memberJoinedDate?: string
 ): Set<string> {
-  const honoured = new Set<string>();
-  if (!ranges || ranges.length === 0) return honoured;
-
-  const start = effectiveStart(challenge as Challenge, memberJoinedDate);
-  if (start > challenge.endDate) return honoured;
-
-  const budget = awayBudget(challenge);
-  if (budget <= 0) return honoured;
-
-  for (const ymd of awayDaysInOrder(ranges)) {
-    if (ymd < start || ymd > challenge.endDate) continue;
-    honoured.add(ymd);
-    if (honoured.size >= budget) break;
-  }
-  return honoured;
+  return cycleTimeOff(challenge, ranges, memberJoinedDate).days;
 }
 
 /** The most days this particular cycle will excuse, whatever was declared. */
@@ -108,20 +177,19 @@ function awayDaysInOrder(ranges: readonly AwayRange[]): string[] {
 /**
  * What a cycle is actually giving you, for the habit page to state plainly.
  *
- * `declared` above `honoured` is the case worth surfacing: someone declared
- * three weeks, this habit will excuse one, and nothing else on the screen
- * would ever tell them the other two are ordinary weeks they're expected to
- * turn up for.
+ * `steppedOut` is the case worth surfacing loudest: it's the one where the
+ * habit stops counting you altogether and no stake changes hands, and nothing
+ * else on the screen would say so.
  */
 export interface AwaySummary {
-  /** Days declared that fall inside this cycle and after the member's start. */
-  declared: number;
-  /** Days the cycle honours, after the budget. */
-  honoured: number;
-  /** The cycle's ceiling, so "1 of 3 — this habit allows 7 days" is sayable. */
+  /** Booked days that fall inside this cycle and after the member's start. */
+  booked: number;
+  /** The cycle's ceiling, so "9 days — this habit allows 9" is sayable. */
   budget: number;
-  /** Whether the budget cut the declaration short. */
-  truncated: boolean;
+  /** Whether the booking took them out of this cycle entirely. */
+  steppedOut: boolean;
+  outFrom: string | null;
+  outTo: string | null;
 }
 
 export function awaySummary(
@@ -129,11 +197,12 @@ export function awaySummary(
   ranges: readonly AwayRange[] | undefined,
   memberJoinedDate?: string
 ): AwaySummary {
-  const budget = awayBudget(challenge);
-  const start = effectiveStart(challenge as Challenge, memberJoinedDate);
-  const declared = (ranges ? awayDaysInOrder(ranges) : []).filter(
-    (ymd) => ymd >= start && ymd <= challenge.endDate
-  ).length;
-  const honoured = Math.min(declared, budget);
-  return { declared, honoured, budget, truncated: declared > honoured };
+  const timeOff = cycleTimeOff(challenge, ranges, memberJoinedDate);
+  return {
+    booked: timeOff.days.size,
+    budget: awayBudget(challenge),
+    steppedOut: timeOff.steppedOut,
+    outFrom: timeOff.outFrom,
+    outTo: timeOff.outTo,
+  };
 }

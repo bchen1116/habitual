@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { addDaysYmd, daysBetweenInclusive, formatYmd, todayYmd } from "@/lib/dates";
-import { AWAY_FRACTION } from "@/lib/away";
+import { cycleTimeOff } from "@/lib/away";
+import { useActivity } from "@/components/activity-provider";
 import { useUserSettings } from "@/hooks/use-user-settings";
 import { addAwayRange, removeAwayRange } from "@/lib/away-client";
 import { Button } from "@/components/ui/button";
@@ -21,14 +22,18 @@ const fromInput = (value: string) => value.replaceAll("-", "");
  * each one, which is a chore people half-do, and a half-booked holiday is
  * worse than none.
  *
- * The two rules people will actually run into are stated on the card rather
- * than discovered through an error: it has to be booked before it starts, and
- * each habit only honours a quarter of its own length. Both are enforced
- * server-side regardless (lib/server/away-admin.ts) — this is here so the
- * interface never offers something the server would refuse.
+ * The rules people actually run into are stated on the card rather than
+ * discovered through an error: it has to be booked before it starts, and a
+ * habit covers a third of its own length before you simply sit the cycle out.
+ * The first is enforced server-side (lib/server/away-admin.ts) and this is
+ * only here so the picker can't offer a date the server would refuse; the
+ * second isn't a restriction at all, so it needs no enforcement — but it
+ * changes whether a stake is live, so it's named before you commit rather
+ * than after.
  */
 export function TimeOffSettings({ uid }: { uid: string }) {
   const { timezone, awayRanges } = useUserSettings(uid);
+  const { challenges, joinedDateByChallenge } = useActivity();
   const today = todayYmd(timezone);
   // Tomorrow, in the user's own timezone: the earliest the server will accept,
   // so the picker can't offer a date that would come back as an error.
@@ -75,13 +80,32 @@ export function TimeOffSettings({ uid }: { uid: string }) {
     endYmd >= startYmd &&
     startYmd >= earliest;
 
+  // Which habits this booking would take you out of, named before you commit
+  // rather than discovered on the habit page afterwards. Stepping out means
+  // no stake either way, which is a consequence nobody should meet by
+  // surprise — and it's the whole reason this control lives inside the app
+  // shell, where the habit list is already in hand.
+  const wouldStepOutOf = valid
+    ? (challenges ?? []).filter(
+        (c) =>
+          c.status === "active" &&
+          c.endDate >= startYmd &&
+          cycleTimeOff(
+            c,
+            [...awayRanges, { start: startYmd, end: endYmd }],
+            joinedDateByChallenge[c.id]
+          ).steppedOut
+      )
+    : [];
+
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-muted-foreground">
         Days you book off aren&apos;t counted by any habit — they don&apos;t
         break a streak and they don&apos;t cost you a stake. Book them before
-        they start; each habit will honour up to {Math.round(AWAY_FRACTION * 100)}%
-        of its own length.
+        they start. A habit covers up to a third of its own length; book more
+        than that and you simply sit that cycle out, with no result and no
+        stake either way.
       </p>
 
       {awayRanges.length > 0 && (
@@ -162,6 +186,17 @@ export function TimeOffSettings({ uid }: { uid: string }) {
           maxLength={40}
           onChange={(e) => setLabel(e.target.value)}
         />
+        {wouldStepOutOf.length > 0 && (
+          <p className="rounded-xl border-2 border-input p-3 text-sm">
+            You&apos;d sit out{" "}
+            <span className="font-medium">
+              {wouldStepOutOf.map((c) => c.name).join(", ")}
+            </span>{" "}
+            for this — {wouldStepOutOf.length === 1 ? "it's" : "they're"} too
+            short to cover it. No result and no stake either way on{" "}
+            {wouldStepOutOf.length === 1 ? "that cycle" : "those cycles"}.
+          </p>
+        )}
         <div className="flex items-center justify-between gap-3">
           <span className="text-xs text-muted-foreground">
             Earliest: {formatYmd(earliest)}
