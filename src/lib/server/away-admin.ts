@@ -2,6 +2,7 @@ import "server-only";
 
 import { getAdminDb } from "@/lib/firebase/admin";
 import { addDaysYmd, daysBetweenInclusive, todayYmd } from "@/lib/dates";
+import { cycleTimeOff } from "@/lib/away";
 import type { AwayRange } from "@/lib/types";
 
 /**
@@ -27,12 +28,25 @@ export type AwayErrorCode =
   | "too-long"
   | "too-many"
   | "overlaps"
-  | "already-started"
+  | "sitting-out"
   | "not-found";
 
 export class AwayError extends Error {
   constructor(public code: AwayErrorCode) {
     super(code);
+  }
+}
+
+/**
+ * Carries the habit's name and end date, because "you can't delete this" is a
+ * dead end and "you're sitting out Morning Run until Oct 12" is an answer.
+ */
+export class AwaySittingOutError extends AwayError {
+  constructor(
+    public challengeName: string,
+    public challengeEndDate: string
+  ) {
+    super("sitting-out");
   }
 }
 
@@ -104,15 +118,28 @@ export async function addAwayRangeAdmin(
 }
 
 /**
- * Withdraw a stretch that hasn't begun.
+ * Withdraw a booked stretch.
  *
- * Only one that hasn't begun, which is the mirror of declaring in advance
- * rather than an arbitrary restriction. Removing a range that has started
- * would make days already lived retroactively required — and in a group, it
- * would let someone quietly rewrite what their week asked of them after
- * seeing how it went. Nobody needs that: it can only ever make things worse
- * for the person doing it, and "can only hurt you" is not a safety argument
- * when the same edit changes what everyone else's pool is measured against.
+ * Allowed at essentially any time, including after it has started, because
+ * deleting time off is the self-harming direction: it puts days *back* into
+ * what a habit asks of you. It can never excuse a miss, never rescue a
+ * streak, and never reduce a stake. "Book it and then think better of it" is
+ * an ordinary thing to want, and refusing it left people with a list they
+ * could add to but never prune.
+ *
+ * One exception, and it is a money hole rather than a tidiness rule.
+ *
+ * Sitting a cycle out is a *free option* if it can be reversed once the cycle
+ * is under way. Book enough off to step out of a pool habit, keep the habit
+ * anyway, watch how everyone else is doing, and then — if they're failing and
+ * you're not — delete the range at the last moment and claim a share of their
+ * stakes. Heads you win, tails you were never playing. So the decision to sit
+ * out a particular cycle is fixed once that cycle begins; the range can be
+ * deleted freely before it starts, and again once the cycle is over.
+ *
+ * Note what that exception is *not*. A range that merely excused some days
+ * without stepping you out can always be deleted, mid-cycle included: doing
+ * so hands those days back to the habit and can only cost you.
  *
  * Identified by `start`, which is unique because overlaps are refused.
  */
@@ -123,6 +150,16 @@ export async function removeAwayRangeAdmin(
   const db = getAdminDb();
   const ref = db.collection("users").doc(uid);
 
+  // Read before the transaction: this is a query rather than a document read,
+  // and it only decides whether the delete is permitted. A challenge starting
+  // in the instant between here and the commit would at worst let one delete
+  // through that the next attempt refuses.
+  const live = await db
+    .collection("challenges")
+    .where("memberIds", "array-contains", uid)
+    .where("status", "==", "active")
+    .get();
+
   return db.runTransaction(async (t) => {
     const snap = await t.get(ref);
     const timezone = (snap.data()?.timezone as string | undefined) ?? "UTC";
@@ -131,9 +168,28 @@ export async function removeAwayRangeAdmin(
     const existing = readRanges(snap.data());
     const target = existing.find((r) => r.start === start);
     if (!target) throw new AwayError("not-found");
-    if (target.start <= today) throw new AwayError("already-started");
 
     const next = existing.filter((r) => r.start !== start);
+
+    // Would this put them back into a cycle they're already sitting out?
+    const memberDocs = await Promise.all(
+      live.docs.map((doc) => t.get(doc.ref.collection("members").doc(uid)))
+    );
+    for (const [i, challengeDoc] of live.docs.entries()) {
+      const challenge = challengeDoc.data() as {
+        name: string;
+        startDate: string;
+        endDate: string;
+      };
+      if (challenge.startDate > today) continue; // hasn't begun; still free
+      const joinedDate = memberDocs[i].data()?.joinedDate as string | undefined;
+      const before = cycleTimeOff(challenge, existing, joinedDate);
+      const after = cycleTimeOff(challenge, next, joinedDate);
+      if (before.steppedOut && !after.steppedOut) {
+        throw new AwaySittingOutError(challenge.name, challenge.endDate);
+      }
+    }
+
     t.set(ref, { awayRanges: next }, { merge: true });
     return next;
   });

@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getVerifiedUser } from "@/lib/session";
+import { formatYmd } from "@/lib/dates";
 import {
   AwayError,
+  AwaySittingOutError,
   MAX_AWAY_LABEL_LENGTH,
   MAX_AWAY_RANGES,
   MAX_AWAY_RANGE_DAYS,
@@ -38,14 +40,31 @@ const ERROR_RESPONSES: Record<string, { status: number; message: string }> = {
     status: 400,
     message: "That overlaps time off you've already booked.",
   },
-  "already-started": {
+  "sitting-out": {
     status: 400,
-    message: "This one has already started, so it's fixed now.",
+    message: "You're sitting a cycle out on this — it can be removed once that cycle ends.",
   },
   "not-found": { status: 404, message: "No time off booked for that date." },
 };
 
 function fail(err: unknown, fallback: string) {
+  // Named rather than generic: "you can't delete this" is a dead end, and the
+  // habit plus the date it frees up is an answer.
+  if (err instanceof AwaySittingOutError) {
+    return NextResponse.json(
+      {
+        // "after <end date>" would be wrong for the day or two a cycle spends
+        // ended-but-ungraded, which is exactly when someone is most likely to
+        // try this — the result isn't settled yet, so the option is still open
+        // and still has to be closed.
+        error:
+          `You're sitting out "${err.challengeName}" for this, and that's fixed ` +
+          `once a cycle has started. It runs to ${formatYmd(err.challengeEndDate)} — ` +
+          `you can remove this once that cycle has been graded.`,
+      },
+      { status: 400 }
+    );
+  }
   if (err instanceof AwayError) {
     const mapped = ERROR_RESPONSES[err.code] ?? { status: 500, message: fallback };
     return NextResponse.json({ error: mapped.message }, { status: mapped.status });
