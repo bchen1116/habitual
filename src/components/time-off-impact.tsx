@@ -62,6 +62,34 @@ function CycleRow({ impact }: { impact: HabitImpact }) {
 }
 
 /**
+ * The same information as one line.
+ *
+ * For a range already booked, the full breakdown is the wrong shape: it
+ * repeats every habit and cycle you saw before you booked it, and with a
+ * couple of ranges on the books it turns the list into a page of its own on a
+ * phone. What's wanted looking back is the shape of the answer, not its
+ * derivation — the detail belongs in the preview, where a decision is
+ * actually being made.
+ */
+export function TimeOffImpactSummary({
+  groups,
+}: {
+  groups: readonly HabitImpactGroup[];
+}) {
+  if (groups.length === 0) return null;
+  const skipped = groups.filter((g) => g.cycles.some((c) => c.steppedOut));
+  const stillIn = groups.length - skipped.length;
+  const parts: string[] = [];
+  if (skipped.length > 0) {
+    parts.push(`${skipped.length} habit${skipped.length === 1 ? "" : "s"} skipped`);
+  }
+  if (stillIn > 0) parts.push(`${stillIn} still on`);
+  return (
+    <p className="mt-1 text-xs text-muted-foreground">{parts.join(" · ")}</p>
+  );
+}
+
+/**
  * The breakdown: one block per habit, its affected cycles underneath.
  *
  * Habits you'd sit out of come first, and within a habit the cycles read

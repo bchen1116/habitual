@@ -4,7 +4,10 @@ import { useState } from "react";
 import { addDaysYmd, daysBetweenInclusive, formatYmd, todayYmd } from "@/lib/dates";
 import { DateRangeCalendar } from "@/components/ui/date-range-calendar";
 import { useActivity } from "@/components/activity-provider";
-import { TimeOffImpact } from "@/components/time-off-impact";
+import {
+  TimeOffImpact,
+  TimeOffImpactSummary,
+} from "@/components/time-off-impact";
 import { groupImpacts, habitImpacts } from "@/lib/time-off-impact";
 import { useUserSettings } from "@/hooks/use-user-settings";
 import { addAwayRange, removeAwayRange } from "@/lib/away-client";
@@ -74,14 +77,21 @@ export function TimeOffSettings({ uid }: { uid: string }) {
     endYmd >= startYmd &&
     startYmd >= earliest;
 
-  /** The breakdown for one stretch, against the ranges that would then exist. */
-  function impactsFor(range: { start: string; end: string }, extra = false) {
-    const ranges = extra ? [...awayRanges, range] : awayRanges;
+  /**
+   * The breakdown for one stretch, against the ranges that would then exist.
+   *
+   * The parameter is `span`, not `range`: `range` is the state holding the
+   * dates being composed, and a parameter of that name shadowed it. That
+   * shadowing hid a real bug — each already-booked row was passed the
+   * composed range and so described the wrong dates.
+   */
+  function impactsFor(span: { start: string; end: string }, extra = false) {
+    const ranges = extra ? [...awayRanges, span] : awayRanges;
     return groupImpacts(
       habitImpacts(
         challenges ?? [],
         ranges,
-        range,
+        span,
         joinedDateByChallenge,
         checkinYmdsByChallenge,
         timezone
@@ -108,7 +118,7 @@ export function TimeOffSettings({ uid }: { uid: string }) {
           {awayRanges.map((booked) => {
             const started = booked.start <= today;
             const days = daysBetweenInclusive(booked.start, booked.end);
-            const impacts = impactsFor(range);
+            const impacts = impactsFor(booked);
             return (
               <li
                 key={booked.start}
@@ -176,15 +186,11 @@ export function TimeOffSettings({ uid }: { uid: string }) {
                     </div>
                   </div>
                 )}
-                {/* The same breakdown after booking as before it. Which
-                    cycles a stretch covers changes as habits are created,
-                    repeated and joined, so this is not a one-time
-                    confirmation that can be shown once and forgotten. */}
-                {impacts.length > 0 && (
-                  <div className="mt-2">
-                    <TimeOffImpact groups={impacts} untouched={0} />
-                  </div>
-                )}
+                {/* Recomputed rather than stored, because which cycles a
+                    stretch covers changes as habits are created, repeated and
+                    joined — but summarised, not spelled out. The full version
+                    is on the preview, where there's a decision to make. */}
+                <TimeOffImpactSummary groups={impacts} />
               </li>
             );
           })}

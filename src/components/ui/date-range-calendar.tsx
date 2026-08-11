@@ -105,26 +105,29 @@ export function DateRangeCalendar({
   // rather than letting someone page into a wall of dead cells.
   const canGoBack = shiftMonth(month, 0) > monthStart(min);
 
+  // Tighter horizontally on the narrowest phones. A day cell's width is the
+  // viewport less the page padding, the card padding and this — and this is
+  // the only one of the three that belongs to the calendar to give back.
   return (
-    <div className="rounded-xl border-2 border-input p-3">
+    <div className="rounded-xl border-2 border-input px-2 py-3 sm:px-3">
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
           disabled={!canGoBack}
           onClick={() => setMonth(shiftMonth(month, -1))}
           aria-label="Previous month"
-          className="flex h-11 w-11 items-center justify-center rounded-md text-lg text-muted-foreground transition-colors hover:bg-accent disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex h-11 w-9 shrink-0 items-center justify-center rounded-md text-lg text-muted-foreground transition-colors hover:bg-accent disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-11"
         >
           ‹
         </button>
-        <span aria-live="polite" className="text-sm font-medium">
+        <span aria-live="polite" className="whitespace-nowrap text-sm font-medium">
           {monthLabel}
         </span>
         <button
           type="button"
           onClick={() => setMonth(shiftMonth(month, 1))}
           aria-label="Next month"
-          className="flex h-11 w-11 items-center justify-center rounded-md text-lg text-muted-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex h-11 w-9 shrink-0 items-center justify-center rounded-md text-lg text-muted-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-11"
         >
           ›
         </button>
