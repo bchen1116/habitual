@@ -2,18 +2,17 @@
 
 import { useState } from "react";
 import { addDaysYmd, daysBetweenInclusive, formatYmd, todayYmd } from "@/lib/dates";
+import { DateRangeCalendar } from "@/components/ui/date-range-calendar";
 import { useActivity } from "@/components/activity-provider";
-import { TimeOffImpact } from "@/components/time-off-impact";
+import {
+  TimeOffImpact,
+  TimeOffImpactSummary,
+} from "@/components/time-off-impact";
 import { groupImpacts, habitImpacts } from "@/lib/time-off-impact";
 import { useUserSettings } from "@/hooks/use-user-settings";
 import { addAwayRange, removeAwayRange } from "@/lib/away-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-
-/** yyyymmdd ⇄ the yyyy-mm-dd a native date input speaks. */
-const toInput = (ymd: string) =>
-  `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`;
-const fromInput = (value: string) => value.replaceAll("-", "");
 
 /**
  * Booking time off.
@@ -23,14 +22,10 @@ const fromInput = (value: string) => value.replaceAll("-", "");
  * each one, which is a chore people half-do, and a half-booked holiday is
  * worse than none.
  *
- * The rules people actually run into are stated on the card rather than
- * discovered through an error: it has to be booked before it starts, and a
- * habit covers a third of its own length before you simply sit the cycle out.
- * The first is enforced server-side (lib/server/away-admin.ts) and this is
- * only here so the picker can't offer a date the server would refuse; the
- * second isn't a restriction at all, so it needs no enforcement — but it
- * changes whether a stake is live, so it's named before you commit rather
- * than after.
+ * One calendar rather than two date fields, which on a phone meant two
+ * full-screen OS pickers to express a single idea. The rules are left to the
+ * preview underneath instead of being explained up front: what actually
+ * matters is what happens to *your* habits, and that's a list, not a policy.
  */
 export function TimeOffSettings({ uid }: { uid: string }) {
   const { timezone, awayRanges } = useUserSettings(uid);
@@ -41,8 +36,7 @@ export function TimeOffSettings({ uid }: { uid: string }) {
   // so the picker can't offer a date that would come back as an error.
   const earliest = addDaysYmd(today, 1);
 
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
+  const [range, setRange] = useState({ start: "", end: "" });
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,9 +47,8 @@ export function TimeOffSettings({ uid }: { uid: string }) {
     setBusy(true);
     setError(null);
     try {
-      await addAwayRange(fromInput(start), fromInput(end), label.trim() || null);
-      setStart("");
-      setEnd("");
+      await addAwayRange(range.start, range.end, label.trim() || null);
+      setRange({ start: "", end: "" });
       setLabel("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't book that time off.");
@@ -77,22 +70,28 @@ export function TimeOffSettings({ uid }: { uid: string }) {
     }
   }
 
-  const startYmd = start ? fromInput(start) : "";
-  const endYmd = end ? fromInput(end) : "";
+  const { start: startYmd, end: endYmd } = range;
   const valid =
     startYmd.length === 8 &&
     endYmd.length === 8 &&
     endYmd >= startYmd &&
     startYmd >= earliest;
 
-  /** The breakdown for one stretch, against the ranges that would then exist. */
-  function impactsFor(range: { start: string; end: string }, extra = false) {
-    const ranges = extra ? [...awayRanges, range] : awayRanges;
+  /**
+   * The breakdown for one stretch, against the ranges that would then exist.
+   *
+   * The parameter is `span`, not `range`: `range` is the state holding the
+   * dates being composed, and a parameter of that name shadowed it. That
+   * shadowing hid a real bug — each already-booked row was passed the
+   * composed range and so described the wrong dates.
+   */
+  function impactsFor(span: { start: string; end: string }, extra = false) {
+    const ranges = extra ? [...awayRanges, span] : awayRanges;
     return groupImpacts(
       habitImpacts(
         challenges ?? [],
         ranges,
-        range,
+        span,
         joinedDateByChallenge,
         checkinYmdsByChallenge,
         timezone
@@ -110,39 +109,36 @@ export function TimeOffSettings({ uid }: { uid: string }) {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-muted-foreground">
-        Days you book off aren&apos;t counted by any habit — they don&apos;t
-        break a streak and they don&apos;t cost you a stake. Book them before
-        they start. A habit covers up to a third of its own length; book more
-        than that and you simply sit that cycle out, with no result and no
-        stake either way.
+        Days you book off aren&apos;t counted by any habit. Book them before
+        they start.
       </p>
 
       {awayRanges.length > 0 && (
         <ul className="flex flex-col gap-2">
-          {awayRanges.map((range) => {
-            const started = range.start <= today;
-            const days = daysBetweenInclusive(range.start, range.end);
-            const impacts = impactsFor(range);
+          {awayRanges.map((booked) => {
+            const started = booked.start <= today;
+            const days = daysBetweenInclusive(booked.start, booked.end);
+            const impacts = impactsFor(booked);
             return (
               <li
-                key={range.start}
+                key={booked.start}
                 className="rounded-md border px-3 py-2 text-sm"
               >
                 <div className="flex items-center justify-between gap-3">
                 <span className="min-w-0">
-                  {formatYmd(range.start)} – {formatYmd(range.end)}
+                  {formatYmd(booked.start)} – {formatYmd(booked.end)}
                   <span className="text-muted-foreground">
                     {" "}
                     · {days} day{days === 1 ? "" : "s"}
                   </span>
-                  {range.label && (
-                    <span className="text-muted-foreground"> · {range.label}</span>
+                  {booked.label && (
+                    <span className="text-muted-foreground"> · {booked.label}</span>
                   )}
                 </span>
                 <span className="flex shrink-0 items-center gap-2">
                   {started && (
                     <span className="text-xs text-muted-foreground">
-                      {range.end < today ? "Past" : "In progress"}
+                      {booked.end < today ? "Past" : "In progress"}
                     </span>
                   )}
                   {/* Removable whether or not it has started. Deleting time
@@ -156,29 +152,27 @@ export function TimeOffSettings({ uid }: { uid: string }) {
                     onClick={() =>
                       started
                         ? setConfirming(
-                            confirming === range.start ? null : range.start
+                            confirming === booked.start ? null : booked.start
                           )
-                        : handleRemove(range.start)
+                        : handleRemove(booked.start)
                     }
                   >
                     Remove
                   </Button>
                 </span>
                 </div>
-                {confirming === range.start && (
+                {confirming === booked.start && (
                   <div className="mt-2 rounded-xl border-2 border-input p-3">
                     <p className="text-sm">
-                      These days go back to counting. Any you didn&apos;t check
-                      in become misses, and any habit you were sitting out{" "}
-                      {range.end < today ? "would have wanted" : "will want"}{" "}
-                      you back. Nothing that&apos;s already been graded changes.
+                      These days go back to counting. Anything you didn&apos;t
+                      check in becomes a miss.
                     </p>
                     <div className="mt-2 flex flex-wrap gap-2">
                       <Button
                         variant="destructive"
                         size="sm"
                         disabled={busy}
-                        onClick={() => handleRemove(range.start)}
+                        onClick={() => handleRemove(booked.start)}
                       >
                         {busy ? "Removing…" : "Remove it anyway"}
                       </Button>
@@ -192,15 +186,11 @@ export function TimeOffSettings({ uid }: { uid: string }) {
                     </div>
                   </div>
                 )}
-                {/* The same breakdown after booking as before it. Which
-                    cycles a stretch covers changes as habits are created,
-                    repeated and joined, so this is not a one-time
-                    confirmation that can be shown once and forgotten. */}
-                {impacts.length > 0 && (
-                  <div className="mt-2">
-                    <TimeOffImpact groups={impacts} untouched={0} />
-                  </div>
-                )}
+                {/* Recomputed rather than stored, because which cycles a
+                    stretch covers changes as habits are created, repeated and
+                    joined — but summarised, not spelled out. The full version
+                    is on the preview, where there's a decision to make. */}
+                <TimeOffImpactSummary groups={impacts} />
               </li>
             );
           })}
@@ -208,33 +198,12 @@ export function TimeOffSettings({ uid }: { uid: string }) {
       )}
 
       <div className="flex flex-col gap-2">
-        <div className="flex flex-wrap gap-2">
-          <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs text-muted-foreground">
-            From
-            <Input
-              type="date"
-              value={start}
-              min={toInput(earliest)}
-              onChange={(e) => {
-                setStart(e.target.value);
-                // A range that ends before it begins is the commonest slip on
-                // two separate pickers; following the start date removes it.
-                if (!end || fromInput(e.target.value) > fromInput(end)) {
-                  setEnd(e.target.value);
-                }
-              }}
-            />
-          </label>
-          <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs text-muted-foreground">
-            To
-            <Input
-              type="date"
-              value={end}
-              min={start || toInput(earliest)}
-              onChange={(e) => setEnd(e.target.value)}
-            />
-          </label>
-        </div>
+        <DateRangeCalendar
+          start={startYmd}
+          end={endYmd}
+          min={earliest}
+          onChange={setRange}
+        />
         <Input
           placeholder="What for? (optional)"
           value={label}
