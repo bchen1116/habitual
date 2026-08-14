@@ -21,6 +21,8 @@ export function MembersCard({
   isCreator,
   removingUid,
   onRemove,
+  excludingUid,
+  onSetExclusion,
 }: {
   challenge: Challenge;
   members: ({ uid: string } & ChallengeMember)[];
@@ -30,6 +32,9 @@ export function MembersCard({
   isCreator: boolean;
   removingUid: string | null;
   onRemove: (uid: string) => void;
+  /** Which member is mid-request, so only their control disables. */
+  excludingUid: string | null;
+  onSetExclusion: (uid: string, excluded: boolean) => void;
 }) {
   const state = challengeState(challenge, today);
 
@@ -50,8 +55,11 @@ export function MembersCard({
     };
   });
   // Someone sitting the cycle out isn't off track, and isn't on it either —
-  // counting them either way would misdescribe the group.
-  const graded = rows.filter((r) => r.outcome !== "stepped-out");
+  // counting them either way would misdescribe the group. Same for anyone the
+  // creator has excused, whose row says so before grading rather than after.
+  const graded = rows.filter(
+    (r) => r.outcome !== "stepped-out" && r.outcome !== "excluded" && !r.excluded
+  );
   const onTrackCount = graded.filter((r) => r.onTrack).length;
 
   return (
@@ -87,6 +95,15 @@ export function MembersCard({
             {row.outcome === "failed" && (
               <span className="text-xs font-medium text-destructive">Failed ✗</span>
             )}
+            {(row.outcome === "excluded" ||
+              (row.excluded && row.outcome === null)) && (
+              <span
+                className="text-xs text-muted-foreground"
+                title="Excused from this cycle by the creator — no stake either way"
+              >
+                Excused
+              </span>
+            )}
             {row.outcome === "stepped-out" && (
               <span
                 className="text-xs text-muted-foreground"
@@ -95,7 +112,7 @@ export function MembersCard({
                 Away
               </span>
             )}
-            {row.outcome === null && (
+            {row.outcome === null && !row.excluded && (
               <>
                 <div className="h-1.5 w-24 overflow-hidden rounded-full bg-secondary">
                   <div
@@ -109,6 +126,24 @@ export function MembersCard({
                   {row.completed}/{row.total}
                 </span>
               </>
+            )}
+            {/* Excusing sits before Remove deliberately: it's the softer of
+                the two and the one more often wanted, and a creator reaching
+                for "they're injured this week" should meet it first rather
+                than the irreversible one. */}
+            {isCreator && row.uid !== selfUid && state === "active" && (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={excludingUid === row.uid}
+                onClick={() => onSetExclusion(row.uid, !row.excluded)}
+              >
+                {excludingUid === row.uid
+                  ? "…"
+                  : row.excluded
+                    ? "Include"
+                    : "Excuse"}
+              </Button>
             )}
             {isCreator && row.uid !== selfUid && state === "active" && (
               <Button

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { formatInTimeZone } from "date-fns-tz";
+import { dayEndsLabel } from "@/lib/dates";
 import { useActivity } from "@/components/activity-provider";
 import { useMaxChainStreak } from "@/hooks/use-chain-streak";
 import { challengeState, habitWeek, progressSummary } from "@/lib/progress";
@@ -47,6 +48,10 @@ export function TodayView({
   const hour = Number(formatInTimeZone(new Date(), timezone, "H"));
   const firstName = (displayName ?? "").trim().split(/\s+/)[0] || "there";
   const dateLabel = formatInTimeZone(new Date(), timezone, "EEEE '·' MMM d");
+  // Which clock the day actually runs on. Always shown, not only when it
+  // disagrees with the device: "what does this follow?" is a question worth
+  // being able to answer at home too, and it's three words.
+  const dayEnds = dayEndsLabel(timezone);
 
   // One entry per habit, and nothing that has already ended: every cycle of a
   // repeating habit is its own challenge doc, and `status` stays "active"
@@ -104,7 +109,12 @@ export function TodayView({
     <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-5 p-5 lg:gap-6 lg:p-9">
       <header className="flex items-center justify-between">
         <div>
-          <p className="type-overline text-xs text-muted-foreground">{dateLabel}</p>
+          <p className="type-overline text-xs text-muted-foreground">
+            {dateLabel} ·{" "}
+            {/* Kept whole: on a narrow screen the break should fall before
+                the phrase, not inside it — "3AM / GMT+5:30" reads as a fault. */}
+            <span className="whitespace-nowrap">{dayEnds}</span>
+          </p>
           <h1 className="type-display text-3xl lg:text-[42px]">
             {greeting(hour)}, {firstName}
           </h1>

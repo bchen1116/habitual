@@ -38,6 +38,27 @@ export function todayYmd(timezone: string, now: Date = new Date()): string {
 }
 
 /**
+ * "day ends 3am EST" — which clock a habit day actually runs on.
+ *
+ * Worth stating because the answer is not "yours". A user's timezone is
+ * frozen while they have an active habit (ensureUserDoc), so someone who
+ * travels keeps their old day boundary — and twelve hours out that boundary
+ * lands in the middle of the local afternoon, where two sessions on
+ * consecutive local mornings can both fall on the same habit day and one
+ * habit day can pass unnoticed. Naming the zone is the cheapest thing that
+ * makes that visible instead of baffling.
+ *
+ * `zzz` gives a real abbreviation where one exists (EST, PDT) and an honest
+ * offset where it doesn't (GMT+13), and it tracks daylight saving because it
+ * is resolved against `now` rather than looked up in a table.
+ */
+export function dayEndsLabel(timezone: string, now: Date = new Date()): string {
+  const hour = DAY_CUTOFF_HOUR % 12 || 12;
+  const meridiem = DAY_CUTOFF_HOUR < 12 ? "am" : "pm";
+  return `day ends ${hour}${meridiem} ${formatInTimeZone(now, timezone, "zzz")}`;
+}
+
+/**
  * True between midnight and the cutoff, when the habit date on screen is
  * yesterday's. Worth saying out loud — otherwise a check-in at 1am looks like
  * it landed on the wrong day.

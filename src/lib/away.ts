@@ -130,6 +130,59 @@ export function cycleTimeOff(
 }
 
 /**
+ * A member the creator has excused from this cycle.
+ *
+ * Deliberately expressed as time off covering the whole cycle rather than as
+ * a fourth state to branch on. Every consumer — required check-ins, misses,
+ * streaks, weekly windows, badges, adjudication's ledger — already handles
+ * "stepped out of this cycle" correctly, because booking too much time off
+ * produces exactly the same situation. Reusing it means an exclusion cannot
+ * be honoured in one place and forgotten in another, which is the failure
+ * mode a new flag would invite.
+ *
+ * Whole cycles, not arbitrary dates, because a stake is per cycle: "out of
+ * the pool and the stakes" has no smaller unit to attach to. A member doc is
+ * already per cycle too, so the decision lives exactly where its consequence
+ * does and cannot leak into the next one.
+ */
+export function excludedFromCycle(
+  challenge: Pick<Challenge, "startDate" | "endDate">,
+  memberJoinedDate?: string
+): CycleTimeOff {
+  const start = effectiveStart(challenge as Challenge, memberJoinedDate);
+  const days = new Set<string>();
+  for (let ymd = start; ymd <= challenge.endDate; ymd = addDaysYmd(ymd, 1)) {
+    days.add(ymd);
+  }
+  return {
+    days,
+    steppedOut: true,
+    outFrom: start <= challenge.endDate ? start : null,
+    outTo: start <= challenge.endDate ? challenge.endDate : null,
+  };
+}
+
+/**
+ * What this cycle asks of one member, accounting for both routes out of it:
+ * the creator excusing them, and their own booked time off.
+ *
+ * The creator's decision wins outright rather than merging. It already covers
+ * the whole cycle, so nothing the member booked could add to it — and reading
+ * it first means the answer doesn't depend on what they happen to have
+ * booked, which is what "the creator took you out of this one" should mean.
+ */
+export function memberTimeOff(
+  challenge: Pick<Challenge, "startDate" | "endDate">,
+  ranges: readonly AwayRange[] | undefined,
+  memberJoinedDate?: string,
+  excluded?: boolean
+): CycleTimeOff {
+  return excluded
+    ? excludedFromCycle(challenge, memberJoinedDate)
+    : cycleTimeOff(challenge, ranges, memberJoinedDate);
+}
+
+/**
  * Just the excused days — the shape every progress, streak and badge function
  * takes. Whether the member also stepped out is a separate question, asked
  * only by the places that decide money or draw the habit page.

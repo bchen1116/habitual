@@ -176,6 +176,32 @@ export async function setAutoRepeat(
   }
 }
 
+/**
+ * Creator-only: excuse a member from this cycle, or put them back.
+ *
+ * Per cycle, and only the current one — the stake is resolved per cycle, so
+ * that's the smallest unit "out of the pool and the stakes" can attach to.
+ * See setMemberExclusionAdmin for the bounds the server enforces.
+ */
+export async function setMemberExclusion(
+  challengeId: string,
+  uid: string,
+  excluded: boolean
+): Promise<void> {
+  const response = await fetch(
+    `/api/challenges/${challengeId}/members/${uid}/exclusion`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ excluded }),
+    }
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.error ?? "Couldn't update that");
+  }
+}
+
 /** Creator-only: removes a member from an active group challenge. */
 export async function removeMember(challengeId: string, uid: string): Promise<void> {
   const response = await fetch(`/api/challenges/${challengeId}/members/${uid}`, {

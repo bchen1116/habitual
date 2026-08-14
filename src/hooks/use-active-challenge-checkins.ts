@@ -20,6 +20,14 @@ export interface ActiveChallengeActivity {
    * effectiveStart already does with undefined.
    */
   joinedDateByChallenge: Record<string, string | undefined>;
+  /**
+   * Whether the creator has excused the viewer from each cycle. Read from the
+   * same member doc as joinedDate, so it costs nothing extra — but unlike
+   * joinedDate it can change mid-cycle, and this is a one-time read, so the
+   * shell can be a page-load behind. The habit page holds a live members
+   * listener and is right immediately, and adjudication reads it fresh.
+   */
+  excludedByChallenge: Record<string, boolean>;
   loading: boolean;
   /**
    * True on a genuine query failure — permissions, network, a missing
@@ -55,6 +63,9 @@ export function useActiveChallengeCheckins(
   const [checkinsByChallenge, setCheckinsByChallenge] = useState<
     Record<string, CheckinRecord[]>
   >(initial?.checkinsByChallenge ?? {});
+  const [excludedByChallenge, setExcludedByChallenge] = useState<
+    Record<string, boolean>
+  >({});
   const [joinedDateByChallenge, setJoinedDateByChallenge] = useState<
     Record<string, string | undefined>
   >(initial?.joinedDateByChallenge ?? {});
@@ -140,14 +151,24 @@ export function useActiveChallengeCheckins(
       ids.map(async (id) => {
         try {
           const snap = await getDoc(doc(db, "challenges", id, "members", uid));
-          return [id, snap.data()?.joinedDate as string | undefined] as const;
+          return [
+            id,
+            snap.data()?.joinedDate as string | undefined,
+            snap.data()?.excluded === true,
+          ] as const;
         } catch (err) {
           console.error(`member doc read failed for challenge ${id}:`, err);
-          return [id, undefined] as const;
+          return [id, undefined, false] as const;
         }
       })
-    ).then((pairs) => {
-      if (!cancelled) setJoinedDateByChallenge(Object.fromEntries(pairs));
+    ).then((rows) => {
+      if (cancelled) return;
+      setJoinedDateByChallenge(
+        Object.fromEntries(rows.map(([id, joined]) => [id, joined]))
+      );
+      setExcludedByChallenge(
+        Object.fromEntries(rows.map(([id, , excluded]) => [id, excluded]))
+      );
     });
     return () => {
       cancelled = true;
@@ -158,6 +179,7 @@ export function useActiveChallengeCheckins(
     challenges,
     checkinsByChallenge,
     joinedDateByChallenge,
+    excludedByChallenge,
     loading: challenges === null && !error,
     error,
   };

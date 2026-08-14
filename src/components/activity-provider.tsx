@@ -7,7 +7,7 @@ import {
 } from "@/hooks/use-active-challenge-checkins";
 import { useHabitDate } from "@/hooks/use-habit-date";
 import { useUserSettings } from "@/hooks/use-user-settings";
-import { awayDaysFor } from "@/lib/away";
+import { memberTimeOff } from "@/lib/away";
 import { liveChallenges } from "@/lib/cycles";
 import type { ActivitySnapshot, AwayRange, Challenge } from "@/lib/types";
 
@@ -97,8 +97,14 @@ export function ActivityProvider({
   // memo the context value changes on every render of the shell and re-renders
   // every consumer beneath it. Each field here is a useState value with a
   // stable identity, so this genuinely holds.
-  const { challenges, checkinsByChallenge, joinedDateByChallenge, loading, error } =
-    useActiveChallengeCheckins(uid, initial);
+  const {
+    challenges,
+    checkinsByChallenge,
+    joinedDateByChallenge,
+    excludedByChallenge,
+    loading,
+    error,
+  } = useActiveChallengeCheckins(uid, initial);
   const { timezone, awayRanges } = useUserSettings(uid, {
     timezone: initial?.timezone,
     awayRanges: initial?.awayRanges,
@@ -132,22 +138,27 @@ export function ActivityProvider({
   // a settled cycle's skipped days are part of its record.
   const awayByChallenge = useMemo(() => {
     const byChallenge: Record<string, Set<string>> = {};
-    if (awayRanges.length === 0) return byChallenge;
     for (const challenge of challenges ?? []) {
-      byChallenge[challenge.id] = awayDaysFor(
+      const excluded = excludedByChallenge[challenge.id] === true;
+      // Nothing booked and not excused means nothing to compute — the common
+      // case, and the reason this isn't unconditional work per habit.
+      if (awayRanges.length === 0 && !excluded) continue;
+      byChallenge[challenge.id] = memberTimeOff(
         challenge,
         awayRanges,
-        joinedDateByChallenge[challenge.id]
-      );
+        joinedDateByChallenge[challenge.id],
+        excluded
+      ).days;
     }
     return byChallenge;
-  }, [challenges, awayRanges, joinedDateByChallenge]);
+  }, [challenges, awayRanges, joinedDateByChallenge, excludedByChallenge]);
 
   const value = useMemo<ActivityValue>(
     () => ({
       challenges,
       checkinsByChallenge,
       joinedDateByChallenge,
+      excludedByChallenge,
       loading,
       error,
       timezone,
@@ -162,6 +173,7 @@ export function ActivityProvider({
       challenges,
       checkinsByChallenge,
       joinedDateByChallenge,
+      excludedByChallenge,
       loading,
       error,
       timezone,

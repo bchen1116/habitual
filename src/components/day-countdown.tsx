@@ -56,10 +56,12 @@ export function DayCountdown({
 
   if (!now || !showing) return null;
 
+  // With the zone, because the whole point of the countdown is "until when"
+  // and a traveller's day boundary is not their local 3am.
   const deadlineLabel = formatInTimeZone(
     nextDayCutoff(timezone, now),
     timezone,
-    "h:mm a"
+    "h:mm a zzz"
   );
   const remaining = formatCountdown(msLeft);
 
