@@ -11,6 +11,7 @@ import {
   setJoinClosed,
   setAutoRepeat,
   setChallengeVisibility,
+  setMemberExclusion,
   setSpare,
 } from "@/lib/challenges";
 import { useHabitDate } from "@/hooks/use-habit-date";
@@ -33,7 +34,7 @@ import {
 import { repeatDurationDays } from "@/lib/duration";
 import { chainWeekOffsets } from "@/lib/cycles";
 import { canBackfill } from "@/lib/backfill";
-import { awayDaysFor, awaySummary } from "@/lib/away";
+import { awayDaysFor, awaySummary, memberTimeOff } from "@/lib/away";
 import { challengePermissions } from "@/lib/challenge-permissions";
 import { useChainStreak } from "@/hooks/use-chain-streak";
 import { useChallengeDoc } from "@/hooks/use-challenge-doc";
@@ -87,6 +88,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   const [deleting, setDeleting] = useState(false);
   const [respondingUid, setRespondingUid] = useState<string | null>(null);
   const [removingUid, setRemovingUid] = useState<string | null>(null);
+  const [excludingUid, setExcludingUid] = useState<string | null>(null);
   const [togglingJoin, setTogglingJoin] = useState(false);
   const [togglingVisibility, setTogglingVisibility] = useState(false);
   const [togglingAutoRepeat, setTogglingAutoRepeat] = useState(false);
@@ -106,12 +108,19 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
   // recomputed at each call site — the same discipline ActivityProvider
   // applies for the shell, and for the same reason: a second derivation is a
   // second chance to disagree about which days were excused.
+  // Both routes out of a cycle, resolved once: the creator excusing this
+  // member, and their own booked time off. See memberTimeOff.
   const away = useMemo(
     () =>
       challenge
-        ? awayDaysFor(challenge, awayRanges, member?.joinedDate)
+        ? memberTimeOff(
+            challenge,
+            awayRanges,
+            member?.joinedDate,
+            member?.excluded
+          ).days
         : undefined,
-    [challenge, awayRanges, member?.joinedDate]
+    [challenge, awayRanges, member?.joinedDate, member?.excluded]
   );
   // Hook, so it has to run unconditionally — ahead of the loading/not-found
   // early returns below, which is why it takes a possibly-null challenge.
@@ -294,6 +303,23 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
       setError(err instanceof Error ? err.message : "Couldn't remove that member.");
     } finally {
       setRemovingUid(null);
+    }
+  }
+
+  /**
+   * Excuse a member from this cycle, or put them back. Awaited rather than
+   * optimistic: it decides whether someone's stake is live, and the members
+   * listener reflects it as soon as the write lands.
+   */
+  async function handleSetExclusion(targetUid: string, excluded: boolean) {
+    setExcludingUid(targetUid);
+    setError(null);
+    try {
+      await setMemberExclusion(id, targetUid, excluded);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't update that.");
+    } finally {
+      setExcludingUid(null);
     }
   }
 
@@ -545,7 +571,13 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
                 />
               </div>
             )}
-            {timeOff.booked > 0 && (
+            {member?.excluded && (
+              <p className="text-xs font-medium text-foreground">
+                You&apos;re excused from this cycle — nothing is due, and your
+                stake isn&apos;t in play.
+              </p>
+            )}
+            {!member?.excluded && timeOff.booked > 0 && (
               <p
                 className={
                   "text-xs " +
@@ -572,7 +604,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
                 )}
               </p>
             )}
-            {canEarnBadges(challenge) && (
+            {canEarnBadges(challenge) && !member?.excluded && (
               <SpareAllowance
                 allowance={allowance}
                 atRisk={atRisk}
@@ -621,6 +653,8 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
           isCreator={isCreator}
           removingUid={removingUid}
           onRemove={handleRemove}
+          excludingUid={excludingUid}
+          onSetExclusion={handleSetExclusion}
         />
       )}
 

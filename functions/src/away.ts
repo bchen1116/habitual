@@ -99,6 +99,48 @@ export function cycleTimeOff(
   };
 }
 
+/**
+ * A member the creator has excused from this cycle: time off covering all of
+ * it, so every consumer that already handles "stepped out" handles this too
+ * rather than needing a fourth state to branch on. Mirrors
+ * excludedFromCycle() in src/lib/away.ts.
+ */
+export function excludedFromCycle(
+  challenge: { startDate: string; endDate: string },
+  memberJoinedDate?: string
+): CycleTimeOff {
+  const start =
+    memberJoinedDate && memberJoinedDate > challenge.startDate
+      ? memberJoinedDate
+      : challenge.startDate;
+  const days = new Set<string>();
+  for (let ymd = start; ymd <= challenge.endDate; ymd = addDaysYmd(ymd, 1)) {
+    days.add(ymd);
+  }
+  return {
+    days,
+    steppedOut: true,
+    outFrom: start <= challenge.endDate ? start : null,
+    outTo: start <= challenge.endDate ? challenge.endDate : null,
+  };
+}
+
+/**
+ * What this cycle asks of one member, across both routes out of it. The
+ * creator's decision wins outright: it already covers the whole cycle, so
+ * nothing booked could add to it. Mirrors memberTimeOff() in src/lib/away.ts.
+ */
+export function memberTimeOff(
+  challenge: { startDate: string; endDate: string },
+  ranges: readonly AwayRange[] | undefined,
+  memberJoinedDate?: string,
+  excluded?: boolean
+): CycleTimeOff {
+  return excluded
+    ? excludedFromCycle(challenge, memberJoinedDate)
+    : cycleTimeOff(challenge, ranges, memberJoinedDate);
+}
+
 /** Just the excused days — the shape the progress and badge functions take. */
 export function awayDaysFor(
   challenge: { startDate: string; endDate: string },

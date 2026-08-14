@@ -566,6 +566,89 @@ export async function removeMemberAdmin(
   await batch.commit();
 }
 
+export type ExcludeMemberErrorCode =
+  | "not-found"
+  | "not-owner"
+  | "not-member"
+  | "not-active"
+  | "cannot-exclude-self";
+
+export class ExcludeMemberError extends Error {
+  constructor(public code: ExcludeMemberErrorCode) {
+    super(code);
+  }
+}
+
+/**
+ * Creator-only: excuse a member from this cycle, or put them back.
+ *
+ * The member is asked for nothing for the rest of the cycle and takes no part
+ * in the stake — they neither forfeit nor share a pool. Mechanically it
+ * resolves to the same cycle-wide step-out that booking too much time off
+ * produces (see excludedFromCycle), so nothing downstream needs to learn a
+ * new state.
+ *
+ * **Per cycle, deliberately.** A stake is resolved per cycle, so "out of the
+ * pool and the stakes" has no smaller unit to attach to; and the member doc
+ * this writes to is itself per cycle, so excusing someone from this week
+ * cannot leak into next week. Neither repeatChallengeAdmin nor the
+ * auto-repeat job copies the flag forward — they build the successor's member
+ * docs field by field, and this field is not among them.
+ *
+ * **Not the creator themselves.** Removing your own stake while leaving
+ * everyone else's in play is not an excusal, it's a withdrawal, and a pool
+ * whose organiser can step out of it after seeing how it's going is not a
+ * pool. Mirrors the same rule on removeMemberAdmin.
+ *
+ * **Only while the cycle is live.** Once graded the result is settled and the
+ * ledger has been written; changing the input afterwards would make a settled
+ * record a lie.
+ *
+ * Reversible for as long as the cycle is: setting it back puts them and their
+ * stake straight back in. `excludedBy`/`excludedAt` are recorded because this
+ * moves money on someone else's behalf and should be answerable later.
+ */
+export async function setMemberExclusionAdmin(
+  callerUid: string,
+  challengeId: string,
+  targetUid: string,
+  excluded: boolean
+): Promise<void> {
+  const db = getAdminDb();
+  const challengeRef = db.collection("challenges").doc(challengeId);
+  const snap = await challengeRef.get();
+  if (!snap.exists) throw new ExcludeMemberError("not-found");
+
+  const data = snap.data()!;
+  if (data.createdBy !== callerUid) throw new ExcludeMemberError("not-owner");
+  if (targetUid === data.createdBy) {
+    throw new ExcludeMemberError("cannot-exclude-self");
+  }
+  if (data.status !== "active") throw new ExcludeMemberError("not-active");
+  if (!((data.memberIds as string[]) ?? []).includes(targetUid)) {
+    throw new ExcludeMemberError("not-member");
+  }
+
+  const memberRef = challengeRef.collection("members").doc(targetUid);
+  if (!(await memberRef.get()).exists) {
+    throw new ExcludeMemberError("not-member");
+  }
+
+  await memberRef.update(
+    excluded
+      ? {
+          excluded: true,
+          excludedBy: callerUid,
+          excludedAt: FieldValue.serverTimestamp(),
+        }
+      : {
+          excluded: false,
+          excludedBy: FieldValue.delete(),
+          excludedAt: FieldValue.delete(),
+        }
+  );
+}
+
 export interface EditChallengePayload {
   stakeAmount: number;
   endDate: string; // yyyymmdd

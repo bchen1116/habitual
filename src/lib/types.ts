@@ -207,12 +207,21 @@ export interface Reflection {
 
 /**
  * "stepped-out": booked so much of the cycle off that they sat it out — no
- * result, and no ledger entry either way (see lib/away.ts). Distinct from
- * null, which means the cycle hasn't been graded yet: a member row that went
- * back to looking un-graded once results landed would read as a bug rather
- * than as the arrangement it is.
+ * result, and no ledger entry either way (see lib/away.ts). "excluded": the
+ * creator excused them from this cycle, with the same money consequence but a
+ * different author, which is worth telling apart when someone asks why a
+ * cycle produced no result for them.
+ *
+ * Both are distinct from null, which means the cycle hasn't been graded yet:
+ * a member row that went back to looking un-graded once results landed would
+ * read as a bug rather than as the arrangement it is.
  */
-export type MemberOutcome = "succeeded" | "failed" | "stepped-out" | null;
+export type MemberOutcome =
+  | "succeeded"
+  | "failed"
+  | "stepped-out"
+  | "excluded"
+  | null;
 
 export interface ChallengeMember {
   displayName: string;
@@ -253,6 +262,20 @@ export interface ChallengeMember {
   skipsAllowed?: number;
   /** Spares this cycle actually consumed, frozen at adjudication. */
   badgesSpent?: number;
+  /**
+   * Set by the creator to excuse this member from this cycle: nothing is
+   * required of them, and they take no part in the stake — neither forfeiting
+   * nor sharing a pool (see lib/away.ts, excludedFromCycle).
+   *
+   * On the member doc, which is already per cycle, so the decision lives
+   * exactly where its consequence does. Deliberately NOT copied forward by
+   * repeatChallengeAdmin or the auto-repeat job: excusing someone from this
+   * week should never quietly excuse them from every week after it.
+   */
+  excluded?: boolean;
+  /** Who excused them, and when — this moves money, so it is auditable. */
+  excludedBy?: string;
+  excludedAt?: Timestamp | null;
   /**
    * Whether booked time off took them out of this cycle entirely. Frozen at
    * adjudication alongside the outcome, so a settled result stays explainable

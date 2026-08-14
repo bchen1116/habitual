@@ -3,7 +3,7 @@ import * as logger from "firebase-functions/logger";
 import { addDaysYmd, dateToYmdUTC, daysBetweenInclusive } from "./dates";
 import {
   countAwayBetween,
-  cycleTimeOff,
+  memberTimeOff,
   type AwayRange,
   type CycleTimeOff,
 } from "./away";
@@ -44,6 +44,11 @@ interface MemberData {
    * treat as 0.
    */
   badgesCarried?: number;
+  /**
+   * Set by the creator to excuse this member from this cycle entirely — see
+   * ChallengeMember.excluded. Same money consequence as stepping out.
+   */
+  excluded?: boolean;
 }
 
 /** challenges/{cid}/spares/{windowStart}_{uid} — see src/lib/spares.ts. */
@@ -291,12 +296,21 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
           for (const snap of userSnaps) {
             const ranges =
               (snap.data()?.awayRanges as AwayRange[] | undefined) ?? [];
-            const joinedDate = membersSnap.docs
+            const memberData = membersSnap.docs
               .find((d) => d.id === snap.id)
-              ?.data()?.joinedDate as string | undefined;
+              ?.data() as MemberData | undefined;
             timeOffByUid.set(
               snap.id,
-              cycleTimeOff(challenge, ranges, joinedDate)
+              memberTimeOff(
+                challenge,
+                ranges,
+                memberData?.joinedDate,
+                // The creator's exclusion is read here rather than branched on
+                // later: it resolves to a cycle-wide step-out, so everything
+                // downstream — the requirement, the misses, the ledger — is
+                // the path that already exists and is already tested.
+                memberData?.excluded === true
+              )
             );
           }
         }
@@ -320,6 +334,8 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
           spent: number;
           /** Booked so much of this cycle off that they sat it out. */
           steppedOut: boolean;
+          /** ...or the creator excused them, which lands in the same place. */
+          excluded: boolean;
         }[] = [];
         for (const memberDoc of membersSnap.docs) {
           const member = memberDoc.data() as MemberData;
@@ -356,6 +372,7 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
           const succeeded = missed <= allowance.total;
           const spent = sparesConsumed(missed, allowance.base, allowance.applied);
           const steppedOut = timeOff?.steppedOut === true;
+          const excluded = member.excluded === true;
           // Someone who sat this cycle out is not in `outcomes`, and that
           // single omission is the whole of what stepping out means for money:
           // outcomes is what the ledger is built from below, so they neither
@@ -386,6 +403,7 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
             allowance,
             spent,
             steppedOut,
+            excluded,
           });
         }
 
@@ -452,11 +470,13 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
             // "stepped-out" rather than null: null is a cycle still running,
             // and a member row that reverts to looking un-graded once results
             // are in reads as a bug rather than as an arrangement.
-            outcome: update.steppedOut
-              ? "stepped-out"
-              : update.succeeded
-                ? "succeeded"
-                : "failed",
+            outcome: update.excluded
+              ? "excluded"
+              : update.steppedOut
+                ? "stepped-out"
+                : update.succeeded
+                  ? "succeeded"
+                  : "failed",
             steppedOut: update.steppedOut,
             completedCount: update.completed,
             skipsUsed: Math.min(update.missed, update.allowance.total),
