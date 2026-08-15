@@ -222,3 +222,70 @@ export async function chainLongestStreakWith(
   };
   return longestStreak(spanning, allYmds, today, joinedDate, away);
 }
+
+/**
+ * The minimum a forward walk needs to know about a cycle. Deliberately not
+ * `Challenge`: the only caller is server-side and reads raw documents, and
+ * asking it to hydrate a full Challenge just to follow a pointer would be
+ * work done purely to satisfy a type.
+ */
+export interface ForwardLink {
+  repeatedToId?: string | null;
+  status?: string;
+}
+
+/**
+ * Much tighter than MAX_CHAIN_DEPTH, and for a different reason: this bounds
+ * a *write* batch rather than a read walk. Callers pair each cycle with two
+ * operations, and Firestore caps a batch at 500 — a walk allowed to run 500
+ * links deep would build an illegal batch and fail the whole removal. Only
+ * cycles that already exist are reachable here, and auto-repeat creates one
+ * at a time, so any real chain returns 0 or 1.
+ */
+const MAX_FORWARD_CYCLES = 50;
+
+/**
+ * Cycles that follow this one and haven't happened yet — the ids of every
+ * successor already created down the `repeatedToId` chain.
+ *
+ * Auto-repeat is the reason this is needed at all. It creates the next cycle
+ * a day *before* the current one ends (AUTO_REPEAT_LEAD_HOURS, and see
+ * functions/src/auto-repeat.ts for why it can't wait), so for the last day of
+ * every repeating habit there is a real successor document sitting in the
+ * database with the current membership already copied into it. Anything that
+ * means "and from now on" has to reach those, or it silently applies to one
+ * cycle and is undone the moment the seam is crossed.
+ *
+ * Stops at the first successor that isn't `active`. A cycle that has been
+ * graded or cancelled is a settled record — its outcomes are written and its
+ * ledger entries exist — and editing membership underneath it would make that
+ * record disagree with the money it moved. In practice this can't happen while
+ * the walk starts from a live cycle, but "in practice it can't" is not a
+ * guarantee, and the conservative branch costs one comparison.
+ *
+ * Visited ids are tracked rather than only depth-capped: a chain that loops
+ * back on itself would otherwise return the same id repeatedly and the caller
+ * would batch several writes to one document.
+ */
+export async function successorChainIds(
+  get: (id: string) => Promise<ForwardLink | null>,
+  fromId: string
+): Promise<string[]> {
+  const ids: string[] = [];
+  const seen = new Set<string>([fromId]);
+  let nextId = (await get(fromId))?.repeatedToId ?? null;
+
+  while (nextId && ids.length < MAX_FORWARD_CYCLES) {
+    if (seen.has(nextId)) break;
+    seen.add(nextId);
+
+    const cycle = await get(nextId);
+    if (!cycle) break;
+    if (cycle.status !== "active") break;
+
+    ids.push(nextId);
+    nextId = cycle.repeatedToId ?? null;
+  }
+
+  return ids;
+}

@@ -9,6 +9,7 @@ import { getAdminDb } from "@/lib/firebase/admin";
 import { addDaysYmd, daysBetweenInclusive, todayYmd } from "@/lib/dates";
 import { repeatDurationDays } from "@/lib/duration";
 import { badgesEarnedIn } from "@/lib/badges";
+import { successorChainIds, type ForwardLink } from "@/lib/chain-core";
 import type { Challenge } from "@/lib/types";
 
 /**
@@ -541,7 +542,26 @@ export class RemoveMemberError extends Error {
   }
 }
 
-/** Creator-only, any active group (upcoming or in-progress); can't remove yourself. */
+/**
+ * Creator-only, any active group (upcoming or in-progress); can't remove
+ * yourself.
+ *
+ * **Removal runs forward, not just here.** "Remove" means the person is out of
+ * the habit, not out of one week of it, so this also drops them from every
+ * cycle further down the repeat chain that already exists. Usually there are
+ * none — a successor is normally created from this cycle's membership after
+ * the fact, so removing someone now simply means they're never copied across.
+ * The exception is the one that matters: auto-repeat builds the next cycle a
+ * full day *before* the current one ends (see functions/src/auto-repeat.ts),
+ * so a creator removing someone on the final day is looking at a habit whose
+ * next cycle already lists them. Without this walk they'd be gone from the
+ * cycle that's ending and back in the one starting tomorrow — the two writes
+ * a creator would least expect to come apart.
+ *
+ * Excusing deliberately does NOT work this way (setMemberExclusionAdmin):
+ * a stake is settled per cycle and "not this week" is the whole point of it.
+ * Removal is the permanent one, and so is the one that travels.
+ */
 export async function removeMemberAdmin(
   callerUid: string,
   challengeId: string,
@@ -560,9 +580,29 @@ export async function removeMemberAdmin(
   const memberIds = (data.memberIds as string[]) ?? [];
   if (!memberIds.includes(targetUid)) throw new RemoveMemberError("not-member");
 
+  // Seeded with the cycle already read, so the common case (no successor yet)
+  // costs no second read at all.
+  const cache = new Map<string, ForwardLink | null>([
+    [challengeId, data as ForwardLink],
+  ]);
+  const futureIds = await successorChainIds(async (id) => {
+    if (!cache.has(id)) {
+      const doc = await db.collection("challenges").doc(id).get();
+      cache.set(id, doc.exists ? (doc.data() as ForwardLink) : null);
+    }
+    return cache.get(id)!;
+  }, challengeId);
+
+  // One batch over the whole chain: a partial removal would leave the member
+  // in some future cycles and not others, with no way for anyone to tell
+  // which. Two writes per cycle, and the walk is bounded (MAX_FORWARD_CYCLES)
+  // so the batch cannot outgrow Firestore's 500-operation limit.
   const batch = db.batch();
-  batch.update(challengeRef, { memberIds: FieldValue.arrayRemove(targetUid) });
-  batch.delete(challengeRef.collection("members").doc(targetUid));
+  for (const id of [challengeId, ...futureIds]) {
+    const ref = db.collection("challenges").doc(id);
+    batch.update(ref, { memberIds: FieldValue.arrayRemove(targetUid) });
+    batch.delete(ref.collection("members").doc(targetUid));
+  }
   await batch.commit();
 }
 

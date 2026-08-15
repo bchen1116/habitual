@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
+import { MoreHorizontal } from "lucide-react";
 import { skipsUsed, totalRequired, challengeState } from "@/lib/progress";
 import type { Challenge, ChallengeMember } from "@/lib/types";
-import { Button } from "@/components/ui/button";
+import { MemberActionsDialog } from "@/components/challenge/member-actions-dialog";
 import {
   Card,
   CardContent,
@@ -31,12 +33,14 @@ export function MembersCard({
   selfUid: string;
   isCreator: boolean;
   removingUid: string | null;
-  onRemove: (uid: string) => void;
+  onRemove: (uid: string) => Promise<void>;
   /** Which member is mid-request, so only their control disables. */
   excludingUid: string | null;
-  onSetExclusion: (uid: string, excluded: boolean) => void;
+  onSetExclusion: (uid: string, excluded: boolean) => Promise<void>;
 }) {
   const state = challengeState(challenge, today);
+  /** Whose action sheet is open. One dialog serves every row. */
+  const [openUid, setOpenUid] = useState<string | null>(null);
 
   // Per-member, not shared: a member who joined after the challenge started
   // has a smaller total (and a later skips-used floor) than one who's been
@@ -52,6 +56,9 @@ export function MembersCard({
       completed: m.outcome !== null ? m.completedCount : ymds.length,
       total: totalRequired(challenge, m.joinedDate),
       onTrack: used <= challenge.skipDays,
+      // Whether this row has anything to offer beyond the profile link — the
+      // same three conditions the server enforces on both actions.
+      manageable: isCreator && m.uid !== selfUid && state === "active",
     };
   });
   // Someone sitting the cycle out isn't off track, and isn't on it either —
@@ -73,12 +80,9 @@ export function MembersCard({
         )}
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        {rows.map((row) => (
-          <div key={row.uid} className="flex items-center gap-3">
-            <Link
-              href={`/u/${row.uid}`}
-              className="flex-1 truncate text-sm hover:underline"
-            >
+        {rows.map((row) => {
+          const label = (
+            <>
               <span className={row.uid === selfUid ? "font-semibold" : ""}>
                 {row.displayName}
                 {row.uid === selfUid ? " (you)" : ""}
@@ -88,7 +92,10 @@ export function MembersCard({
                   @{row.username}
                 </span>
               )}
-            </Link>
+            </>
+          );
+          const status = (
+            <>
             {row.outcome === "succeeded" && (
               <span className="text-xs font-bold text-foreground">Succeeded ✓</span>
             )}
@@ -127,38 +134,63 @@ export function MembersCard({
                 </span>
               </>
             )}
-            {/* Excusing sits before Remove deliberately: it's the softer of
-                the two and the one more often wanted, and a creator reaching
-                for "they're injured this week" should meet it first rather
-                than the irreversible one. */}
-            {isCreator && row.uid !== selfUid && state === "active" && (
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={excludingUid === row.uid}
-                onClick={() => onSetExclusion(row.uid, !row.excluded)}
-              >
-                {excludingUid === row.uid
-                  ? "…"
-                  : row.excluded
-                    ? "Include"
-                    : "Excuse"}
-              </Button>
-            )}
-            {isCreator && row.uid !== selfUid && state === "active" && (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-destructive hover:text-destructive"
-                disabled={removingUid === row.uid}
-                onClick={() => onRemove(row.uid)}
-              >
-                {removingUid === row.uid ? "Removing…" : "Remove"}
-              </Button>
-            )}
-          </div>
-        ))}
+            </>
+          );
+
+          // A row with nothing to manage keeps its direct link to the profile:
+          // routing every viewer through a sheet whose only entry is "View
+          // profile" would be a tap bought for nothing.
+          if (!row.manageable) {
+            return (
+              <div key={row.uid} className="flex min-h-11 items-center gap-3">
+                <Link
+                  href={`/u/${row.uid}`}
+                  className="min-w-0 flex-1 truncate text-sm hover:underline"
+                >
+                  {label}
+                </Link>
+                {status}
+              </div>
+            );
+          }
+
+          // Where there ARE actions, the whole row opens them rather than the
+          // name alone — a name can truncate to six characters, and a tap
+          // target that shrinks with the text is the same mistake in a
+          // quieter form. min-h-11 on both branches keeps every row at the
+          // 44px both platforms ask for, and keeps them the same height as
+          // each other. The ⋯ is what says the tap does something new;
+          // without it, a tap that used to open a profile would silently
+          // change meaning. It sits at the end of the row rather than beside
+          // the name because the name truncates with an ellipsis of its own,
+          // and two in a row read as one.
+          return (
+            <button
+              key={row.uid}
+              type="button"
+              onClick={() => setOpenUid(row.uid)}
+              aria-label={`Options for ${row.displayName}`}
+              className="flex min-h-11 w-full items-center gap-3 text-left"
+            >
+              <span className="min-w-0 flex-1 truncate text-sm">{label}</span>
+              {status}
+              <MoreHorizontal
+                aria-hidden
+                className="h-4 w-4 shrink-0 text-muted-foreground"
+              />
+            </button>
+          );
+        })}
       </CardContent>
+
+      <MemberActionsDialog
+        member={rows.find((r) => r.uid === openUid) ?? null}
+        canManage={rows.find((r) => r.uid === openUid)?.manageable ?? false}
+        busy={excludingUid === openUid || removingUid === openUid}
+        onOpenChange={(open) => !open && setOpenUid(null)}
+        onSetExclusion={onSetExclusion}
+        onRemove={onRemove}
+      />
     </Card>
   );
 }

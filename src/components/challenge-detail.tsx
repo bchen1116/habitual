@@ -293,8 +293,10 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
     }
   }
 
+  // No window.confirm: the member sheet confirms in place, and it can say the
+  // thing a native dialog can't — that removal also covers the repeats after
+  // this one.
   async function handleRemove(targetUid: string) {
-    if (!window.confirm("Remove this member from the challenge?")) return;
     setRemovingUid(targetUid);
     setError(null);
     try {
