@@ -16,9 +16,10 @@ import {
 
 /**
  * Where a habit stands, when that is the headline rather than a detail:
- * graded and won, graded and lost, cancelled, or not started yet.
+ * graded and won, graded and lost, graded but not yours to win or lose,
+ * cancelled, or not started yet.
  *
- * Four mutually exclusive states in one component because they are one
+ * Five mutually exclusive states in one component because they are one
  * decision — exactly one of them can be true, and reading them together is
  * the only way to see that the set is complete. An active habit renders
  * nothing here; its status lives in the progress card instead.
@@ -79,6 +80,29 @@ export function ChallengeStatusCards({
             <Link href="/ledger">View in ledger</Link>
           </Button>
         </CardContent>
+      </Card>
+    )}
+
+    {/* Without this, a cycle you were excused from finished with no card at
+        all — the two above both test a specific outcome, so "excluded" and
+        "stepped-out" fell through the gap and the page went quiet on the one
+        result that most needs saying out loud: your money didn't move. A
+        silent screen is indistinguishable from a grading that hasn't run. */}
+    {state === "adjudicated" &&
+      (member?.outcome === "excluded" || member?.outcome === "stepped-out") && (
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            {member.outcome === "excluded"
+              ? "You were excused"
+              : "You sat this one out"}
+          </CardTitle>
+          <CardDescription>
+            {member.outcome === "excluded"
+              ? "The creator excused you from this cycle, so it wasn't graded for you and no stake changed hands — you neither won nor lost."
+              : "You booked enough of this cycle off to sit it out, so it wasn't graded for you and no stake changed hands — you neither won nor lost."}
+          </CardDescription>
+        </CardHeader>
       </Card>
     )}
 

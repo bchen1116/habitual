@@ -26,13 +26,52 @@ export function StakesCard({
   charityName,
   /** Shown to members of a habit that will roll into another cycle on its own. */
   autoRepeats = false,
+  outOfCycle = null,
 }: {
   amount: number;
   forfeitType: "charity" | "pool";
   charityName: string | null;
   autoRepeats?: boolean;
+  /**
+   * This viewer takes no part in this cycle's stake — the creator excused
+   * them, or they booked past the time-off budget and stepped out.
+   */
+  outOfCycle?: "excused" | "away" | null;
 }) {
   const [showHelp, setShowHelp] = useState(false);
+
+  // The amount is not shown at all in this case, rather than shown with a
+  // caveat under it. This card exists to be read at a glance and it is the
+  // one place on the page that names a figure, so a large "$20" with an
+  // explanation beneath would be read as the answer with the explanation
+  // skipped — and the answer would be false. Adjudication writes an excused
+  // member no ledger entry either way (functions/src/stakes.ts); the card has
+  // to agree with that, or the app is quoting a risk that doesn't exist.
+  if (outOfCycle) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col gap-2 py-4">
+          <div className="flex items-center gap-3">
+            <span className="type-display text-3xl leading-none">No stake</span>
+            <span className="type-overline text-xs text-muted-foreground">
+              this cycle
+            </span>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {outOfCycle === "excused"
+              ? "You're excused from this one, so nothing is due and nothing is at risk."
+              : "You're away for this one, so nothing is due and nothing is at risk."}
+          </p>
+          {autoRepeats && (
+            <p className="text-xs text-muted-foreground">
+              Repeats automatically — the next cycle stakes{" "}
+              {formatAmount(amount)} again.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>
