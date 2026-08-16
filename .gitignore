@@ -43,3 +43,6 @@ next-env.d.ts
 # Serwist output
 public/sw.js
 public/swe-worker*.js
+
+# Firestore emulator debug output
+firestore-debug.log
