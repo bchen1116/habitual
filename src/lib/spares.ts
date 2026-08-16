@@ -5,8 +5,9 @@ import { canEarnBadges } from "@/lib/badges";
 /**
  * Applying a spare skip to a week that was missed.
  *
- * Spares are earned per whole week kept (lib/badges.ts) and spent per whole
- * week missed. Both halves are weeks because only `weekly_count` habits can
+ * Spares are earned per perfect week — all seven days (lib/badges.ts) — and
+ * spent per whole week missed. Both halves are weeks because only
+ * `weekly_count` habits can
  * earn them at all: a daily habit asks for every day there is, so it has no
  * slack to earn slack with, and its misses are days rather than shortfalls.
  * Nothing here ever has to handle a daily habit.

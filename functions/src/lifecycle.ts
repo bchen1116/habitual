@@ -2,7 +2,7 @@ import { getFirestore } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { sendPush } from "./notifications";
 import { addDaysYmd } from "./dates";
-import { awayDaysFor, type AwayRange } from "./away";
+import { memberTimeOff, type AwayRange } from "./away";
 import { spareNudgeBody, spareShortfall } from "./spare-nudge";
 import {
   currentWindow,
@@ -95,8 +95,32 @@ export async function sendDailyLifecycleNotifications(now: Date): Promise<void> 
       if (isLifecycleHour) {
         for (const challengeDoc of challenges.docs) {
           const challenge = challengeDoc.data();
+          const isStartDay = challenge.startDate === today;
+          const isLastDay = challenge.endDate === today;
+          const isDayAfterEnd = addDaysYmd(challenge.endDate, 1) === today;
+          if (!isStartDay && !isLastDay && !isDayAfterEnd) continue;
 
-          if (challenge.startDate === today) {
+          // One member read, and only on the two or three days in a cycle
+          // that can produce a push at all — which is why this is affordable
+          // where reading it for every habit every morning would not be.
+          const memberSnap = await challengeDoc.ref
+            .collection("members")
+            .doc(userDoc.id)
+            .get();
+          const timeOff = memberTimeOff(
+            challenge as { startDate: string; endDate: string },
+            user.awayRanges as AwayRange[] | undefined,
+            memberSnap.data()?.joinedDate as string | undefined,
+            memberSnap.data()?.excluded === true
+          );
+          // Every push below is about a stake: don't lose it, save it, it
+          // starts today. Someone excused from this cycle — or away past the
+          // budget — has no stake in it to lose or save, so all three are
+          // untrue for them, and "don't lose your stake now" is the worst
+          // thing to send to the one person whose stake isn't in play.
+          if (timeOff.steppedOut) continue;
+
+          if (isStartDay) {
             await sendPush(userDoc.id, {
               title: "Challenge starts today",
               body: `"${challenge.name}" begins — day one is today.`,
@@ -105,7 +129,7 @@ export async function sendDailyLifecycleNotifications(now: Date): Promise<void> 
             });
           }
 
-          if (challenge.endDate === today) {
+          if (isLastDay) {
             const checkin = await challengeDoc.ref
               .collection("checkins")
               .doc(`${today}_${userDoc.id}`)
@@ -125,7 +149,7 @@ export async function sendDailyLifecycleNotifications(now: Date): Promise<void> 
           // save the stake, and the first at which the shortfall is final.
           // See spare-nudge.ts — it returns null unless spending the balance
           // would actually change the outcome, which is nearly always.
-          if (addDaysYmd(challenge.endDate, 1) === today) {
+          if (isDayAfterEnd) {
             const shortfall = await spareShortfall(
               challengeDoc.ref,
               challenge as Parameters<typeof spareShortfall>[1],
@@ -204,18 +228,25 @@ async function sendCheckinReminder(
       .get();
 
     const joinedDate = memberSnap.data()?.joinedDate as string | undefined;
+    const timeOff = memberTimeOff(
+      data as { startDate: string; endDate: string },
+      // Already in hand from the pass over push-enabled users, so declared
+      // time off costs this loop no extra read.
+      userDoc.data().awayRanges as AwayRange[] | undefined,
+      joinedDate,
+      // The member doc was already being read for joinedDate, so honouring an
+      // excusal here is free. It has to be honoured somewhere: this is the
+      // nudge that fires every evening, and telling someone excused from the
+      // cycle to go and check in is the app contradicting itself daily.
+      memberSnap.data()?.excluded === true
+    );
+    if (timeOff.steppedOut) continue;
     const verdict = needsCheckinToday(
       challenge,
       joinedDate,
       today,
       mine,
-      // Already in hand from the pass over push-enabled users, so declared
-      // time off costs this loop no extra read.
-      awayDaysFor(
-        data as { startDate: string; endDate: string },
-        userDoc.data().awayRanges as AwayRange[] | undefined,
-        joinedDate
-      )
+      timeOff.days
     );
     if (!verdict.needed) continue;
     outstanding.push({ name: challenge.name, urgent: verdict.urgent });

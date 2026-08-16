@@ -345,12 +345,12 @@ function Row({
             {weeks}w unbroken
           </span>
         )}
-        {/* Spare skips earned by completing whole weeks. Shown as a count
-            rather than repeated glyphs — someone forty weeks in would
-            otherwise have a row of forty. */}
+        {/* Spare skips earned by perfect weeks. Shown as a count rather than
+            repeated glyphs — someone forty weeks in would otherwise have a row
+            of forty. */}
         {entry.badges > 0 && (
           <span
-            title={`${entry.badges} spare skip${entry.badges === 1 ? "" : "s"} earned by completing whole weeks`}
+            title={`${entry.badges} spare skip${entry.badges === 1 ? "" : "s"} earned by checking in all 7 days of a week`}
             className="type-overline text-[10px] text-primary"
           >
             ◆ {entry.badges} spare

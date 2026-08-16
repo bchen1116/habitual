@@ -9,6 +9,7 @@ import {
 } from "./away";
 import { sendPushToMany } from "./notifications";
 import { effectiveSkipDays, sparesConsumed } from "./badges";
+import { ledgerDrafts, stakedMembers, type GradedMember } from "./stakes";
 
 interface ChallengeData {
   name: string;
@@ -58,13 +59,8 @@ interface SpareData {
   count: number;
 }
 
-interface MemberOutcome {
-  uid: string;
-  displayName: string;
-  username: string | null;
-  charityName: string | null;
-  succeeded: boolean;
-}
+/** @see GradedMember in ./stakes — the shape the money decision consumes. */
+type MemberOutcome = GradedMember;
 
 /**
  * A member's own starting point for "days/weeks required" — the challenge's
@@ -316,7 +312,7 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
         }
 
         const adjudicatedAt = Timestamp.fromDate(now);
-        const outcomes: MemberOutcome[] = [];
+        const graded: MemberOutcome[] = [];
         const memberUpdates: {
           ref: FirebaseFirestore.DocumentReference;
           missed: number;
@@ -371,28 +367,20 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
           );
           const succeeded = missed <= allowance.total;
           const spent = sparesConsumed(missed, allowance.base, allowance.applied);
+          // The creator's exclusion already resolved to a cycle-wide step-out
+          // in memberTimeOff above, so `steppedOut` covers both routes out —
+          // and `stakedMembers` below drops them from the money in one place
+          // rather than at each branch of the ledger.
           const steppedOut = timeOff?.steppedOut === true;
           const excluded = member.excluded === true;
-          // Someone who sat this cycle out is not in `outcomes`, and that
-          // single omission is the whole of what stepping out means for money:
-          // outcomes is what the ledger is built from below, so they neither
-          // forfeit nor take a share of a pool. Skipping the push rather than
-          // filtering later keeps it impossible to reintroduce them by adding
-          // a branch that forgets.
-          //
-          // It has to be an omission rather than a `succeeded: true`: in pool
-          // mode a winner divides the losers' stakes, so "succeeded" would pay
-          // them for a cycle they were absent from — which is the exact
-          // unfairness the step-out threshold exists to prevent.
-          if (!steppedOut) {
-            outcomes.push({
-              uid,
-              displayName: member.displayName,
-              username: member.username ?? null,
-              charityName: member.charityName ?? null,
-              succeeded,
-            });
-          }
+          graded.push({
+            uid,
+            displayName: member.displayName,
+            username: member.username ?? null,
+            charityName: member.charityName ?? null,
+            succeeded,
+            steppedOut,
+          });
           // Deferred to after the venmo reads below — transactions require
           // every read to happen before the first write.
           memberUpdates.push({
@@ -407,6 +395,11 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
           });
         }
 
+        // Everyone the stake actually applies to — see stakes.ts. Anyone who
+        // sat the cycle out or was excused from it is gone from here, and
+        // every money decision below is built from this list alone.
+        const staked = stakedMembers(graded);
+
         // Pool mode: each winner's Venmo handle rides onto the loser's
         // ledger entry as toVenmoUsername, giving the debtor a prefilled
         // Pay-with-Venmo link. Read fresh from users/{uid} NOW — at the
@@ -419,7 +412,7 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
         // the one ledger entry the debtor can read is the entire exposure.
         const venmoByUid = new Map<string, string | null>();
         if (challenge.forfeitType === "pool") {
-          const winnerUids = outcomes.filter((o) => o.succeeded).map((o) => o.uid);
+          const winnerUids = staked.filter((o) => o.succeeded).map((o) => o.uid);
           if (winnerUids.length > 0) {
             const userSnaps = await t.getAll(
               ...winnerUids.map((uid) => db.collection("users").doc(uid))
@@ -502,47 +495,16 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
           createdAt: FieldValue.serverTimestamp(),
         };
 
-        if (challenge.forfeitType === "pool") {
-          // Winner pool (docs/05): each loser's stake splits evenly among
-          // the winners. No winners -> wash: no entries, but execution
-          // still falls through so the challenge is marked adjudicated.
-          const winners = outcomes.filter((o) => o.succeeded);
-          const losers = outcomes.filter((o) => !o.succeeded);
-          if (winners.length > 0) {
-            const perWinnerShare = challenge.stakeAmount / winners.length;
-            for (const loser of losers) {
-              for (const winner of winners) {
-                t.set(db.collection("ledgerEntries").doc(), {
-                  ...baseEntry,
-                  fromUid: loser.uid,
-                  fromName: loser.displayName,
-                  fromUsername: loser.username,
-                  toType: "user",
-                  toUid: winner.uid,
-                  toName: winner.displayName,
-                  toUsername: winner.username,
-                  toVenmoUsername: venmoByUid.get(winner.uid) ?? null,
-                  toCharityName: null,
-                  amount: perWinnerShare,
-                });
-              }
-            }
-          }
-        } else {
-          // Charity forfeit: each failed member owes their own charity.
-          for (const loser of outcomes.filter((o) => !o.succeeded)) {
-            t.set(db.collection("ledgerEntries").doc(), {
-              ...baseEntry,
-              fromUid: loser.uid,
-              fromName: loser.displayName,
-              fromUsername: loser.username,
-              toType: "charity",
-              toUid: null,
-              toName: null,
-              toUsername: null,
-              toCharityName: loser.charityName ?? "Charity",
-            });
-          }
+        // Who owes whom, decided in stakes.ts where it can be tested over
+        // fixtures — including the case this is written for, a cycle with an
+        // excused member in it. An empty list is a legitimate result (nobody
+        // failed; or in a pool, nobody succeeded, which is a wash) and
+        // execution still falls through so the challenge is marked graded.
+        for (const draft of ledgerDrafts(staked, challenge, venmoByUid)) {
+          t.set(db.collection("ledgerEntries").doc(), {
+            ...baseEntry,
+            ...draft,
+          });
         }
 
         // Runs for every processed challenge, including zero-ledger ones —
@@ -551,7 +513,7 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
 
         // Every member, not just the graded ones: someone who sat the cycle
         // out is still in the habit and still wants to know it finished. They
-        // are absent from `outcomes` because that list builds the ledger, and
+        // are absent from `staked` because that list builds the ledger, and
         // reusing it here would have quietly made "no stake" mean "no news".
         notifyMemberUids = memberUpdates.map((u) => u.ref.id);
         notifiedChallengeName = challenge.name;

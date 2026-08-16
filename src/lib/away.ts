@@ -13,8 +13,9 @@ import type { AwayRange, Challenge } from "@/lib/types";
  *
  * - a week you're away doesn't count as failed, so it can't break a streak;
  * - the progress bar asks for fewer check-ins rather than showing you behind;
- * - and, because a partly-away week is `prorated`, it can't earn a spare —
- *   you don't bank a reward for a week you sat out.
+ * - and, because a partly-away week has fewer than seven countable days, it
+ *   can't be a perfect one and so can't earn a spare — you don't bank a
+ *   reward for a week you sat out.
  *
  * Three rules keep it from being a way out of a stake, and each is enforced
  * where it can't be argued with:

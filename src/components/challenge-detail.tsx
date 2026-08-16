@@ -473,6 +473,12 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
           forfeitType={challenge.forfeitType}
           charityName={member?.charityName ?? challenge.charityName}
           autoRepeats={!isCreator && challenge.autoRepeat === true}
+          // The creator's decision first, matching memberTimeOff: an excusal
+          // covers the whole cycle, so what the member happened to book can't
+          // add to it and shouldn't change what they're told.
+          outOfCycle={
+            member?.excluded ? "excused" : timeOff.steppedOut ? "away" : null
+          }
         />
       )}
 
