@@ -16,6 +16,13 @@ import { windowRequirement } from "./adjudicate";
  */
 
 /** Weekly target at or above this is "every day" in practice — no slack to earn. */
+export const PERFECT_WEEK = 7;
+
+/**
+ * The highest weekly target that can still earn a spare. At 7 the target is
+ * already every day, so earning one would be indistinguishable from meeting
+ * the terms. Mirrors src/lib/badges.ts.
+ */
 export const MAX_BADGE_TARGET = 6;
 
 export interface BadgeChallenge {
@@ -36,9 +43,12 @@ export function canEarnBadges(challenge: BadgeChallenge): boolean {
  *
  * A window earns a badge on two conditions, and it needs both.
  *
- * *It asked for the habit's full target.* A week prorated for a late joiner
- * (owing 2 of 5) is not a full week, and paying a badge for it would make
- * joining late the cheapest way to earn one.
+ * *Every one of its seven days was checked in.* Not the habit's target — all
+ * seven. A spare buys back a missed day, so earning one has to cost a day you
+ * weren't obliged to do; paying out at the target would hand a 5x/week habit
+ * a skip for being a 5x/week habit, every week, without it ever exceeding the
+ * terms its creator set. Mirrors src/lib/badges.ts, and this is the copy that
+ * decides money.
  *
  * *All seven of its days have passed.* A quota cleared on the third day of a
  * week has not kept that week yet, and this is the number that raises the
@@ -82,12 +92,15 @@ export function badgesEarnedIn(
     );
     // Waived, prorated by a late join, or shortened by declared time off —
     // none of them is a full week kept, and none earns a spare. One test
-    // covers all three because they all reduce the same number.
+    // covers all three because they all reduce the same number. Kept even
+    // though seven check-ins can no longer coexist with a reduced
+    // requirement: `required` is computed here regardless, and asserting the
+    // week was whole is cheaper to read than deriving it.
     if (required !== fullTarget) continue;
     const count = checkinYmds.filter(
       (d) => d >= windowStart && d <= windowEnd && !away?.has(d)
     ).length;
-    if (count >= fullTarget) badges++;
+    if (count >= PERFECT_WEEK) badges++;
   }
   return badges;
 }

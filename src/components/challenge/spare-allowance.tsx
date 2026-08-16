@@ -46,7 +46,7 @@ export function SpareAllowance({
               "They keep until you use one, including into the next cycle."}
           </>
         ) : (
-          <>Complete a full week to earn a spare skip.</>
+          <>Check in all 7 days of a week to earn a spare skip.</>
         )}
       </p>
       {canSpend && atRisk > 0 && available > 0 && (

@@ -34,7 +34,18 @@ import type { Challenge } from "@/lib/types";
  * choice of whether to burn a week you earned on a week you didn't.
  */
 
-/** Weekly target at or above this is "every day" in practice — no slack to earn. */
+/** Days in a week — and, since a spare needs a perfect one, the bar to clear. */
+export const PERFECT_WEEK = 7;
+
+/**
+ * The highest weekly target that can still earn a spare.
+ *
+ * At 7 the target already *is* every day, so there would be nothing extra to
+ * do — earning a spare would be indistinguishable from meeting the terms, and
+ * the habit would simply come with a free skip. At 6 and below there is a gap
+ * between what's asked and a perfect week, and closing it is the whole
+ * transaction.
+ */
 export const MAX_BADGE_TARGET = 6;
 
 export function canEarnBadges(challenge: Challenge): boolean {
@@ -49,9 +60,19 @@ export function canEarnBadges(challenge: Challenge): boolean {
  *
  * A window earns a badge on two conditions, and it needs both.
  *
- * *It asked for the habit's full target.* A week prorated for a late joiner
- * (owing 2 of 5) is not a full week, and paying a badge for it would make
- * joining late the cheapest way to earn one.
+ * *Every one of its seven days was checked in.* Not the habit's target — all
+ * seven. A spare buys a missed day back, so earning one has to cost a day you
+ * weren't obliged to do; otherwise a 5×/week habit hands out a skip for
+ * simply being a 5×/week habit, and the fifth check-in of every week silently
+ * becomes worth a sixth. Meeting the target is what keeps the stake. Beating
+ * it — perfectly, all seven days — is what banks a spare.
+ *
+ * This is stricter than it was, deliberately. The old rule paid out at
+ * `count >= target`, so the habit above earned a spare for exactly the work it
+ * had already promised, and did it every single week: a 6-week habit met as
+ * agreed accumulated 6 spares while never once exceeding its terms. That isn't
+ * a reward for effort, it's an automatic discount on the skip allowance the
+ * creator chose.
  *
  * *All seven of its days have passed.* This used to pay out the moment the
  * count was reached, on the reasoning that a met week can no longer be failed
@@ -73,11 +94,12 @@ export function badgesEarnedIn(
   away?: ReadonlySet<string>
 ): number {
   if (!canEarnBadges(challenge)) return 0;
-  const fullTarget = challenge.frequency.target;
-  // A week partly or wholly declared off is `prorated` (or asks for nothing
-  // at all), so the existing full-target test already refuses it a spare —
-  // you don't bank a reward for a week you sat out. No extra rule needed,
-  // which is the point of routing time off through windowRequirement.
+  // The prorated and full-target tests this used to carry are gone because
+  // they can no longer fire, not because they stopped mattering. `count`
+  // excludes days declared off, and every route to a shortened week — joining
+  // into it, booking part of it off, a final stub week — leaves fewer than
+  // seven countable days in it. Seven check-ins is therefore already the
+  // statement that the week was whole and entirely kept.
   return weeklyWindows(
     challenge,
     checkinYmds,
@@ -86,9 +108,7 @@ export function badgesEarnedIn(
     away
   ).filter(
     (w) =>
-      !w.prorated &&
-      w.target === fullTarget &&
-      w.count >= fullTarget &&
+      w.count >= PERFECT_WEEK &&
       // Strictly before: while today *is* the last day, the week is still
       // running and can still be added to.
       w.end < today

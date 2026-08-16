@@ -108,8 +108,8 @@ function SpareSection({ offer }: { offer: SpareOffer }) {
           </>
         ) : (
           <>
-            No spare skips banked yet — keep a whole week to earn one. They roll
-            into the next cycle of this habit until you use them.
+            No spare skips banked yet — check in all 7 days of a week to earn
+            one. They roll into the next cycle of this habit until you use them.
           </>
         )}
       </p>

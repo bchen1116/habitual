@@ -47,7 +47,7 @@ export interface LeaderboardEntry {
   currentStreak: number;
   currentStreakWeeks: number;
   longestStreak: number;
-  /** Spare skips earned by completing whole weeks — shown beside the streak. */
+  /** Spare skips earned by perfect weeks — shown beside the streak. */
   badges: number;
   isSelf: boolean;
 }
@@ -58,7 +58,7 @@ export interface StreakPair {
   currentStreakWeeks: number;
   longestStreak: number;
   /**
-   * Spare skips earned by completing whole weeks, across the habits in scope.
+   * Spare skips earned by perfect weeks, across the habits in scope.
    * Summed over every cycle rather than walking the chain — challengesForUser
    * already returns ancestors, so earlier cycles are counted for free.
    */
