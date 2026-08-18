@@ -25,12 +25,24 @@ export function MembersCard({
   onRemove,
   excludingUid,
   onSetExclusion,
+  selfAway,
+  selfSteppedOut = false,
 }: {
   challenge: Challenge;
   members: ({ uid: string } & ChallengeMember)[];
   allCheckins: { uid: string; localDate: string }[];
   today: string;
   selfUid: string;
+  /**
+   * The viewer's own excused days in this cycle, and whether they add up to
+   * sitting it out. Only their own: time off is declared on users/{uid},
+   * which firestore.rules makes owner-only, so a client genuinely cannot see
+   * anyone else's. What it CAN see is `excluded` on each member doc, which is
+   * why the creator's excusal shows for everyone and a member's own booking
+   * shows only to them.
+   */
+  selfAway?: ReadonlySet<string>;
+  selfSteppedOut?: boolean;
   isCreator: boolean;
   removingUid: string | null;
   onRemove: (uid: string) => Promise<void>;
@@ -50,23 +62,35 @@ export function MembersCard({
       .filter((c) => c.uid === m.uid)
       .map((c) => c.localDate)
       .filter((d) => d >= challenge.startDate && d <= challenge.endDate);
-    const used = skipsUsed(challenge, ymds, today, m.joinedDate);
+    // Days the viewer declared off shrink what this cycle asks of them, on
+    // both sides of the sum — otherwise their row here shows "2 of 7" while
+    // the progress card directly above it says five of those days aren't
+    // being asked for. Only their own row can do this; see selfAway.
+    const away = m.uid === selfUid ? selfAway : undefined;
+    const used = skipsUsed(challenge, ymds, today, m.joinedDate, away);
     return {
       ...m,
       completed: m.outcome !== null ? m.completedCount : ymds.length,
-      total: totalRequired(challenge, m.joinedDate),
+      total: totalRequired(challenge, m.joinedDate, away),
       onTrack: used <= challenge.skipDays,
+      // Out of this cycle entirely: excused by the creator, or booked past
+      // this habit's time-off budget and sitting it out. Both are true from
+      // the moment they happen, not from grading — a row that keeps counting
+      // days until the nightly job runs is telling someone their attendance
+      // still matters when it has already stopped mattering.
+      outOfCycle:
+        m.excluded === true ||
+        m.outcome === "excluded" ||
+        m.outcome === "stepped-out" ||
+        (m.uid === selfUid && selfSteppedOut),
       // Whether this row has anything to offer beyond the profile link — the
       // same three conditions the server enforces on both actions.
       manageable: isCreator && m.uid !== selfUid && state === "active",
     };
   });
   // Someone sitting the cycle out isn't off track, and isn't on it either —
-  // counting them either way would misdescribe the group. Same for anyone the
-  // creator has excused, whose row says so before grading rather than after.
-  const graded = rows.filter(
-    (r) => r.outcome !== "stepped-out" && r.outcome !== "excluded" && !r.excluded
-  );
+  // counting them either way would misdescribe the group.
+  const graded = rows.filter((r) => !r.outOfCycle);
   const onTrackCount = graded.filter((r) => r.onTrack).length;
 
   return (
@@ -102,24 +126,25 @@ export function MembersCard({
             {row.outcome === "failed" && (
               <span className="text-xs font-medium text-destructive">Failed ✗</span>
             )}
-            {(row.outcome === "excluded" ||
-              (row.excluded && row.outcome === null)) && (
+            {/* One word for one state. "Excused" and "Away" described the
+                same situation — nothing asked, no stake either way — and
+                differed only in how someone arrived at it, which is what the
+                tooltip is for. Two labels for one state invites the reader to
+                look for a difference that isn't there. */}
+            {row.outOfCycle && row.outcome !== "succeeded" &&
+              row.outcome !== "failed" && (
               <span
                 className="text-xs text-muted-foreground"
-                title="Excused from this cycle by the creator — no stake either way"
+                title={
+                  row.excluded || row.outcome === "excluded"
+                    ? "Excused from this cycle by the creator — nothing due, no stake either way"
+                    : "Booked enough of this cycle off to sit it out — nothing due, no stake either way"
+                }
               >
                 Excused
               </span>
             )}
-            {row.outcome === "stepped-out" && (
-              <span
-                className="text-xs text-muted-foreground"
-                title="Booked enough of this cycle off to sit it out — no stake either way"
-              >
-                Away
-              </span>
-            )}
-            {row.outcome === null && !row.excluded && (
+            {row.outcome === null && !row.outOfCycle && (
               <>
                 <div className="h-1.5 w-24 overflow-hidden rounded-full bg-secondary">
                   <div

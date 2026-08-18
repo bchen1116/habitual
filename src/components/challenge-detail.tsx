@@ -663,6 +663,12 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
           onRemove={handleRemove}
           excludingUid={excludingUid}
           onSetExclusion={handleSetExclusion}
+          // Only the viewer's own: awayRanges live on users/{uid}, which the
+          // rules make owner-only, so no client can compute this for anyone
+          // else. Everyone's `excluded` flag is on the member doc and is read
+          // inside the card.
+          selfAway={away}
+          selfSteppedOut={timeOff.steppedOut}
         />
       )}
 
