@@ -38,6 +38,7 @@ import { awayDaysFor, awaySummary, memberTimeOff } from "@/lib/away";
 import { challengePermissions } from "@/lib/challenge-permissions";
 import { useChainStreak } from "@/hooks/use-chain-streak";
 import { useChallengeDoc } from "@/hooks/use-challenge-doc";
+import { useChallengeTimeOff } from "@/hooks/use-challenge-time-off";
 import { usePastCycles } from "@/hooks/use-past-cycles";
 import { CheckinDialog } from "@/components/checkin-dialog";
 import { EditChallengeDialog } from "@/components/edit-challenge-dialog";
@@ -135,6 +136,13 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
     today,
     member?.joinedDate,
     away
+  );
+  // Everyone's excused days in this cycle, for the members list. Group habits
+  // only — a solo cycle has nobody else to describe, and the viewer's own
+  // time off already reaches this page through useUserSettings above.
+  const memberTimeOffByUid = useChallengeTimeOff(
+    challenge?.id,
+    challenge?.mode === "group"
   );
   const rawPastCycles = usePastCycles(challenge, uid);
   // Week numbers come from the chain that's actually on screen, not from each
@@ -663,12 +671,7 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
           onRemove={handleRemove}
           excludingUid={excludingUid}
           onSetExclusion={handleSetExclusion}
-          // Only the viewer's own: awayRanges live on users/{uid}, which the
-          // rules make owner-only, so no client can compute this for anyone
-          // else. Everyone's `excluded` flag is on the member doc and is read
-          // inside the card.
-          selfAway={away}
-          selfSteppedOut={timeOff.steppedOut}
+          timeOffByUid={memberTimeOffByUid}
         />
       )}
 
