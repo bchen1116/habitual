@@ -3,7 +3,12 @@
 import Link from "next/link";
 import { useState } from "react";
 import { MoreHorizontal } from "lucide-react";
-import { skipsUsed, totalRequired, challengeState } from "@/lib/progress";
+import {
+  challengeState,
+  excusedThisWeek,
+  skipsUsed,
+  totalRequired,
+} from "@/lib/progress";
 import type { Challenge, ChallengeMember } from "@/lib/types";
 import { MemberActionsDialog } from "@/components/challenge/member-actions-dialog";
 import {
@@ -25,8 +30,7 @@ export function MembersCard({
   onRemove,
   excludingUid,
   onSetExclusion,
-  selfAway,
-  selfSteppedOut = false,
+  timeOffByUid,
 }: {
   challenge: Challenge;
   members: ({ uid: string } & ChallengeMember)[];
@@ -34,15 +38,16 @@ export function MembersCard({
   today: string;
   selfUid: string;
   /**
-   * The viewer's own excused days in this cycle, and whether they add up to
-   * sitting it out. Only their own: time off is declared on users/{uid},
-   * which firestore.rules makes owner-only, so a client genuinely cannot see
-   * anyone else's. What it CAN see is `excluded` on each member doc, which is
-   * why the creator's excusal shows for everyone and a member's own booking
-   * shows only to them.
+   * Every member's excused days in this cycle, keyed by uid — both routes to
+   * being out of a week, the creator's excusal and the member's own booking,
+   * already resolved into one answer. Absent means nothing is excused, which
+   * is the common case and why members with nothing off aren't in the map.
+   *
+   * Comes from the server (hooks/use-challenge-time-off): declared time off
+   * lives on users/{uid}, which the rules make owner-only, so this is the one
+   * fact on this card a client cannot work out for itself.
    */
-  selfAway?: ReadonlySet<string>;
-  selfSteppedOut?: boolean;
+  timeOffByUid?: Record<string, { days: ReadonlySet<string>; steppedOut: boolean }>;
   isCreator: boolean;
   removingUid: string | null;
   onRemove: (uid: string) => Promise<void>;
@@ -62,11 +67,12 @@ export function MembersCard({
       .filter((c) => c.uid === m.uid)
       .map((c) => c.localDate)
       .filter((d) => d >= challenge.startDate && d <= challenge.endDate);
-    // Days the viewer declared off shrink what this cycle asks of them, on
-    // both sides of the sum — otherwise their row here shows "2 of 7" while
-    // the progress card directly above it says five of those days aren't
-    // being asked for. Only their own row can do this; see selfAway.
-    const away = m.uid === selfUid ? selfAway : undefined;
+    // Days this member declared off shrink what the cycle asks of them, on
+    // both sides of the sum — otherwise a row reads "2 of 7" for someone the
+    // habit has already excused from five of those days, and the group is
+    // being told they're behind when they're not.
+    const timeOff = timeOffByUid?.[m.uid];
+    const away = timeOff?.days;
     const used = skipsUsed(challenge, ymds, today, m.joinedDate, away);
     return {
       ...m,
@@ -76,13 +82,23 @@ export function MembersCard({
       // Out of this cycle entirely: excused by the creator, or booked past
       // this habit's time-off budget and sitting it out. Both are true from
       // the moment they happen, not from grading — a row that keeps counting
-      // days until the nightly job runs is telling someone their attendance
-      // still matters when it has already stopped mattering.
+      // days until the nightly job runs is telling the group that someone's
+      // attendance still matters when it has already stopped mattering.
+      //
+      // The stored outcomes are still checked, and not redundantly: a graded
+      // cycle's member docs hold the settled answer, while timeOffByUid is a
+      // live recomputation. Reading both means a settled result stays
+      // readable even if the fetch behind the live half never lands.
       outOfCycle:
         m.excluded === true ||
         m.outcome === "excluded" ||
         m.outcome === "stepped-out" ||
-        (m.uid === selfUid && selfSteppedOut),
+        timeOff?.steppedOut === true,
+      // Still in the cycle, still staked, but this particular week asks
+      // nothing of them. On a four-week habit one week off is well inside the
+      // budget, so "out of the cycle" is false and would stay false while the
+      // group watched a bar that couldn't move and wondered why.
+      excusedThisWeek: excusedThisWeek(challenge, today, m.joinedDate, away),
       // Whether this row has anything to offer beyond the profile link — the
       // same three conditions the server enforces on both actions.
       manageable: isCreator && m.uid !== selfUid && state === "active",
@@ -144,7 +160,15 @@ export function MembersCard({
                 Excused
               </span>
             )}
-            {row.outcome === null && !row.outOfCycle && (
+            {row.outcome === null && !row.outOfCycle && row.excusedThisWeek && (
+              <span
+                className="text-xs text-muted-foreground"
+                title="Off for this week — nothing due from them until it's over. Still in the habit for the rest of the cycle."
+              >
+                Excused this week
+              </span>
+            )}
+            {row.outcome === null && !row.outOfCycle && !row.excusedThisWeek && (
               <>
                 <div className="h-1.5 w-24 overflow-hidden rounded-full bg-secondary">
                   <div

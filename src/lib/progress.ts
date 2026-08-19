@@ -114,6 +114,39 @@ export function windowRequirement(
 }
 
 /** Total check-ins needed to fully complete the challenge, from a member's own effective start onward. */
+/**
+ * Whether the week `today` falls in asks this member for nothing at all.
+ *
+ * The case a whole-cycle check can't describe: on a four-week habit, one week
+ * booked off is well inside the time-off budget, so the member stays in the
+ * cycle with a stake and is not "excused" in the way someone who stepped out
+ * is. But this week they genuinely owe nothing, and a group looking at their
+ * row deserves to know that rather than reading a stalled progress bar and
+ * drawing its own conclusion.
+ *
+ * Expressed as "no days available" rather than "every day is booked off"
+ * because those differ for a member who joined mid-cycle, and the first is
+ * the one that matches what the window actually demands of them
+ * (windowRequirement is built on the same count).
+ */
+export function excusedThisWeek(
+  challenge: Challenge,
+  today: string,
+  memberJoinedDate?: string,
+  away?: ReadonlySet<string>
+): boolean {
+  if (!away || away.size === 0) return false;
+  const window = weekWindowBounds(challenge).find(
+    (w) => today >= w.start && today <= w.end
+  );
+  // No window means today is outside the cycle, or inside a trailing stub of
+  // fewer than seven days that the grid never covers. Neither is a week this
+  // can speak for.
+  if (!window) return false;
+  const start = effectiveStart(challenge, memberJoinedDate);
+  return windowDaysAvailable(window.start, window.end, start, away) === 0;
+}
+
 export function totalRequired(
   challenge: Challenge,
   memberJoinedDate?: string,
