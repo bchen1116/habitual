@@ -28,6 +28,19 @@ import {
 
 export function LedgerEntryDetail({ id, uid }: { id: string; uid: string }) {
   const [entry, setEntry] = useState<LedgerEntry | null | undefined>(undefined);
+  /**
+   * The payee's Venmo handle as it is *now*, not as it was when the debt was
+   * created. Undefined while it resolves, so the button can wait rather than
+   * flashing "no Venmo on file" at someone who has one.
+   *
+   * Fetched rather than read off the entry because the entry's copy is frozen
+   * at grading, and the handle is usually added after that — see
+   * lib/server/ledger-payee.ts. `users/{uid}` is owner-only in the rules, so
+   * a server round trip is the only way for a debtor to learn this.
+   */
+  const [payeeVenmo, setPayeeVenmo] = useState<string | null | undefined>(
+    undefined
+  );
 
   useEffect(() => {
     const unsubscribe = onSnapshot(
@@ -40,6 +53,33 @@ export function LedgerEntryDetail({ id, uid }: { id: string; uid: string }) {
     );
     return unsubscribe;
   }, [id]);
+
+  // Only the debtor's own unsettled, person-to-person debts have a payee to
+  // look up; the route refuses everything else anyway, and not asking keeps
+  // it from reading a profile for a charity forfeit or a settled entry.
+  const needsPayee =
+    entry?.fromUid === uid &&
+    entry.toType === "user" &&
+    entry.status === "unsettled";
+
+  useEffect(() => {
+    if (!needsPayee) {
+      setPayeeVenmo(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/ledger/${id}/payee`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (!cancelled) setPayeeVenmo(body?.venmoUsername ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setPayeeVenmo(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, needsPayee]);
 
   if (entry === undefined) {
     return <div className="h-48 animate-pulse rounded-xl bg-muted" />;
@@ -66,6 +106,11 @@ export function LedgerEntryDetail({ id, uid }: { id: string; uid: string }) {
         : entry.fromName;
   const counterpartyUsername =
     entry.toType === "charity" ? null : iOwe ? entry.toUsername : entry.fromUsername;
+  // The live handle wins; the entry's frozen copy only stands in while the
+  // lookup is still in flight, so an entry that already had one doesn't lose
+  // its button for a moment on every page load.
+  const venmoHandle =
+    payeeVenmo === undefined ? entry.toVenmoUsername : payeeVenmo;
 
   return (
     <div className="flex flex-col gap-4">
@@ -116,24 +161,39 @@ export function LedgerEntryDetail({ id, uid }: { id: string; uid: string }) {
           )}
 
           {iOwe && entry.status === "unsettled" && (
-            <div className="flex flex-wrap gap-2">
-              {entry.toType === "user" && entry.toVenmoUsername && (
-                <Button asChild variant="outline">
-                  <a
-                    href={venmoPayUrl(
-                      entry.toVenmoUsername,
-                      entry.amount,
-                      entry.challengeName
-                    )}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Pay with Venmo
-                  </a>
-                </Button>
+            <>
+              <div className="flex flex-wrap gap-2">
+                {venmoHandle && (
+                  <Button asChild variant="outline">
+                    <a
+                      href={venmoPayUrl(
+                        venmoHandle,
+                        entry.amount,
+                        entry.challengeName
+                      )}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Pay {counterparty.split(" ")[0]} on Venmo
+                    </a>
+                  </Button>
+                )}
+                <SettleDialog entry={entry} />
+              </div>
+              {/* Said out loud rather than left as a missing button. Whoever
+                  owes this opened the page looking for somewhere to send the
+                  money; an absent link and no explanation reads as the app
+                  being broken, when the real answer is that the payee hasn't
+                  published a handle and can add one at any time — this
+                  resolves live, so it appears the moment they do. */}
+              {entry.toType === "user" && payeeVenmo === null && (
+                <p className="text-sm text-muted-foreground">
+                  {counterparty} hasn&apos;t added a Venmo username, so there&apos;s
+                  no payment link. Settle up however you normally pay them, then
+                  mark it settled.
+                </p>
               )}
-              <SettleDialog entry={entry} />
-            </div>
+            </>
           )}
         </CardContent>
       </Card>
