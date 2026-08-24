@@ -94,7 +94,9 @@ export function HabitWeekStrip({
                 tappable
                   ? `${formatYmd(day.ymd)}: missed — tap to log it`
                   : day.state === "skipped"
-                    ? `${formatYmd(day.ymd)}: time off — nothing was due`
+                    ? day.logged
+                      ? `${formatYmd(day.ymd)}: time off — nothing was due, and you did it anyway`
+                      : `${formatYmd(day.ymd)}: time off — nothing was due`
                     : `${formatYmd(day.ymd)}: ${day.state}`
               }
               aria-label={
@@ -118,9 +120,24 @@ export function HabitWeekStrip({
                 // the history grid: a hole in the record by arrangement, which
                 // must read as neither kept nor dropped.
                 day.state === "skipped" &&
-                  "border border-dashed border-muted-foreground/50"
+                  "flex items-center justify-center border border-dashed border-muted-foreground/50"
               )}
-            />
+            >
+              {/* Kept anyway. The dashed outline stays, because the day still
+                  counts for nothing — but "nothing was asked" and "nothing was
+                  done" are different facts, and an empty cell only told the
+                  first. A dot inside the outline says both at once. */}
+              {day.logged && (
+                <span
+                  aria-hidden
+                  className={cn(
+                    "rounded-full",
+                    dense ? "h-1 w-1" : "h-1.5 w-1.5",
+                    tone === "volt" ? "bg-primary" : "bg-foreground"
+                  )}
+                />
+              )}
+            </Cell>
             <span
               className={cn(
                 "type-overline text-[11px]",

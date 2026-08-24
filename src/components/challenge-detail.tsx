@@ -629,6 +629,20 @@ export function ChallengeDetail({ id, uid }: { id: string; uid: string }) {
             )}
             {summary.canCheckInToday && (
               <div>
+                {/* Checking in on a day off already worked; nothing said so,
+                    and nothing showed it afterwards either, so the only way
+                    to discover it was to try and then wonder whether it had
+                    registered. Both halves are fixed — the day now carries a
+                    mark in the strip and the history — and this is the half
+                    that sets the expectation before the tap rather than
+                    leaving someone to infer it from a total that didn't move. */}
+                {away?.has(today) && (
+                  <p className="mb-2 text-xs text-muted-foreground">
+                    Nothing&apos;s due today. Check in anyway if you did it —
+                    it&apos;s kept in your record and doesn&apos;t count toward
+                    the habit either way.
+                  </p>
+                )}
                 <CheckinDialog
                   challenge={challenge}
                   uid={uid}

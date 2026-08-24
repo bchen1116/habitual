@@ -188,6 +188,8 @@ export interface DayEntry {
    * nothing was asked and nothing was given.
    */
   state: "done" | "missed" | "today" | "future" | "skipped";
+  /** Checked in anyway, on a day nothing was asked for. See HabitWeekDay. */
+  logged?: boolean;
 }
 
 /** Per-day history for daily challenges, from a member's own effective start onward. */
@@ -211,7 +213,13 @@ export function dailyHistory(
     // reads the check-ins directly, so a day kept on holiday keeps the run
     // alive rather than merely not breaking it.
     if (away?.has(ymd)) {
-      entries.push({ ymd, state: "skipped" });
+      // Still recorded, just not counted: someone who kept the habit through
+      // a holiday should be able to see that they did. Every total on the
+      // page leaves the day out on both sides — it isn't in the denominator,
+      // so letting it into the numerator produces "9 of 8 check-ins" — but
+      // "nothing was asked" and "nothing was done" are different facts and
+      // the page was only ever showing the first.
+      entries.push({ ymd, state: "skipped", logged: checkinYmds.has(ymd) });
     } else if (checkinYmds.has(ymd)) {
       entries.push({ ymd, state: "done" });
     } else if (ymd === today) {
@@ -241,6 +249,13 @@ export interface WindowEntry {
   prorated: boolean;
   /** Days of this window declared away. 7 means the week asked nothing. */
   awayDays: number;
+  /**
+   * Check-ins that landed on those away days. Counted separately from
+   * `count`, never added to it: the week didn't ask for them and no total
+   * should move, but a week spent away and kept anyway shouldn't read
+   * identically to one spent away and skipped.
+   */
+  loggedAway: number;
   state: "complete" | "current" | "past-incomplete" | "future" | "skipped";
 }
 
@@ -275,9 +290,11 @@ export function weeklyWindows(
     );
     const awayDays = countAwayBetween(bounds.start, bounds.end, away);
     // Away days are out of the accounting on both sides — see dailyHistory.
-    const count = checkinYmds.filter(
-      (d) => d >= bounds.start && d <= bounds.end && !away?.has(d)
-    ).length;
+    const inWindow = checkinYmds.filter(
+      (d) => d >= bounds.start && d <= bounds.end
+    );
+    const count = inWindow.filter((d) => !away?.has(d)).length;
+    const loggedAway = inWindow.length - count;
     let state: WindowEntry["state"];
     // A week that asked for nothing is neither passed nor failed, and calling
     // it "complete" would put a tick beside a week nobody did anything in.
@@ -294,6 +311,7 @@ export function weeklyWindows(
       target,
       prorated: target < fullTarget,
       awayDays,
+      loggedAway,
       state,
     });
   });
@@ -349,6 +367,13 @@ export interface HabitWeekDay {
    * differently and is worth showing differently.
    */
   state: "done" | "missed" | "today" | "future" | "inactive" | "skipped";
+  /**
+   * They checked in on a day the habit wasn't asking for. Separate from
+   * `state` rather than a sixth value of it, because it changes nothing about
+   * how the day counts — it stays out of every total — and a state machine
+   * that decides arithmetic shouldn't grow a case that only decides pixels.
+   */
+  logged?: boolean;
 }
 
 export interface HabitWeek {
@@ -416,7 +441,12 @@ export function habitWeek(
     else if (ymd === today) state = "today";
     else if (ymd < today) state = "missed";
     else state = "future";
-    days.push({ ymd, letter, state });
+    days.push({
+      ymd,
+      letter,
+      state,
+      logged: state === "skipped" && done.has(ymd),
+    });
   }
 
   // Daily habits store frequency.target as 1 (see createChallengeAdmin), so
