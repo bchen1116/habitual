@@ -152,7 +152,7 @@ export function computeMissed(
   checkinYmds: readonly string[],
   memberJoinedDate?: string,
   away?: ReadonlySet<string>
-): { missed: number; completed: number } {
+): { missed: number; completed: number; required: number } {
   const start = effectiveStart(challenge, memberJoinedDate);
   // Away days leave the accounting on both sides — see src/lib/progress.ts.
   // A check-in banked on a declared day off is welcome and keeps the streak
@@ -160,7 +160,14 @@ export function computeMissed(
   const inRange = checkinYmds.filter(
     (d) => d >= challenge.startDate && d <= challenge.endDate && !away?.has(d)
   );
-  if (start > challenge.endDate) return { missed: 0, completed: inRange.length };
+  // Joined after the last day, so the cycle never asked them for anything.
+  // `required: 0` is what the caller needs to tell that apart from a member
+  // who was asked and delivered — the two produce the same `missed` and
+  // absolutely must not produce the same result. See the staked/askedNothing
+  // split at the call site.
+  if (start > challenge.endDate) {
+    return { missed: 0, completed: inRange.length, required: 0 };
+  }
 
   if (challenge.frequency.type === "daily") {
     const days =
@@ -170,6 +177,7 @@ export function computeMissed(
     return {
       missed: Math.max(0, days - completedSinceStart),
       completed: inRange.length,
+      required: Math.max(0, days),
     };
   }
 
@@ -177,6 +185,7 @@ export function computeMissed(
   const weeks = Math.floor(days / 7);
   const target = challenge.frequency.target;
   let missed = 0;
+  let totalRequired = 0;
   for (let w = 0; w < weeks; w++) {
     const windowStart = addDaysYmd(challenge.startDate, w * 7);
     const windowEnd = addDaysYmd(windowStart, 6);
@@ -190,8 +199,9 @@ export function computeMissed(
     );
     const count = inRange.filter((d) => d >= windowStart && d <= windowEnd).length;
     missed += Math.max(0, required - count);
+    totalRequired += required;
   }
-  return { missed, completed: inRange.length };
+  return { missed, completed: inRange.length, required: totalRequired };
 }
 
 /**
@@ -332,6 +342,8 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
           steppedOut: boolean;
           /** ...or the creator excused them, which lands in the same place. */
           excluded: boolean;
+          /** ...or the cycle asked them for nothing at all. */
+          askedNothing: boolean;
         }[] = [];
         for (const memberDoc of membersSnap.docs) {
           const member = memberDoc.data() as MemberData;
@@ -339,7 +351,7 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
           const ymds = checkinsByUid.get(uid) ?? [];
           const timeOff = timeOffByUid.get(uid);
           const away = timeOff?.days;
-          const { missed, completed } = computeMissed(
+          const { missed, completed, required } = computeMissed(
             challenge,
             ymds,
             member.joinedDate,
@@ -373,6 +385,14 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
           // rather than at each branch of the ledger.
           const steppedOut = timeOff?.steppedOut === true;
           const excluded = member.excluded === true;
+          // Asked for nothing, so not paid for nothing. `missed` is 0 both for
+          // someone who did everything the cycle asked and for someone it
+          // never asked anything of — a member who joined the day it ended,
+          // or whose only days as a member were excused — and `succeeded`
+          // could not tell them apart. In a pool that difference is a full
+          // share of everyone else's forfeits handed to somebody who was not
+          // there. Zero required is the one signal that separates them.
+          const askedNothing = required === 0 && !steppedOut;
           graded.push({
             uid,
             displayName: member.displayName,
@@ -380,6 +400,7 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
             charityName: member.charityName ?? null,
             succeeded,
             steppedOut,
+            askedNothing,
           });
           // Deferred to after the venmo reads below — transactions require
           // every read to happen before the first write.
@@ -392,6 +413,7 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
             spent,
             steppedOut,
             excluded,
+            askedNothing,
           });
         }
 
@@ -463,14 +485,20 @@ export async function adjudicateEndedChallenges(now: Date): Promise<number> {
             // "stepped-out" rather than null: null is a cycle still running,
             // and a member row that reverts to looking un-graded once results
             // are in reads as a bug rather than as an arrangement.
+            // "stepped-out" covers askedNothing too: the member-facing
+            // meaning is identical — not graded, no stake either way — and it
+            // is the only honest thing to write for someone the cycle never
+            // asked anything of. Recording "succeeded" would put a tick beside
+            // a cycle they took no part in, and "failed" would bill them for
+            // one.
             outcome: update.excluded
               ? "excluded"
-              : update.steppedOut
+              : update.steppedOut || update.askedNothing
                 ? "stepped-out"
                 : update.succeeded
                   ? "succeeded"
                   : "failed",
-            steppedOut: update.steppedOut,
+            steppedOut: update.steppedOut || update.askedNothing,
             completedCount: update.completed,
             skipsUsed: Math.min(update.missed, update.allowance.total),
             // Frozen alongside the outcome so a result can always be explained

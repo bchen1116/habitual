@@ -296,6 +296,14 @@ export async function joinChallengeAdmin(
   const displayName =
     (userSnap.data()?.displayName as string | undefined) ?? fallbackName;
   const username = (userSnap.data()?.username as string | undefined) ?? null;
+  // The joiner's own day, not UTC's. This decides two things that both move
+  // money: whether the cycle is already over for them, and what their
+  // joinedDate — their requirement floor — is. In UTC it got both wrong in
+  // opposite directions: someone in Auckland could join a cycle that ended
+  // yesterday where they live, and someone in Los Angeles was refused one
+  // still running where they live. The first is the expensive one, because
+  // a member joined past the last day is asked for nothing at all.
+  const timezone = (userSnap.data()?.timezone as string | undefined) ?? "UTC";
 
   const snap = await db
     .collection("challenges")
@@ -314,7 +322,7 @@ export async function joinChallengeAdmin(
 
     const memberIds = (data.memberIds as string[]) ?? [];
     if (memberIds.includes(uid)) throw new JoinError("already-member");
-    const today = yyyymmddUTC(new Date());
+    const today = todayYmd(timezone);
     if (data.joinClosed) throw new JoinError("closed");
     if (today > data.endDate) throw new JoinError("ended");
     if (data.maxMembers != null && memberIds.length >= data.maxMembers) {
@@ -376,6 +384,14 @@ export async function respondToJoinRequestAdmin(
   const challengeRef = db.collection("challenges").doc(challengeId);
   const requestRef = challengeRef.collection("joinRequests").doc(targetUid);
 
+  // The person being approved, not the creator approving them and not UTC:
+  // this decides their joinedDate, which is the floor on everything the cycle
+  // then asks of them. Read outside the transaction because it isn't part of
+  // the invariant being protected — the timezone of a user cannot change in a
+  // way that matters between this read and the commit.
+  const targetSnap = await db.collection("users").doc(targetUid).get();
+  const timezone = (targetSnap.data()?.timezone as string | undefined) ?? "UTC";
+
   await db.runTransaction(async (t) => {
     const [challengeSnap, requestSnap] = await Promise.all([
       t.get(challengeRef),
@@ -397,7 +413,7 @@ export async function respondToJoinRequestAdmin(
       t.delete(requestRef);
       return;
     }
-    const today = yyyymmddUTC(new Date());
+    const today = todayYmd(timezone);
     if (data.joinClosed) throw new JoinRequestError("closed");
     if (today > data.endDate) throw new JoinRequestError("ended");
     if (data.maxMembers != null && memberIds.length >= data.maxMembers) {
