@@ -239,12 +239,22 @@ export function LedgerList({ uid, initialTab }: { uid: string; initialTab: Tab }
               <Link key={entry.id} href={`/ledger/${entry.id}`}>
                 <Card className="transition-colors hover:bg-accent">
                   <CardContent className="flex items-center justify-between p-4">
-                    <div className="flex flex-col">
-                      <span className="text-sm font-medium">
-                        {entry.challengeName}
+                    {/* Who, not just how much. A row that named only the
+                        habit meant you couldn't tell who to pay without
+                        opening every entry in turn — and "who do I owe" is
+                        the first question a settled-up ledger has to answer. */}
+                    <div className="flex min-w-0 flex-col">
+                      <span className="truncate text-sm font-medium">
+                        {formatAmount(entry.amount)}{" "}
+                        <span className="font-normal text-muted-foreground">
+                          {entry.fromUid === uid ? "to" : "from"}{" "}
+                          {entry.fromUid === uid
+                            ? (entry.toName ?? entry.toCharityName ?? "Charity")
+                            : entry.fromName}
+                        </span>
                       </span>
-                      <span className="text-xs text-muted-foreground">
-                        {formatAmount(entry.amount)}
+                      <span className="truncate text-xs text-muted-foreground">
+                        {entry.challengeName}
                       </span>
                     </div>
                     <span

@@ -159,7 +159,15 @@ function DailyHistoryGrid({
                   // thing it must never read as is either a day kept or a day
                   // dropped.
                   entry.state === "skipped"
-                  ? "border border-dashed border-muted-foreground/50 text-muted-foreground"
+                  ? // Kept anyway reads as a record rather than a hole: the
+                    // outline stays, because the day still counts for nothing,
+                    // but the date stops being greyed out. It can't be
+                    // mistaken for "done" (a solid fill) or "today" (a primary
+                    // border), and the tooltip says which it is.
+                    "border border-dashed border-muted-foreground/50 " +
+                    (entry.logged
+                      ? "font-semibold text-foreground"
+                      : "text-muted-foreground")
                   : "bg-secondary text-muted-foreground");
 
         if (entry.state !== "missed" || entry.settled) {
@@ -168,7 +176,9 @@ function DailyHistoryGrid({
               key={entry.ymd}
               title={
                 entry.state === "skipped"
-                  ? `${formatYmd(entry.ymd)}: time off — nothing was due`
+                  ? entry.logged
+                    ? `${formatYmd(entry.ymd)}: time off — nothing was due, and you did it anyway`
+                    : `${formatYmd(entry.ymd)}: time off — nothing was due`
                   : `${formatYmd(entry.ymd)}: ${entry.state}`
               }
               className={cellClass}
@@ -307,6 +317,7 @@ function WeeklyWindowList({
               <span className="text-muted-foreground">
                 {" "}
                 · {w.awayDays} day{w.awayDays === 1 ? "" : "s"} off
+                {w.loggedAway > 0 && `, ${w.loggedAway} kept anyway`}
               </span>
             )}
           </span>
@@ -326,7 +337,11 @@ function WeeklyWindowList({
           >
             {/* "0/0" is arithmetically right and says nothing. A week that
                 asked for nothing should say so. */}
-            {skipped ? "Time off" : `${w.count}/${w.target}`}
+            {skipped
+              ? w.loggedAway > 0
+                ? `Time off · ${w.loggedAway} logged`
+                : "Time off"
+              : `${w.count}/${w.target}`}
           </span>
         );
         const spareMark = spares > 0 && (
