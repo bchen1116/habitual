@@ -74,10 +74,13 @@ export function MembersCard({
     const timeOff = timeOffByUid?.[m.uid];
     const away = timeOff?.days;
     const used = skipsUsed(challenge, ymds, today, m.joinedDate, away);
+    // Hoisted rather than inlined twice: it walks every window of the cycle,
+    // and it's needed both as the denominator and as the out-of-stake test.
+    const total = totalRequired(challenge, m.joinedDate, away);
     return {
       ...m,
       completed: m.outcome !== null ? m.completedCount : ymds.length,
-      total: totalRequired(challenge, m.joinedDate, away),
+      total,
       onTrack: used <= challenge.skipDays,
       // Out of this cycle entirely: excused by the creator, or booked past
       // this habit's time-off budget and sitting it out. Both are true from
@@ -93,7 +96,14 @@ export function MembersCard({
         m.excluded === true ||
         m.outcome === "excluded" ||
         m.outcome === "stepped-out" ||
-        timeOff?.steppedOut === true,
+        timeOff?.steppedOut === true ||
+        // Asked for nothing, so not in the stake — a member who joined after
+        // the last day, or whose every day as one was excused. Adjudication
+        // omits them from the money for exactly this reason
+        // (functions/src/stakes.ts), and a row reading "0/0" beside people
+        // with real numbers invites the group to read it as a total failure
+        // rather than as an absence.
+        total === 0,
       // Still in the cycle, still staked, but this particular week asks
       // nothing of them. On a four-week habit one week off is well inside the
       // budget, so "out of the cycle" is false and would stay false while the
@@ -154,7 +164,9 @@ export function MembersCard({
                 title={
                   row.excluded || row.outcome === "excluded"
                     ? "Excused from this cycle by the creator — nothing due, no stake either way"
-                    : "Booked enough of this cycle off to sit it out — nothing due, no stake either way"
+                    : row.total === 0 && row.joinedDate
+                      ? "Joined after this cycle was over — nothing due, no stake either way"
+                      : "Booked enough of this cycle off to sit it out — nothing due, no stake either way"
                 }
               >
                 Excused

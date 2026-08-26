@@ -22,17 +22,31 @@ export interface GradedMember {
    * excludedFromCycle in away.ts). Both mean the same thing to money.
    */
   steppedOut: boolean;
+  /**
+   * The cycle required nothing of them — they joined after its last day, or
+   * every day they were a member was excused.
+   *
+   * Kept separate from `steppedOut` because the causes are unrelated and the
+   * recorded outcome should be able to say which happened. What they share is
+   * the only thing that matters here: neither is a person the stake applies
+   * to. Without this the two produce the same `missed` of 0 and therefore the
+   * same `succeeded` of true, and a member who joined the day a four-week
+   * cycle ended would be paid a full share of everyone else's forfeits for
+   * having been asked for nothing.
+   */
+  askedNothing: boolean;
 }
 
-export type StakedMember = Omit<GradedMember, "steppedOut">;
+export type StakedMember = Omit<GradedMember, "steppedOut" | "askedNothing">;
 
 /**
  * The members this cycle's stake actually applies to.
  *
- * Anyone out of the cycle is dropped here, once, and everything downstream is
- * built from the result — so there is exactly one place that can include or
- * exclude someone from the money, rather than a rule repeated at each of the
- * ledger's two branches.
+ * Anyone the cycle did not put at stake is dropped here, once, and everything
+ * downstream is built from the result — so there is exactly one place that can
+ * include or exclude someone from the money, rather than a rule repeated at
+ * each of the ledger's two branches. Two unrelated reasons land here: out of
+ * the cycle (`steppedOut`), and never asked anything by it (`askedNothing`).
  *
  * Dropping them has to be an omission rather than `succeeded: true`. In pool
  * mode the winners divide the losers' stakes, so marking an absent member as
@@ -43,8 +57,8 @@ export type StakedMember = Omit<GradedMember, "steppedOut">;
  */
 export function stakedMembers(all: readonly GradedMember[]): StakedMember[] {
   return all
-    .filter((m) => !m.steppedOut)
-    .map(({ steppedOut: _steppedOut, ...rest }) => rest);
+    .filter((m) => !m.steppedOut && !m.askedNothing)
+    .map(({ steppedOut: _steppedOut, askedNothing: _askedNothing, ...rest }) => rest);
 }
 
 /** A ledger entry's participants and amount; the rest is filled in by the caller. */

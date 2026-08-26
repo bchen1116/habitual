@@ -390,10 +390,8 @@ export function NewChallengeForm() {
             </div>
             <p className="text-xs text-muted-foreground">
               {values.visibility === "public"
-                ? "This habit's streak counts toward your rank on other people's leaderboards."
-                : values.mode === "group"
-                  ? "Hidden from leaderboards — its streak only shows to people in this habit."
-                  : "Hidden from leaderboards — its streak only shows to you."}
+                ? "This habit's streak counts toward your rank on leaderboards."
+                : "Off every leaderboard, including your own. It still counts everywhere else — your streak, your history, your stake."}
             </p>
           </div>
         </div>

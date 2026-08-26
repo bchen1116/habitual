@@ -107,10 +107,8 @@ export function ChallengeSettingsCard({
               </span>
               <span className="block text-xs text-muted-foreground">
                 {challenge.visibility === "private"
-                  ? challenge.mode === "group"
-                    ? "Private — this streak only counts for people in it"
-                    : "Private — this streak only counts for you"
-                  : "This streak counts toward your rank for other people"}
+                  ? "Private — off every leaderboard, including your own"
+                  : "This streak counts toward your rank on leaderboards"}
               </span>
             </span>
           </Switch>

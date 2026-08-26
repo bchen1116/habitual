@@ -35,6 +35,7 @@ const PODIUM_SIZE = 3;
 interface LeaderboardBody {
   entries: LeaderboardEntry[];
   viewerHidden: boolean;
+  viewerHasPrivate?: boolean;
 }
 
 /**
@@ -55,6 +56,9 @@ export function LeaderboardCard() {
     cached?.entries ?? null
   );
   const [viewerHidden, setViewerHidden] = useState(cached?.viewerHidden ?? false);
+  const [viewerHasPrivate, setViewerHasPrivate] = useState(
+    cached?.viewerHasPrivate ?? false
+  );
   const [error, setError] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("currentStreak");
   const [expanded, setExpanded] = useState(false);
@@ -79,6 +83,7 @@ export function LeaderboardCard() {
         if (cancelled) return;
         setEntries(body.entries);
         setViewerHidden(Boolean(body.viewerHidden));
+        setViewerHasPrivate(Boolean(body.viewerHasPrivate));
         setError(false);
       })
       .catch((err) => {
@@ -153,7 +158,7 @@ export function LeaderboardCard() {
         <p className="mt-1 text-sm text-ink-label">
           Start a group habit with a friend and you&apos;ll both show up here.
         </p>
-        <HiddenNote hidden={viewerHidden} />
+        <HiddenNote hidden={viewerHidden} hasPrivate={viewerHasPrivate} />
       </Panel>
     );
   }
@@ -226,7 +231,7 @@ export function LeaderboardCard() {
         </button>
       )}
 
-      <HiddenNote hidden={viewerHidden} />
+      <HiddenNote hidden={viewerHidden} hasPrivate={viewerHasPrivate} />
     </Panel>
   );
 }
@@ -236,12 +241,33 @@ export function LeaderboardCard() {
  * you'd still see yourself ranked here and have no way to tell that nobody
  * else does.
  */
-function HiddenNote({ hidden }: { hidden: boolean }) {
-  if (!hidden) return null;
+/**
+ * Two different absences, and they need saying for the same reason: a number
+ * that disagrees with another number in the same app reads as a bug unless
+ * something accounts for the difference. The first is why friends can't see
+ * you; the second is why your own streak here is shorter than the one on your
+ * habit page.
+ */
+function HiddenNote({
+  hidden,
+  hasPrivate,
+}: {
+  hidden: boolean;
+  hasPrivate: boolean;
+}) {
+  if (!hidden && !hasPrivate) return null;
   return (
     <p className="mt-3.5 border-t border-ink-bar-empty pt-3 text-xs text-ink-label">
-      You&apos;re hidden from other people&apos;s leaderboards. You can still
-      see yours. Change this in Settings.
+      {hidden && (
+        <>
+          You&apos;re hidden from other people&apos;s leaderboards. You can
+          still see yours. Change this in Settings.
+        </>
+      )}
+      {hidden && hasPrivate && " "}
+      {hasPrivate && (
+        <>Private habits aren&apos;t counted here — not even on your own row.</>
+      )}
     </p>
   );
 }
