@@ -31,12 +31,21 @@ import type {
  * lib/server/challenge-admin.ts rather than a Cloud Function, which also lets
  * it reuse lib/streak.ts instead of duplicating it into functions/.
  *
- * The visibility rule, per product decision: a person's streak as shown to a
- * given viewer covers
- *     their public habits ∪ their private habits the viewer is also in.
- * The public half is viewer-independent, so it's cached per user per day; only
- * the private delta is per-viewer, and it's bounded by the viewer's own habit
- * list.
+ * The visibility rule: only public habits count, for everyone, including the
+ * viewer's own row. "Hidden from leaderboards" is what the toggle says, and it
+ * now means exactly that.
+ *
+ * It used to mean "public habits ∪ private habits the viewer is also in",
+ * which was defensible — both parties are inside a shared private habit, so
+ * counting it leaks nothing between them — and wrong anyway, for a reason the
+ * rule's own shape hides: you are always inside your own private habits, so
+ * your own row always counted them. Someone who marked a habit private and
+ * then saw its streak on the leaderboard was reading the feature exactly as
+ * labelled and finding it untrue.
+ *
+ * One rule instead of two also removes the only uncached, per-viewer half of
+ * this computation: every row is now the daily cache, and no board recomputes
+ * anything just because the viewer happens to share a private habit.
  */
 
 export interface LeaderboardEntry {
@@ -462,6 +471,13 @@ export interface LeaderboardResult {
   entries: LeaderboardEntry[];
   /** True when the viewer has opted out — they see their own board regardless. */
   viewerHidden: boolean;
+  /**
+   * The viewer has at least one private habit, so their own row is lower here
+   * than the streak their habit pages show. Worth saying: a number that
+   * disagrees with another number in the same app reads as a bug unless
+   * something accounts for the difference.
+   */
+  viewerHasPrivate: boolean;
 }
 
 export async function getLeaderboard(viewerUid: string): Promise<LeaderboardResult> {
@@ -477,10 +493,9 @@ export async function getLeaderboard(viewerUid: string): Promise<LeaderboardResu
     for (const uid of challenge.memberIds ?? []) peerUids.add(uid);
   }
 
-  // The viewer-specific half: private habits the viewer is inside. Their
-  // members' streaks within these lift what the viewer sees, and nobody
-  // outside them is affected.
-  const sharedPrivate = viewerChallenges.filter(isPrivate);
+  // Whether to explain the gap rather than leaving the viewer to wonder why
+  // their number is lower than the one on their own habit page.
+  const viewerHasPrivate = viewerChallenges.some(isPrivate);
 
   const budget = { remaining: MAX_RECOMPUTES_PER_REQUEST, skipped: 0 };
   const uids = [...peerUids];
@@ -525,41 +540,10 @@ export async function getLeaderboard(viewerUid: string): Promise<LeaderboardResu
         return null;
       }
 
-      const publicStats = await getPublicStats(db, uid, today, budget, reader);
-
-      let stats = publicStats;
-      const theirSharedPrivate = sharedPrivate.filter((c) =>
-        (c.memberIds ?? []).includes(uid)
-      );
-      // Budgeted like the public half. This used to recompute in full on every
-      // request for every peer sharing a private habit — uncached and
-      // uncounted, so a cold board could quietly do far more work than the cap
-      // claimed to allow.
-      if (theirSharedPrivate.length > 0 && budget.remaining > 0) {
-        budget.remaining--;
-        const privateStats = await computeStreaks(
-          db,
-          uid,
-          theirSharedPrivate,
-          today,
-          reader
-        );
-        // Weeks follow whichever run actually wins, so the subheader keeps
-        // describing the same streak the header shows.
-        const winner =
-          privateStats.currentStreak > publicStats.currentStreak
-            ? privateStats
-            : publicStats;
-        stats = {
-          currentStreak: winner.currentStreak,
-          currentStreakWeeks: winner.currentStreakWeeks,
-          longestStreak: Math.max(publicStats.longestStreak, privateStats.longestStreak),
-          // Earned in different habits, so they add rather than compete.
-          badges: publicStats.badges + privateStats.badges,
-        };
-      } else if (theirSharedPrivate.length > 0) {
-        budget.skipped++;
-      }
+      // Public habits only — see the visibility rule at the top of this file.
+      // computeAndStorePublicStats already applied the filter, so a private
+      // habit cannot reach this number by any route.
+      const stats = await getPublicStats(db, uid, today, budget, reader);
 
       return {
         uid,
@@ -599,5 +583,6 @@ export async function getLeaderboard(viewerUid: string): Promise<LeaderboardResu
     // So the board can tell you *you're* the reason friends don't see you,
     // rather than leaving you to wonder.
     viewerHidden,
+    viewerHasPrivate,
   };
 }
